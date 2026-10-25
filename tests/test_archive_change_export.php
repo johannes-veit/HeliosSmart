@@ -52,7 +52,7 @@ ae($r['series']['link.garbage']['archive_coverage']==='NOT_A_RAW_VARIABLE',
     'Symcon Link objects are not accepted as original sensor sources');
 ae($r['series']['weather.actual_dewpoint']['archive_coverage']==='ID_NOT_CONFIGURED',
     'Missing actual outdoor dewpoint is stated instead of guessed');
-ae(count($calls)===12,'Queries are bounded to 12h slices plus 1 preceding event per logged variable');
+ae(count($calls)===16,'Four archived variables require three 12h slices and one preceding-context query each');
 foreach($calls as $call) {
     ae($call['limit']<=10000 && ($call['from']===0 || $call['to']-$call['from']<=12*3600),
         'Archive read limits and window sizes respected');
