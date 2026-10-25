@@ -98,6 +98,18 @@ ar($r['validation']==='ONE_STEP_HOLDOUT_ONLY'
 ar($r['offline_only'] && !$r['hardware_authorized']
     && !$r['may_modify_helios'] && !$r['usable_for_control'],
     'No control output, even when prediction error is almost zero');
+$hindcast6=$r['metrics']['hindcasts']['6_hour'];
+$hindcast24=$r['metrics']['hindcasts']['24_hour'];
+ar($hindcast6['windows']>=3 && $hindcast24['windows']>=1,
+ 'Independent six-hour and full-day temperature trajectories compared');
+ar($hindcast6['mae_c']<0.0001 && $hindcast24['mae_c']<0.0001,
+ 'Known synthetic physics also reproduces 6h and 24h free-running room temperatures');
+ar($hindcast24['no_state_reset_within_window']
+    && $hindcast24['future_weather_and_supply_are_retrospectively_observed']
+    && !$hindcast24['future_weather_and_supply_forecast_skill_tested'],
+ 'Twenty-four-hour test is flagged weather/supply hindsight, NOT future forecast skill');
+ar(!$hindcast24['counterfactual_fan_stages_tested'],
+ 'Measured stages only; no imagined S4 supply-temperature predictions');
 ar(count($r['per_room'])===3 && $r['per_room']['OG Schlafen 2']['holdout_hour_pairs']>=24,
     'Individual sleeping-room holdout metrics are included');
 
@@ -164,6 +176,9 @@ $bad=$data;
 foreach ($bad['assumed_hourly_gains'] as &$gain) $gain['solar_w']=0.;
 unset($gain);
 $q=JVHeliosArchiveReplay::evaluate($bad);
+ar($q['metrics']['hindcasts']['24_hour']['mae_c']
+   >$r['metrics']['hindcasts']['24_hour']['mae_c']+0.5,
+ 'Incorrect assumed solar load produces accumulating 24-hour prediction drift');
 ar($q['metrics']['holdout_model_mae_c']>$r['metrics']['holdout_model_mae_c']+0.1,
     'Incorrect solar-gain assumptions must visibly worsen holdout error');
 
