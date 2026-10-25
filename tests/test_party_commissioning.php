@@ -40,6 +40,50 @@ pc(JVHeliosBoostCoordinator::propose($wet,$none,2)['kind']==='KEEP_WEEKLY',
 $cool=$weekly;$cool['mode']='PASSIVE_COOLING';$cool['requested_level']=3;
 $cool['indoor_temperature']=26;$cool['supply_temperature']=21;
 pc(JVHeliosBoostCoordinator::propose($cool,$none,2)['source']==='COOLING','Echte kühlere Zuluft als Kandidat');
+// Integrated S4/30 weather flush, enabled only by verified real climate measurements.
+$weatherGood=$weekly;
+$weatherGood['weather_quality']='VERIFIED';$weatherGood['trusted_weather']=true;
+$weatherGood['fresh_room_count']=11;$weatherGood['fresh_humidity_room_count']=11;
+$weatherGood['indoor_temperature']=26;$weatherGood['indoor_absolute_humidity']=11;
+$weatherGood['outside_absolute_humidity']=8;$weatherGood['outside_dewpoint']=8;
+$weatherGood['outside_temperature']=17;$weatherGood['supply_temperature']=21;
+$weatherGood['mode']='PASSIVE_COOLING';$weatherGood['requested_level']=3;
+$weatherParty=JVHeliosBoostCoordinator::propose($weatherGood,$none,2,true);
+pc($weatherParty['source']==='WEATHER_OPTIMAL' && $weatherParty['suggested_level']===4
+ && $weatherParty['suggested_minutes']===30,'Combined live weather permits S4 30m');
+$weatherFlags=['enable_control'=>true,'minimum_airflow'=>true,'combustion_safety'=>true,
+ 'party_return'=>true,'estimated_flow_trial'=>false,
+ 'high_power_opt_in'=>true,'high_power_safety'=>true];
+$weatherDevice=['instance_exists'=>true,'module_verified'=>true,'mode'=>0,'fan'=>2,'program'=>3,
+ 'mode_fresh'=>true,'fan_fresh'=>true,'program_fresh'=>true];
+pc(JVHeliosPartySafety::inspect($weatherParty,$weatherDevice,$weatherFlags,
+ ['last_command_at'=>0,'expires_at'=>0],$now,true)['command_allowed'],
+ 'S4 weather requires separate installation approval');
+$weatherDamp=$weatherGood;$weatherDamp['outside_absolute_humidity']=13;
+pc(JVHeliosBoostCoordinator::propose($weatherDamp,$none,2,true)['source']!=='WEATHER_OPTIMAL',
+ 'Damp outside air cannot trigger S4 flush');
+$weatherCold=$weatherGood;$weatherCold['supply_temperature']=15;
+pc(JVHeliosBoostCoordinator::propose($weatherCold,$none,2,true)['source']!=='WEATHER_OPTIMAL',
+ 'EWT supply too cold disables S4 flush');
+$weatherUnverified=$weatherGood;$weatherUnverified['weather_quality']='MODEL_SUPPORTED';
+pc(JVHeliosBoostCoordinator::propose($weatherUnverified,$none,2,true)['source']!=='WEATHER_OPTIMAL',
+ 'Weather API models alone do not qualify for S4');
+$weatherMissing=$weatherGood;unset($weatherMissing['outside_absolute_humidity']);
+pc(JVHeliosBoostCoordinator::propose($weatherMissing,$none,2,true)['source']!=='WEATHER_OPTIMAL',
+ 'Missing outdoor humidity fails closed');
+$weatherMoisture=$weatherGood;$weatherMoisture['mode']='WEEKLY_BASE';
+$weatherMoisture['indoor_temperature']=22;$weatherMoisture['supply_temperature']=20;
+$weatherMoisture['indoor_absolute_humidity']=12;
+pc(JVHeliosBoostCoordinator::propose($weatherMoisture,$none,2,true)['source']==='WEATHER_OPTIMAL',
+ 'Indoor moisture load with dry comfortable supply qualifies for flush');
+$weatherNormal=$weatherGood;$weatherNormal['mode']='WEEKLY_BASE';
+$weatherNormal['indoor_temperature']=22;$weatherNormal['indoor_absolute_humidity']=9;
+pc(JVHeliosBoostCoordinator::propose($weatherNormal,$none,2,true)['kind']==='KEEP_WEEKLY',
+ 'Dry comfortable home does not over-ventilate merely due to forecast');
+$weatherCooldown=JVHeliosPartySafety::inspect($weatherParty,$weatherDevice,$weatherFlags,
+ ['last_command_at'=>$now-60*60,'expires_at'=>$now-40*60],$now,true);
+pc(!$weatherCooldown['command_allowed'],'Weather-only S4 observes 3h anti-cycling interval');
+
 $cool['supply_temperature']=25;
 pc(JVHeliosBoostCoordinator::propose($cool,$none,2)['kind']==='KEEP_WEEKLY',
     'Kleine Temperaturdifferenz erzeugt keine Party');
