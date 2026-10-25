@@ -55,7 +55,7 @@ pc(JVHeliosBoostCoordinator::propose($spikeNoWeather,$none,2,true)['kind']==='KE
  'Missing outdoors prohibits relative humidity event shortcut');
 $cool=$weekly;$cool['mode']='PASSIVE_COOLING';$cool['requested_level']=3;
 $cool['indoor_temperature']=26;$cool['supply_temperature']=21;
-pc(JVHeliosBoostCoordinator::propose($cool,$none,2)['source']==='COOLING','Echte kühlere Zuluft als Kandidat');
+pc(JVHeliosBoostCoordinator::propose($cool,$none,2)['kind']==='KEEP_WEEKLY','Alte Kuehlanzeige darf keinen undurchfuehrbaren Partybefehl erzeugen');
 // Integrated S4/30 weather flush, enabled only by verified real climate measurements.
 $weatherGood=$weekly;
 $weatherGood['weather_quality']='VERIFIED';$weatherGood['trusted_weather']=true;
