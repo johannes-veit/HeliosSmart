@@ -316,3 +316,31 @@ a(($bothAwayResult['occupancy_advice']['house_empty_proven']??null)===false,
 a(($bothAwayResult['occupancy_advice']['weekly_minimum_may_be_reduced']??null)===false,
   'Auch bei beide abwesend Wochenplan niemals unterbieten');
 a(count($GLOBALS['calls'])===0,'Keine Helios-Befehle nach neuer ABWESEND-Integration');
+
+// v0.11: the commissioning architecture must stay hard-locked regardless of
+// old checkbox values, real cooking evidence, and a plausible Boost candidate.
+$hs->setProperty('EnableControl',true);
+$hs->setProperty('MinimumVentilationValidated',true);
+$hs->setProperty('CombustionSafetyValidated',true);
+$hs->setProperty('DevicePartyReturnValidated',true);
+$hs->setProperty('EnableProgramSwitch',true);
+$hs->Evaluate();
+$pre=json_decode($hs->value('DecisionJSON'),true);
+a(($pre['execution_status']??'')==='HARD_LOCK_READ_ONLY',
+  'Produktionsnahe Kommandologik ist per Code hart gesperrt');
+a(($pre['hardware_command_attempts']??-1)===0,
+  'Nicht einmal ein Helios-Befehlsversuch');
+a(in_array('OUTPUT_NOT_COMPILED',(array)($pre['party_safety']['blocking_reasons']??[]),true),
+  'Schaltgate nennt ausdruecklich die Build-Sperre');
+a(($pre['party_protocol_draft']['transmitted']??null)===false,
+  'Hersteller-Party-Protokoll wird nur simuliert');
+a(($pre['party_candidate']['weekly_program_change']??null)===false,
+  'Keine Wochenprogramm-Uebernahme in Stufe 1');
+a(($pre['device_status_check']['program']??null)===(int)$GLOBALS['values'][12877],
+  'Nur bestehendes Helios-Wochenprogramm eingelesen');
+a(isset($pre['cooking_signal_health']['power_status']),
+  'Diagnose der Leistungsquelle #27700 sichtbar');
+a(($pre['party_safety']['command_allowed']??null)===false,
+  'Selbst mit allen Freigabe-Haekchen kann kein Aktor starten');
+a(count($GLOBALS['calls'])===0,
+  'Auch nach gesamten Inbetriebnahme-Gates keinerlei Helios-Schaltaufrufe');

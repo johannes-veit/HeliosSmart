@@ -1,4 +1,15 @@
-# HELIOS SMART v0.10.1 – WetterZentrale & Lüftungsbeobachter
+# HELIOS SMART v0.11.0 – WetterZentrale & Lüftungsbeobachter
+
+## v0.11.0 – Große schaltvorbereitende Entwicklung (25.10.2026)
+
+- **Mehrfachbedarf koordiniert:** Badfeuchte vor Kochen vor realer Zuluft-Kühlwirkung; Stufen-/Zeitbegrenzung, keine Wiederholungs- oder Überschneidungsbefehle. `party_candidate` ist eine reine Simulation.
+- **Hersteller-Party-Sicherheitskette:** Automatikmodus 0, original Helios-Instanz `#19285` samt Modul-GUID, Wochenprogramm 3/4, aktuelle Gerätewerte, explizite Luftmengen-/Kamin-/Party-Rückkehr-Freigaben, 30-Minuten-Sperrzeit und Fremd-Party-Vorrang. `party_safety` erklärt jede Sperre.
+- **Herstellerprotokoll vorbereitet:** In `party_protocol_draft` stehen spätere Party-Parameter und notwendige Modus-/Restzeitprüfung. Das ist eine Befehlsskizze, **kein versendeter Befehl**.
+- **Verbrauchsdaten #27700:** `cooking_signal_health` zeigt letzte Rohauslesung, Alter, Datentyp und eine eindeutige Ursache für `power_w = null`. Ein alter Tasmota-Wert wird **nicht** durch häufige Modulauswertungen als zwei neue Hochlastmessungen gezählt.
+- **Harte Hardware-Sperre:** `DEVICE_OUTPUT_COMPILED=false` ist nicht über die Oberfläche umstellbar; auch mit sämtlichen Alt-Freigaben TRUE keinerlei Gerätebefehle. Unveränderte native Helios-Wochenprogramme, keine neuen sichtbaren Variablen.
+- **606 bestandene fachliche Offlineprüfungen, 36 geprüfte PHP-Dateien.** Reale Luftmengen, Ofenabnahme und autonome Helios-Party-Rückkehr müssen vor einem separaten, aktiven Release am realen Gerät geklärt sein.
+- Inbetriebnahme-Checkliste: [`docs/INBETRIEBNAHME_STUFE1.md`](docs/INBETRIEBNAHME_STUFE1.md).
+
 
 **Entwicklungsfassung. Keine produktive Steuerungsfreigabe!**
 

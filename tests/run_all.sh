@@ -30,3 +30,4 @@ php tests/test_cooking_presence.php
 php tests/test_cooking_events.php
 
 php tests/test_away_presence.php
+php tests/test_party_commissioning.php

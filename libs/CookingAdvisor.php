@@ -86,6 +86,14 @@ final class JVHeliosCookingAdvisor
         // Require at least two distinct high samples >=60 s apart, <=8 min apart.
         // This does not claim the power was continuous between samples.
         $lastHigh=(int)($previous['last_high_sample_at']??0);
+        // On the real SymBox every qualifying sample must use a NEW input
+        // update, not a reread of the very same stale power register.
+        $powerUpdated=$signals['power']['sample_updated_at']??null;
+        $hasSampleTime=is_int($powerUpdated) && $powerUpdated>0;
+        $previousUpdate=(int)($previous['last_high_updated_at']??0);
+        $distinctUpdate=!$hasSampleTime || ($powerUpdated>$previousUpdate
+            && $powerUpdated<=$now+120 && $now-$powerUpdated<=120);
+
         $since=(int)($previous['high_power_since']??0);
         $samples=max(0,min(50,(int)($previous['high_power_samples']??0)));
         $reusable=$highPower && $lastHigh>0 && $since>0 && $lastHigh<=$now
@@ -94,7 +102,7 @@ final class JVHeliosCookingAdvisor
         if ($highPower) {
             if (!$reusable) {
                 $since=$now; $samples=1; $newHighSampleAt=$now;
-            } elseif ($now-$lastHigh>=60) {
+            } elseif ($now-$lastHigh>=60 && $distinctUpdate) {
                 $samples=min(50,$samples+1); $newHighSampleAt=$now;
             } else {
                 // Early re-evaluations may not postpone the next independent sample.
@@ -174,6 +182,8 @@ final class JVHeliosCookingAdvisor
             'state'=>['hold_until'=>$hold,'last_likely_at'=>$likely?$now:(int)($previous['last_likely_at']??0),
                 'high_power_since'=>$since,
                 'last_high_sample_at'=>$newHighSampleAt,
+                'last_high_updated_at'=>$highPower && $hasSampleTime
+                    ? ($newHighSampleAt===$now ? (int)$powerUpdated : $previousUpdate):0,
                 'high_power_samples'=>$samples,
                 'baseline_power_w'=>$baselineValid?$baseline:null,
                 'baseline_at'=>$baselineValid?$baselineAt:0],

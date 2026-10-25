@@ -10,9 +10,15 @@ require_once __DIR__ . '/../libs/VentilationNeed.php';
 require_once __DIR__ . '/../libs/WetroomEvents.php';
 require_once __DIR__ . '/../libs/CookingAdvisor.php';
 require_once __DIR__ . '/../libs/CookingEvents.php';
+require_once __DIR__ . '/../libs/BoostCoordinator.php';
+require_once __DIR__ . '/../libs/PartySafety.php';
+require_once __DIR__ . '/../libs/PartyProtocol.php';
+require_once __DIR__ . '/../libs/CookingSignalHealth.php';
 /** Vorhersagegestützter Beobachter; Aktor nur nach expliziter Freigabe. */
 class HeliosSmart extends IPSModule
 {
+    // v0.11: cannot be toggled through Symcon GUI. Never issue an actuator command.
+    private const DEVICE_OUTPUT_COMPILED=false;
     public function Create(): void
     {
         parent::Create();
@@ -120,7 +126,7 @@ class HeliosSmart extends IPSModule
     {
         return json_encode([
             'elements'=>[
-                ['type'=>'Label','caption'=>'v0.10.1: Verbesserte ereignisbasierte Koch- und Bewohneranalyse, mehrstufige ereignisbasierte Badfeuchte-Trends, 24h-Echtzeitfenster, Bedarfsbeurteilung, Tagesstrategie, Vorhersagefenster und zwölf native LCN-Feuchtequellen; Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
+                ['type'=>'Label','caption'=>'v0.11.0: schaltvorbereitete, aber hart gesperrte Party-Sicherheitslogik, Leistungssignaldiagnose, priorisierte Feuchte/Koch/Kuehlbedarfe; Verbesserte ereignisbasierte Koch- und Bewohneranalyse, mehrstufige ereignisbasierte Badfeuchte-Trends, 24h-Echtzeitfenster, Bedarfsbeurteilung, Tagesstrategie, Vorhersagefenster und zwölf native LCN-Feuchtequellen; Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
                 ['type'=>'NumberSpinner','name'=>'HeliosInstance','caption'=>'Helios-Instanz'],
                 ['type'=>'NumberSpinner','name'=>'WeatherCenterInstance','caption'=>'WetterZentrale-Instanz (0 = automatisch erkennen)'],
                 ['type'=>'NumberSpinner','name'=>'ClimateControlInstance','caption'=>'LCNClimateControl (nur lesend)'],
@@ -255,9 +261,14 @@ class HeliosSmart extends IPSModule
             'EG Flur'=>$motion($this->ReadPropertyInteger('GroundFloorHallMotionVariable'),'EG Flur'),
         ];
         $powerID=$this->ReadPropertyInteger('HousePowerVariable');
-        $power=['id'=>$powerID,'usable'=>false,'watts'=>null,'age_seconds'=>null];
+        $power=['id'=>$powerID,'exists'=>false,'usable'=>false,'watts'=>null,'raw_value'=>null,
+            'value_type'=>'missing','age_seconds'=>null,'sample_updated_at'=>null];
         if ($powerID>0 && IPS_VariableExists($powerID)) {
             $v=GetValue($powerID); $meta=IPS_GetVariable($powerID);
+            $power['exists']=true;
+            $power['sample_updated_at']=(int)($meta['VariableUpdated']??0);
+            $power['raw_value']=is_scalar($v)?$v:null;
+            $power['value_type']=get_debug_type($v);
             $age=$now-(int)($meta['VariableUpdated']??0);
             $power['age_seconds']=$age>=0?$age:null;
             if (is_numeric($v) && $age>=-120 && $age<=2*60 && (float)$v>=0 && (float)$v<=100000) {
@@ -420,6 +431,7 @@ class HeliosSmart extends IPSModule
         $decision['cooking_advice']=$cooking['advice'];
         $decision['cooking_event_monitor']=json_decode($this->ReadAttributeString('CookingEventState'),true);
         $decision['occupancy_advice']=$cooking['advice']['occupancy'];
+        $decision['cooking_signal_health']=JVHeliosCookingSignalHealth::analyze($cookingInputs);
         if ($cooking['advice']['potential_odor_boost']) {
             $decision['ventilation_need']['hardware_authorized']=false;
             $decision['ventilation_need']['cooking_context']=$cooking['advice']['summary'];
@@ -445,6 +457,45 @@ class HeliosSmart extends IPSModule
             'last_received_change_id'=>(int)($wetEvent['last_sensor_change_id']??0),
             'note'=>'Alle echten RH-Aenderungen gespeichert; Auswertung entprellt; keine Duschdiagnose',
         ];
+        // Productive command engineering is fully simulated here, never executed.
+        // Weekly programs remain the factory-defined fail-safe, not a Symcon timer.
+        $candidate=JVHeliosBoostCoordinator::propose(
+            $decision,$cooking['advice'],(int)GetValue($fanID));
+        $deviceStatus=[
+            'instance_exists'=>IPS_InstanceExists($this->ReadPropertyInteger('HeliosInstance')),
+            'module_verified'=>function_exists('IPS_GetInstance')
+                && IPS_InstanceExists($this->ReadPropertyInteger('HeliosInstance'))
+                && strcasecmp((string)(IPS_GetInstance($this->ReadPropertyInteger('HeliosInstance'))['ModuleInfo']['ModuleID']??''),
+                    '{889DFBC4-09A6-4D77-9928-738E5D494362}')===0,
+            'mode'=>$mode,'fan'=>(int)GetValue($fanID),'program'=>$program,
+            'mode_fresh'=>($now-(int)(IPS_GetVariable($modeID)['VariableUpdated']??0))>=-120
+                && ($now-(int)(IPS_GetVariable($modeID)['VariableUpdated']??0))<=600,
+            'fan_fresh'=>($now-(int)(IPS_GetVariable($fanID)['VariableUpdated']??0))>=-120
+                && ($now-(int)(IPS_GetVariable($fanID)['VariableUpdated']??0))<=600,
+            'program_fresh'=>($now-(int)(IPS_GetVariable($progID)['VariableUpdated']??0))>=-120
+                && ($now-(int)(IPS_GetVariable($progID)['VariableUpdated']??0))<=600,
+        ];
+        $approvals=[
+            'enable_control'=>$this->ReadPropertyBoolean('EnableControl'),
+            'minimum_airflow'=>$this->ReadPropertyBoolean('MinimumVentilationValidated'),
+            'combustion_safety'=>$this->ReadPropertyBoolean('CombustionSafetyValidated'),
+            'party_return'=>$this->ReadPropertyBoolean('DevicePartyReturnValidated'),
+        ];
+        $ownership=[
+            'last_command_at'=>method_exists($this,'ReadAttributeInteger')
+                ? $this->ReadAttributeInteger('LastCommandAt'):0,
+            'expires_at'=>method_exists($this,'ReadAttributeInteger')
+                ? $this->ReadAttributeInteger('OwnedPartyExpiresAt'):0,
+        ];
+        $guard=JVHeliosPartySafety::inspect(
+            $candidate,$deviceStatus,$approvals,$ownership,$now,self::DEVICE_OUTPUT_COMPILED);
+        $decision['party_candidate']=$candidate;
+        $decision['party_safety']=$guard;
+        $decision['party_protocol_draft']=JVHeliosPartyProtocol::draft(
+            $candidate,$guard,$this->ReadPropertyInteger('HeliosInstance'));
+        $decision['device_status_check']=$deviceStatus;
+        $decision['hardware_command_attempts']=0;
+        $decision['execution_status']='HARD_LOCK_READ_ONLY';
         $decision['helios_mode']=$mode;
         $decision['observation_only']=true;
         $this->SetValue('DecisionJSON',json_encode($decision,JSON_UNESCAPED_UNICODE));
@@ -471,6 +522,7 @@ class HeliosSmart extends IPSModule
             .' | Profil: '.$seasonLabel
             .' | Bedarf: '.$decision['ventilation_need']['summary']
             .' | Kochen: '.$decision['cooking_advice']['summary']
+            .' | Schaltfreigabe: gesperrt (Hardwareabnahme offen)'
             .(!empty($decision['occupancy_advice']['away_status_reports'])
                 ? ' | Bewohner: '.$decision['occupancy_advice']['description'] : ''));
     }

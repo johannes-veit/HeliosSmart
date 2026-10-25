@@ -112,3 +112,11 @@ Integrationstest simuliert originale VM_UPDATE, LCN-FALSE-Flanke, kurzzeitigen T
 
 ## v0.10.1 – Resident ABWESEND
 - Eigene Away-Kategorie statt UNKNOWN, Kombinationsfaelle, Stale-Schutz, Widerspruch zwischen Abwesenheitsanzeige und nachgewiesener Kuechenaktivitaet, weiterhin null Gerätebefehle.
+
+## v0.11.0 – Sicherheits-Vorbereitung und Leistungsmessung
+
+- Vollständige Testsuite `bash tests/run_all.sh`: **606 PASS**, keine FAIL.
+- Alle 36 PHP-Dateien per `php -l` geprüft.
+- Testfälle: Wochenplan erhalten, Bad/Küche/Kühlung priorisiert, kein doppelter Partyauftrag, kein Fremdprogrammtakeover, nur Automatikmodus 0, Stufe maximal 4, Laufzeit 5–30 Minuten, 30-Minuten-Sperrzeit, Airflow/Feuerstätte/Party-Rückkehr jeweils obligatorisch, alte und gefälschte Leistungsproben, angezeigte Leistungsdiagnose.
+- Integrationstest setzt sämtliche bisherigen Freigabe-Eigenschaften TRUE und erwartet weiterhin **null** Helios-Gerätebefehle.
+- Hersteller-Party-Rückkehr, realer Volumenstrom, Kamin-/Dunstabzug-Kombination sind explizit **nicht** offline bestätigt. Deshalb hardwareseitig hart ausgeschaltet.
