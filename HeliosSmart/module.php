@@ -273,6 +273,16 @@ class HeliosSmart extends IPSModule
             return $s;
         };
         $light=$bool($this->ReadPropertyInteger('KitchenLightVariable'),24*3600);
+        // Der Beginn des echten EIN-Zustands ist die originale VariableChanged-
+        // Zeit der Lichtquelle, kein künstlich fortlaufender Timerbeweis.
+        $light['on_minutes']=0;
+        $lightID=$this->ReadPropertyInteger('KitchenLightVariable');
+        if ($light['usable'] && $light['on'] && $lightID>0 && IPS_VariableExists($lightID)) {
+            $lightChanged=(int)(IPS_GetVariable($lightID)['VariableChanged']??0);
+            if ($lightChanged>0 && $lightChanged<=$now+120
+                && $now-$lightChanged<=4*3600)
+                $light['on_minutes']=max(0,(int)floor(($now-$lightChanged)/60));
+        }
         $motions=[
             'Wohnkueche'=>$motion($this->ReadPropertyInteger('KitchenMotionVariable'),'Wohnkueche'),
             'EG Flur'=>$motion($this->ReadPropertyInteger('GroundFloorHallMotionVariable'),'EG Flur'),
