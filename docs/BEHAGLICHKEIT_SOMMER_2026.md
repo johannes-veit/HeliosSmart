@@ -48,3 +48,14 @@ Die dynamische Absenkung auf Stufe 1 ist momentan nur beratend; ohne gemessene h
 - BAuA Klima-Rahmenbedingungen – https://www.baua.de/DE/Themen/Arbeitsgestaltung/Gefaehrdungsbeurteilung/Handbuch-Gefaehrdungsbeurteilung/Expertenwissen/Arbeitsumgebungsbedingungen/Klima/Klima_dossier
 - UBA Behaglichkeitsfaktoren – https://www.umweltbundesamt.de/system/files/medien/publikation/long/2885.pdf
 - Helios easyControls Hersteller-Grenzen – https://www.heliosventilatoren.de/de/service/kundendienst/technischer-support-und-faqs
+
+
+## Optimierungsschritt vom 25.10.2026 – gezielte Schutzfunktionen
+
+**Wohn- statt Hausmittel:** Der wetterbedingte S4-Kandidat nutzt bei ausreichend frischen Daten die Temperatur und absolute Feuchte der tatsächlich ausgewerteten Wohn-/Schlafräume, statt kurzzeitige Badfeuchte im Hausmittel als Wohnraumproblem zu behandeln. Bad- und Kochlüftung werden weiter durch ihre eigenen Ereignisketten ausgelöst.
+
+**Nutzungsbezogene untere Kühlgrenze:** Ganze Hauslüftung kann nachts auch kühle Räume beeinflussen. Ohne individuell hinterlegte Sollwerte werden Schlafzimmer zunächst bei <19,0 °C und andere Wohnräume bei <20,5 °C vor zusätzlicher wetterbedingter S4-Lüftung geschützt. Das sind konservative projektbezogene Startwerte, keine universelle Komfortnorm. Im Diagnose-JSON: `coolest_room`, `rooms_below_cooling_floor`, `night_precooling_safe` sowie je Raum `minimum_cooling_temperature_c`. Bad-/Kochbedarfe und der gültige Wochenplan sind hiervon nicht betroffen. Eine spätere koppelsichere Übernahme der vorhandenen, individuell eingestellten LCNClimateControl-Sollwerte wäre genauer, erfolgt derzeit aber nicht.
+
+**Feuchteschutz ohne starre 16-°C-Blockade:** Außen-Taupunkt >16 °C verhindert normalerweise zusätzliche sommerliche Wetterlüftung. Ist die Innenluft aber selbst deutlich schwüler (Innen-AH >=14 g/m³, mindestens 3,5 g/m³ Vergleichsvorteil nach außen, Innentaupunkt mindestens 2,5 K höher, Außen-Taupunkt <=19 °C, tatsächlicher Zuluft-Kühlgewinn >=2 K), kann die reine wetterbedingte `HIGH_INDOOR_HUMIDITY_RELIEF`-Empfehlung geprüft werden. Weiterhin erforderlich: verifiziertes Wetter, gültige Raummessungen, signifikant geringerer Außendampfdruck, kein zu kühler Raum, bestehende Zeit-/Hardware-Sperren. Das Gerät wird damit nicht zu einer aktiven Entfeuchtungsanlage.
+
+**Keine zusätzliche Hardware oder Aktorzugriffe:** Neue Kriterien benötigen keine neuen sichtbaren Variablen. Die Helios-Party darf nur nach ihrem bisherigen expliziten Sicherheitsentscheid starten. Bypass bleibt Herstellerautomatik; automatische S1-Absenkung/AUS nicht eingeführt. Die tatsächlich erzielte Kälte- oder Feuchteänderung kann ohne gemessenen Zuluft-Feuchtegehalt und Volumenstrom nicht garantiert werden.
