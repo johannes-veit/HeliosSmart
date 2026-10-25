@@ -15,8 +15,27 @@ final class JVHeliosBoostCoordinator
         $requested=(int)($decision['requested_level']??0);
         $wetrooms=(array)($decision['wetrooms']??[]);
         $bathConfirmed=count(array_filter($wetrooms, static fn($r)=>is_array($r)&&($r['boost_recommended']??false)===true))>0;
+        // Zehnder-style relative humidity-spike recognition, using only the
+        // already verified native event chain and current actual bath moisture.
+        // Never turn a single RH update or model forecast into a shower.
+        $trendNames=(array)($decision['wetroom_trend']['observed_rises']??[]);
+        $trendSupported=false;
+        if ($trendNames && ($decision['weather_usable_for_advice']??false)) {
+            foreach ($wetrooms as $r) {
+                if (!is_array($r) || !in_array($r['name']??null,$trendNames,true)) continue;
+                if (is_numeric($r['relative_humidity']??null)
+                    && (float)$r['relative_humidity']>=55
+                    && is_numeric($r['gradient_to_outside_gm3']??null)
+                    && (float)$r['gradient_to_outside_gm3']>=1.5) {
+                    $trendSupported=true;break;
+                }
+            }
+        }
         if ($mode==='HUMIDITY_BOOST' && $bathConfirmed && ($decision['weather_usable_for_advice']??false)) {
             $choices[]=['source'=>'BATH_HUMIDITY','rank'=>3,'level'=>$highPower?4:max(3,$requested),'minutes'=>$highPower?30:15];
+        }
+        if (!$bathConfirmed && $trendSupported) {
+            $choices[]=['source'=>'BATH_HUMIDITY','rank'=>3,'level'=>$highPower?4:3,'minutes'=>$highPower?30:15];
         }
         if (($cooking['potential_odor_boost']??false)===true
             && in_array(($cooking['classification']??''),['COOKING_LIKELY','COOKING_RECENTLY_LIKELY'],true)
@@ -45,6 +64,7 @@ final class JVHeliosBoostCoordinator
             'suggested_minutes'=>$useful?$minutes:0,
             'candidate_sources'=>array_column($choices,'source'),
             'weather_flush'=>$flush,
+            'wetroom_trend_confirmed'=>$trendSupported,
             'multiple_demands'=>count($choices)>1,
             'fan_actual'=>$fan,'never_reduce_weekly'=>true,
             'weekly_program_change'=>false,
