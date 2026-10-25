@@ -133,6 +133,13 @@ pc(JVHeliosBoostCoordinator::propose($heat,$none,2,true)['kind']==='KEEP_WEEKLY'
 $heat['outside_absolute_humidity']=8;$heat['now']=strtotime('2026-07-14 13:00:00 UTC');
 pc(JVHeliosBoostCoordinator::propose($heat,$none,2,true)['kind']==='KEEP_WEEKLY',
  'Heatwave alone cannot force high ventilation all afternoon');
+$bypassCtx=$weatherGood;$bypassCtx['intake_after_ewt']=20;
+$bypassCtx['indoor_temperature']=26;$bypassCtx['bypass_actual']=true;
+pc(JVHeliosBoostCoordinator::propose($bypassCtx,$none,2,true)['weather_flush']['bypass_strategy']
+ ==='OPEN_PREFERRED_IF_MANUFACTURER_PERMITS','Cool EWT inlet favors bypass when permitted');
+$bypassCtx['intake_after_ewt']=29;$bypassCtx['bypass_actual']=false;
+pc(JVHeliosBoostCoordinator::propose($bypassCtx,$none,2,true)['weather_flush']['bypass_strategy']
+ ==='CLOSED_FOR_COOL_RECOVERY','Hot inlet favors cool recovery');
 $weatherDamp=$weatherGood;$weatherDamp['outside_absolute_humidity']=13;
 pc(JVHeliosBoostCoordinator::propose($weatherDamp,$none,2,true)['source']!=='WEATHER_OPTIMAL',
  'Damp outside air cannot trigger S4 flush');
