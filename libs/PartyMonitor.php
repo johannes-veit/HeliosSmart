@@ -13,7 +13,7 @@ final class JVHeliosPartyMonitor
             'weekly_program_at_start'=>$program?:null,
             'does_not_cancel_or_reset_device'=>true,'cooldown_minutes'=>30];
         if ($issued<=0 || $end<=0 || $level<=0) return $base;
-        if ($now<$issued || $end<$issued || $end>$issued+17*60) {
+        if ($now<$issued || $end<$issued || $end>$issued+32*60) {
             $base['status']='CORRUPTED_OWNERSHIP';return $base;
         }
         if ($live===null || !JVHeliosPartyExecutor::validLive($live)) {
