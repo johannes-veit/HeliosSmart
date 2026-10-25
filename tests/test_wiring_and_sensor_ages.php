@@ -1,4 +1,5 @@
 <?php
+define('VM_UPDATE',10603);
 /** Regression aus Anwenderstatus 25.10.2026: Wetter UNAVAILABLE und zu wenige Raumsensoren. */
 require_once __DIR__.'/../libs/HeliosLogic.php';
 require_once __DIR__.'/../libs/RoomHistory.php';
@@ -73,7 +74,10 @@ class IPSModule {
  public function RegisterVariableBoolean($k,$n,...$more){$this->v[$k]=false;}
  public function SetValue($k,$v){$this->v[$k]=$v;}
  public function value($k){return $this->v[$k];}
- public function SendDebug(...$args){}
+ public function RegisterMessage($id,$msg){$this->watch[(int)$id]=(int)$msg;return true;}
+    public function UnregisterMessage($id,$msg){unset($this->watch[(int)$id]);return true;}
+    public function getWatches(){return $this->watch??[];}
+    public function SendDebug(...$args){}
 }
 require_once __DIR__.'/../HeliosSmart/module.php';
 $GLOBALS['mockWeather']=$weather;

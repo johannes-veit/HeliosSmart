@@ -7,6 +7,7 @@ require_once __DIR__ . '/../libs/DailyStrategy.php';
 require_once __DIR__ . '/../libs/ComfortAdvisor.php';
 require_once __DIR__ . '/../libs/SeasonalAdvisor.php';
 require_once __DIR__ . '/../libs/VentilationNeed.php';
+require_once __DIR__ . '/../libs/WetroomEvents.php';
 /** Vorhersagegestützter Beobachter; Aktor nur nach expliziter Freigabe. */
 class HeliosSmart extends IPSModule
 {
@@ -29,6 +30,7 @@ class HeliosSmart extends IPSModule
         $this->RegisterPropertyBoolean('EnableProgramSwitch',false);
         $this->RegisterAttributeString('RoomHistory', '{}');
         $this->RegisterAttributeString('SeasonalAdviceState', '{}');
+        $this->RegisterAttributeString('WetroomEventState', '{}');
         $this->RegisterAttributeInteger('LastCommandAt',0);
         $this->RegisterAttributeInteger('LastProgramAt',0);
         $this->RegisterAttributeInteger('OwnedPartyExpiresAt',0);
@@ -43,13 +45,43 @@ class HeliosSmart extends IPSModule
     {
         parent::ApplyChanges();
         $this->SetTimerInterval('SmartTick',5*60*1000);
+        // Bestehende LCN-Variablen beobachten: keinerlei LCN-Lese- oder Schaltbefehl.
+        // Der Fuenf-Minuten-Timer bleibt die Rueckfallebene bei ausbleibenden Nachrichten.
+        $stored=json_decode($this->ReadAttributeString('WetroomEventState'),true);
+        $state=is_array($stored)?$stored:[];
+        $config=json_decode($this->ReadPropertyString('Rooms'),true);
+        $desired=JVHeliosWetroomEvents::ids(
+            JVHeliosLCNRoomSources::merge(is_array($config)?$config:[]),
+            static fn(int $id):bool => IPS_VariableExists($id),
+            static function(int $id):bool {
+                return function_exists('IPS_GetObject') &&
+                    (int)(IPS_GetObject($id)['ObjectType']??2)===6;
+            });
+        $prior=array_values(array_unique(array_map('intval',(array)($state['watched']??[]))));
+        foreach (array_diff($prior,$desired) as $id) $this->UnregisterMessage($id, VM_UPDATE);
+        foreach ($desired as $id) $this->RegisterMessage($id, VM_UPDATE);
+        $state['watched']=$desired;
+        $this->WriteAttributeString('WetroomEventState',json_encode($state));
+    }
+
+    /** Aenderungs-Ereignisse der vorhandenen Bad-RH-Variablen statt fuenf Minuten Polling. */
+    public function MessageSink($TimeStamp, $SenderID, $Message, $Data)
+    {
+        $stored=json_decode($this->ReadAttributeString('WetroomEventState'),true);
+        $state=is_array($stored)?$stored:[];
+        $event=JVHeliosWetroomEvents::process(
+            $state,(int)$SenderID,(int)$Message,is_array($Data)?$Data:[],time());
+        if (!$event['evaluate']) return;
+        $this->WriteAttributeString('WetroomEventState',json_encode($event['state']));
+        // Auch diese sofortige Auswertung bleibt ausschliesslich lesend.
+        $this->Evaluate();
     }
 
     public function GetConfigurationForm(): string
     {
         return json_encode([
             'elements'=>[
-                ['type'=>'Label','caption'=>'v0.6.0: 24h-Echtzeitfenster, Bedarfsbeurteilung, Tagesstrategie, Vorhersagefenster und zwölf native LCN-Feuchtequellen; Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
+                ['type'=>'Label','caption'=>'v0.7.0: Ereignisgesteuerte Bad-Feuchte, 24h-Echtzeitfenster, Bedarfsbeurteilung, Tagesstrategie, Vorhersagefenster und zwölf native LCN-Feuchtequellen; Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
                 ['type'=>'NumberSpinner','name'=>'HeliosInstance','caption'=>'Helios-Instanz'],
                 ['type'=>'NumberSpinner','name'=>'WeatherCenterInstance','caption'=>'WetterZentrale-Instanz (0 = automatisch erkennen)'],
                 ['type'=>'NumberSpinner','name'=>'ClimateControlInstance','caption'=>'LCNClimateControl (nur lesend)'],
@@ -247,10 +279,18 @@ class HeliosSmart extends IPSModule
         // Bedarf ist ein eigener Nachweis und niemals gleich einem guten Wetterfenster.
         $decision['ventilation_need']=JVHeliosVentilationNeed::analyze(
             $decision,$decision['comfort_advice'],$forecastAdvice,$decision['daily_strategy']);
+        $wetEvent=json_decode($this->ReadAttributeString('WetroomEventState'),true);
+        $wetEvent=is_array($wetEvent)?$wetEvent:[];
+        $decision['wetroom_event_monitor']=[
+            'watched_original_ids'=>array_values((array)($wetEvent['watched']??[])),
+            'last_changed_at'=>(int)($wetEvent['last_event_at']??0),
+            'last_changed_id'=>(int)($wetEvent['last_sender']??0),
+            'note'=>'Ereignisse nur bei echten Variablenaenderungen; alter Wert bleibt indikativ',
+        ];
         $decision['helios_mode']=$mode;
         $decision['observation_only']=true;
         $this->SetValue('DecisionJSON',json_encode($decision,JSON_UNESCAPED_UNICODE));
-        // v0.6.0 is intentionally and unconditionally read-only.
+        // v0.7.0 is intentionally and unconditionally read-only.
         // Legacy approval properties remain registered to avoid migration issues,
         // but cannot authorize any HELIOS_* function from this version.
         $this->SetValue('Monitoring',true);

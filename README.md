@@ -1,4 +1,4 @@
-# HELIOS SMART v0.6.0 – WetterZentrale & Lüftungsbeobachter
+# HELIOS SMART v0.7.0 – WetterZentrale & Lüftungsbeobachter
 
 **Entwicklungsfassung. Keine produktive Steuerungsfreigabe!**
 
@@ -159,3 +159,13 @@ Siehe `docs/TECHNISCHE_BASIS.md` für verifizierte IDs, Sicherheitslücken und w
 - DateTime/UTC-Fensterbildung bleibt bei Sommer-/Winterzeitwechsel korrekt.
 - Komplette Prognosediagnose in vorhandener `Letzte Empfehlung JSON` und kompakte 24h-Zusammenfassung in bestehender `Entscheidung / Status`. **Keine neue Symcon-Variable**.
 - Beobachtung unveraendert: **KEINE HELIOS-Geraetebefehle**, keine automatische Umschaltung der Wochenprogramme.
+
+
+## v0.7.0 – Badfeuchte-Reaktion auf Original-LCN-Aenderungen (25.10.2026)
+
+- Keine neuen sichtbaren Variablen und **keine** LCN- oder Helios-Gerätebefehle.
+- Vorhandene Original-RH-Variablen EG Bad `#53361` und OG Bad `#28802` werden nur mittels IP-Symcon `VM_UPDATE` abonniert. Nach einer wirklichen Änderung erfolgt die rein lesende Auswertung ohne Warten auf den 5-Minuten-Zyklus.
+- Maximal eine ereignisgesteuerte Auswertung pro 10 Sekunden; der unveränderte 5-Minuten-Timer bleibt als Rueckfallebene.
+- Das Modul meldet `wetroom_event_monitor` (IDs, letzte Änderung) ausschließlich im bestehenden Entscheidungs-JSON. Alte RH-Werte gelten ausdrücklich nicht als live.
+- Konfigurationsänderungen entfernen alte Nachricht-Abonnements; eigene LCN-/Helios-Module werden nicht modifiziert.
+- Ein Event ist kein Duschbeweis; Temperatur, absolute Feuchte und Außenluftgefälle bleiben weitere Voraussetzungen für eine Empfehlung. Keine Schaltfreigabe.

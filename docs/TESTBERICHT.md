@@ -74,3 +74,12 @@ Neuer Regressionstest fuer gemeldeten Status 25.10.2026 mit 11 Temperaturquellen
 - Saisonvorschlag wird aus 18 ueber den Tag verteilten, aber nicht zusammenhaengenden Prognosepunkten nicht freigegeben.
 - Bedarfsgutachten bleibt bei feuchter Fenster-Gelegenheit ohne frischen Badfeuchtenachweis auf Wochenplan. Zwei frische trockene Zimmer erzeugen nur eine Schutzwarnung.
 - Nur Beobachtung trotz alter Freigabeeinstellungen, ohne HELIOS-Schaltfunktionen.
+
+## v0.7.0 Build 12 – Ereignisgesteuerte Badezimmer-Feuchtemessung
+
+- 336 Offline-PASS-Prüfungen (vollständige `tests/run_all.sh`-Suite inkl. Syntaxcheck).
+- `VM_UPDATE` von original EG Bad #53361 und OG Bad #28802 erzeugt nur bei *tatsächlicher Wertänderung* eine neue beobachtende HELIOS-SMART-Auswertung. 10 s Mindestabstand, bestehender 5-Minuten-Timer bleibt.
+- Fehlende Variablen, Links, andere Variablen, andere Meldungstypen, unveränderte Werte und Ereignis-Stürme werden abgefangen.
+- `ApplyChanges` registriert aktuell konfigurierte Feuchtequellen erneut und meldet entfernte ab; keine neuen sichtbaren Symcon-Variablen.
+- Sämtliche HELIOS- und LCN-Aktorbefehle sind weiterhin ausgeschlossen; alte Freigabe-Eigenschaften bleiben ohne Wirkung.
+- Nur Simulations-/Integrationstests, **kein Live-Nachweis** auf der realen SymBox oder für die tatsächliche Dusch-/Luftmengen-Erkennung.

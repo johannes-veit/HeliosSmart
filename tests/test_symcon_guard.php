@@ -1,4 +1,5 @@
 <?php
+define('VM_UPDATE',10603);
 /** Minimale Offline-Harness: es existiert keine echte SymBox, Hardwarebefehle sind verboten. */
 $now=time();
 $GLOBALS['values']=[
@@ -42,6 +43,9 @@ class IPSModule {
     public function SetValue($key,$value){$this->values[$key]=$value;}
     public function value($key){return $this->values[$key]??null;}
     public function setProperty($key,$value){$this->props[$key]=$value;}
+    public function RegisterMessage($id,$msg){$this->watch[(int)$id]=(int)$msg;return true;}
+    public function UnregisterMessage($id,$msg){unset($this->watch[(int)$id]);return true;}
+    public function getWatches(){return $this->watch??[];}
     public function SendDebug(...$args){}
 }
 require_once __DIR__.'/../WeatherZentrale/module.php';
@@ -50,6 +54,9 @@ function a($x,$why){if(!$x){fwrite(STDERR,"FAIL $why\n");exit(1);}echo "PASS $wh
 $wc=new WetterZentrale();$wc->Create();$wc->ApplyChanges();$wc->Refresh();
 a($wc->value('Quality')==='PWS_ONLY','Ohne externe Daten PWS nicht verifiziert');
 $hs=new HeliosSmart();$hs->Create();$hs->ApplyChanges();$hs->setProperty('WeatherCenterInstance',42);
+a(array_keys($hs->getWatches())===[53361,28802],'Nur EG/OG Bad registrieren VM_UPDATE');
+a($hs->getWatches()[53361]===VM_UPDATE && $hs->getWatches()[28802]===VM_UPDATE,'Abonnements reagieren ausschliesslich auf VM_UPDATE');
+
 $hs->Evaluate();
 a(count($GLOBALS['calls'])===0,'Standard Beobachtung: Null Gerätebefehle');
 a(str_contains($hs->value('Status'),'BEOBACHTUNG'),'Status signalisiert Beobachtung');
@@ -141,3 +148,32 @@ a(str_contains($hs->value('Status'),'Bedarf:'),
   'Status enthaelt Bedarf getrennt von 24h-Wetterchance');
 a(count($GLOBALS['calls'])===0,'v0.6 alle historischen Freigaben blockiert');
 echo "ALLE SYMCON-SCHUTZTESTS BESTANDEN\n";
+
+// LCN-Statusmeldungen duerfen nie einen Helios-Schaltbefehl ausloesen.
+$hs->MessageSink(1,53361,VM_UPDATE,[73.0,false,73.0]);
+$audit=json_decode($hs->value('DecisionJSON'),true);
+a(($audit['wetroom_event_monitor']['last_changed_at']??0)===0,'Unveraenderte RH-Meldung triggert keinen neuen Duschbeweis');
+$hs->MessageSink(2,53361,VM_UPDATE,[73.0,true,68.0]);
+$audit=json_decode($hs->value('DecisionJSON'),true);
+a(($audit['wetroom_event_monitor']['last_changed_id']??0)===53361,'Aenderung im EG Bad aktualisiert Beobachtungs-JSON');
+a(($audit['wetroom_event_monitor']['last_changed_at']??0)>0,'Ereigniszeitpunkt sichtbar');
+a(count($GLOBALS['calls'])===0,'VM_UPDATE aus EG Bad sendet keinen HELIOS-Befehl');
+$prior=$audit['wetroom_event_monitor']['last_changed_id'];
+$hs->MessageSink(3,28802,VM_UPDATE,[79.0,true,73.0]);
+$audit2=json_decode($hs->value('DecisionJSON'),true);
+a($audit2['wetroom_event_monitor']['last_changed_id']===$prior,'10s Entprellung verhindert Doppelberechnung');
+a(count($GLOBALS['calls'])===0,'Ereignis-Sturm bleibt vollstaendig lesend');
+
+// Migration der Abonnements: altes Bad-Event darf nach Konfigurationswechsel nicht mehr wecken.
+$oldSub=$hs->getWatches();
+$hs->setProperty('Rooms',json_encode([['name'=>'EG Bad','temperature'=>12812,'humidity'=>53361,'wetroom'=>false]]));
+$hs->ApplyChanges();
+a(array_keys($hs->getWatches())===[28802],'Bei geaenderter Raumkonfiguration EG Bad sauber abgemeldet');
+a(($hs->getWatches()[28802]??null)===VM_UPDATE,'OG Bad bleibt korrekt abonniert');
+$hs->MessageSink(5,53361,VM_UPDATE,[95.,true,73.]);
+$auditAfter=json_decode($hs->value('DecisionJSON'),true);
+a($auditAfter['wetroom_event_monitor']['last_changed_id']===53361,'Abgemeldete Quelle erzwingt keine neue Auswertung');
+$hs->setProperty('Rooms',json_encode(JVHeliosLCNRoomSources::SOURCES));
+$hs->ApplyChanges();
+a(array_keys($hs->getWatches())===[28802,53361],'Original-Zuordnung ist nach Rueckstellung wieder vollstaendig');
+a(count($GLOBALS['calls'])===0,'Konfigurationsmigration ohne Helios-Schaltbefehle');
