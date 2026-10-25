@@ -287,7 +287,7 @@ class HeliosSmart extends IPSModule
             $power['value_type']=get_debug_type($v);
             $age=$now-(int)($meta['VariableUpdated']??0);
             $power['age_seconds']=$age>=0?$age:null;
-            if (is_numeric($v) && $age>=-120 && $age<=2*60 && (float)$v>=0 && (float)$v<=100000) {
+            if (is_numeric($v) && $age>=-120 && $age<=6*60 && (float)$v>=0 && (float)$v<=100000) {
                 $power['usable']=true;$power['watts']=(float)$v;
             }
         }
