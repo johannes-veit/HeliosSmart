@@ -92,7 +92,7 @@ final class JVHeliosCookingAdvisor
         $hasSampleTime=is_int($powerUpdated) && $powerUpdated>0;
         $previousUpdate=(int)($previous['last_high_updated_at']??0);
         $distinctUpdate=!$hasSampleTime || ($powerUpdated>$previousUpdate
-            && $powerUpdated<=$now+120 && $now-$powerUpdated<=120);
+            && $powerUpdated<=$now+120 && $now-$powerUpdated<=360);
 
         $since=(int)($previous['high_power_since']??0);
         $samples=max(0,min(50,(int)($previous['high_power_samples']??0)));
