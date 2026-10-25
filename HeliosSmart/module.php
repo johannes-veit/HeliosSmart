@@ -6,6 +6,7 @@ require_once __DIR__ . '/../libs/ForecastAdvisor.php';
 require_once __DIR__ . '/../libs/DailyStrategy.php';
 require_once __DIR__ . '/../libs/ComfortAdvisor.php';
 require_once __DIR__ . '/../libs/SeasonalAdvisor.php';
+require_once __DIR__ . '/../libs/VentilationNeed.php';
 /** Vorhersagegestützter Beobachter; Aktor nur nach expliziter Freigabe. */
 class HeliosSmart extends IPSModule
 {
@@ -48,7 +49,7 @@ class HeliosSmart extends IPSModule
     {
         return json_encode([
             'elements'=>[
-                ['type'=>'Label','caption'=>'v0.5.0: Tagesstrategie, Vorhersagefenster und zwölf native LCN-Feuchtequellen; Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
+                ['type'=>'Label','caption'=>'v0.6.0: 24h-Echtzeitfenster, Bedarfsbeurteilung, Tagesstrategie, Vorhersagefenster und zwölf native LCN-Feuchtequellen; Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
                 ['type'=>'NumberSpinner','name'=>'HeliosInstance','caption'=>'Helios-Instanz'],
                 ['type'=>'NumberSpinner','name'=>'WeatherCenterInstance','caption'=>'WetterZentrale-Instanz (0 = automatisch erkennen)'],
                 ['type'=>'NumberSpinner','name'=>'ClimateControlInstance','caption'=>'LCNClimateControl (nur lesend)'],
@@ -243,10 +244,13 @@ class HeliosSmart extends IPSModule
             $decision,$forecastAdvice,$program,$now,is_array($lastSeason)?$lastSeason:[]);
         $this->WriteAttributeString('SeasonalAdviceState',json_encode($season['state']));
         $decision['seasonal_advice']=$season['advice'];
+        // Bedarf ist ein eigener Nachweis und niemals gleich einem guten Wetterfenster.
+        $decision['ventilation_need']=JVHeliosVentilationNeed::analyze(
+            $decision,$decision['comfort_advice'],$forecastAdvice,$decision['daily_strategy']);
         $decision['helios_mode']=$mode;
         $decision['observation_only']=true;
         $this->SetValue('DecisionJSON',json_encode($decision,JSON_UNESCAPED_UNICODE));
-        // v0.5.0 is intentionally and unconditionally read-only.
+        // v0.6.0 is intentionally and unconditionally read-only.
         // Legacy approval properties remain registered to avoid migration issues,
         // but cannot authorize any HELIOS_* function from this version.
         $this->SetValue('Monitoring',true);
@@ -266,6 +270,7 @@ class HeliosSmart extends IPSModule
             .' | '.$decision['reason']
             .' | Tag: '.$decision['daily_strategy']['summary']
             .' | 24h: '.$forecastAdvice['summary']
-            .' | Profil: '.$seasonLabel);
+            .' | Profil: '.$seasonLabel
+            .' | Bedarf: '.$decision['ventilation_need']['summary']);
     }
 }

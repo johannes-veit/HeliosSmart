@@ -132,4 +132,12 @@ a(isset($lastDecision['seasonal_advice']['program_changed'])
     && $lastDecision['seasonal_advice']['program_changed']===false,
     'V0.5 Saisonprofil bleibt eine Leseberechnung');
 a(count($GLOBALS['calls'])===0,'V0.5 weiterhin garantiert null Aktoraufrufe');
+a(is_array($lastDecision['ventilation_need']??null), 'v0.6 Bedarf separat in vorhandenem JSON');
+a(($lastDecision['ventilation_need']['hardware_authorized']??null)===false,
+  'Bedarfsklassifikation hat keinen Aktor');
+a(($lastDecision['ventilation_need']['air_quality_verified']??null)===false,
+  'CO2-Luftqualitaet ohne Sensorik nicht behauptet');
+a(str_contains($hs->value('Status'),'Bedarf:'),
+  'Status enthaelt Bedarf getrennt von 24h-Wetterchance');
+a(count($GLOBALS['calls'])===0,'v0.6 alle historischen Freigaben blockiert');
 echo "ALLE SYMCON-SCHUTZTESTS BESTANDEN\n";

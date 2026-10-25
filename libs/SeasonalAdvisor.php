@@ -20,6 +20,8 @@ final class JVHeliosSeasonalAdvisor
         if (!($decision['weather_usable_for_advice']??false)
             || !in_array((string)($forecast['status']??''),['READY','NO_FRESH_INDOOR_HUMIDITY'],true)
             || (int)($forecast['forecast_hours']??0)<18
+            || (array_key_exists('longest_contiguous_hours',$forecast)
+                && (int)$forecast['longest_contiguous_hours']<12)
             || !is_numeric($decision['indoor_temperature']??null)
             || !is_numeric($forecast['temperature_max_c']??null)) {
             return ['state'=>$state,'advice'=>$output];

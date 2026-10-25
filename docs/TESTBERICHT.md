@@ -64,3 +64,13 @@ Neuer Regressionstest fuer gemeldeten Status 25.10.2026 mit 11 Temperaturquellen
 - Komfort-Feuchte aus älteren LCN-RH-Originalvariablen ist streng von aktuellen Feuchteanstiegen und Schaltvoraussetzungen getrennt.
 - Saisonberatung ist eine pure Funktion mit persistiertem Instanzattribut, nur Ergebnisdarstellung. Vier Stunden stabiler Vorschläge werden verlangt.
 - Ein vollständiger Geräte-/SymBox-Livetest und die Bestätigung realer Luftmengen stehen weiterhin aus. Die Helios-Kommandoaufrufe sind aus der Beobachter-Instanz entfernt.
+
+## v0.6.0 – Regressionspruefungen (25.10.2026)
+
+- Echter Horizont von 86400 Sekunden und exklusives Ende; 25. Punkt bei +24h ausgeschlossen.
+- Alle Fenster (Kuehlen/Trocknen) werden auf den Horizont beschnitten und die physikalische `duration_hours` ausgegeben.
+- Winterzeit 25.10.2026 und Sommerzeit 28.03.2027; keine 23/25h Fehlinterpretation.
+- Unregelmaessige Wetterpunkt-Zeiten, fehlende Stunden, max 24 Forecast-Punkte.
+- Saisonvorschlag wird aus 18 ueber den Tag verteilten, aber nicht zusammenhaengenden Prognosepunkten nicht freigegeben.
+- Bedarfsgutachten bleibt bei feuchter Fenster-Gelegenheit ohne frischen Badfeuchtenachweis auf Wochenplan. Zwei frische trockene Zimmer erzeugen nur eine Schutzwarnung.
+- Nur Beobachtung trotz alter Freigabeeinstellungen, ohne HELIOS-Schaltfunktionen.

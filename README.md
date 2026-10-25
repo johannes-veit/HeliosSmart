@@ -1,6 +1,17 @@
-# HELIOS SMART v0.5.0 – WetterZentrale & Lüftungsbeobachter
+# HELIOS SMART v0.6.0 – WetterZentrale & Lüftungsbeobachter
 
 **Entwicklungsfassung. Keine produktive Steuerungsfreigabe!**
+
+## v0.6.0 – Exakt 24 h Planung und eigenstaendige Bedarfspruefung (25.10.2026)
+
+- **Regression der Anwenderdiagnose**: Meldung "24h ... (25 h)" trotz 24-Stunden-Titel. Prognosezeitraum jetzt halb offen `[jetzt, jetzt+86400 s)`, auch ueber Sommer-/Winterzeit-Umstellungen, ungewoehnliche Stundentaktung oder teils fehlende Forecast-Stunden. Das letzte Fensterende wird exakt begrenzt; teilweise letzte Stunden sind als reale `duration_hours` ausgewiesen.
+- `forecast_advice.horizon_start_at` und `horizon_end_at` zeigen die echte zeitliche Grenze (Unix-Zeit UTC). `longest_contiguous_hours` zeigt die laengste lueckenlose Vorhersagekette. Die vorhandene Saisonprofilberatung verlangt >=12 zusammenhaengende Prognosestunden, damit 18 verstreute einzelne Stunden keinen stabilen Profilwechsel begruenden.
+- **`ventilation_need` neu im vorhandenen JSON**: Unterscheidet echten aktuell belegten Badfeuchte-/Kuehlbedarf, unverbindliche Entfeuchtungs-/Kuehlchancen, trockene Winter-Raeume und fehlende aktuelle Badwerte. Kein zusaetzlicher sichtbarer Symcon-Wert. Der Wochenplan bleibt immer bestehen.
+- Alte LCN-Feuchtemesswerte gelten weiterhin als Kontext, niemals als neue Duschereignisse. Die Qualitaet der Aussenwerte bleibt unabhaengig davon bewertet.
+- **Explizite fachliche Grenze:** Weder CO2/VOC-Luftqualitaet noch gemessene m3/h stehen bislang fuer eine echte Luftmengenabnahme zur Verfuegung. Ein Wetterfenster ist deshalb kein Nachweis fuer genuegende Raumluftqualitaet und keine Anweisung zur Reduktion der Mindestlueftung.
+- Hardware weiterhin **unconditionally READ ONLY**; keine HELIOS-Schaltfunktionen im Modul. Saisonprofil und Party-Modus werden nicht veraendert. Bestehende Instanz `#52187`, WetterZentrale `#40477`, Raum-IDs und Nutzerattribute bleiben unveraendert.
+- Tests unter `tests/run_all.sh` beinhalten reale DST-Zeitpunkte 25.10.2026 und 28.03.2027, unregelmaessige Provider-Zeiten, Wetterausfall, alte Badwerte und Altfreigaben.
+
 
 ## v0.4.1 – Zuverlässige Feuchte-Interpretation und ehrliche Vorschläge (25.10.2026)
 

@@ -24,7 +24,7 @@ tested($r['cooling_windows'][0]['start_at']===$forecast[1]['observed_at'],'Richt
 tested($r['cooling_windows'][0]['end_at']===$forecast[7]['observed_at'],'Ende exklusiv am Folgestundenwechsel');
 tested($r['ewt_cooling_now_k']===9.,'EWT-Vorkuehlung nur aus real gemessenen Temperaturen');
 tested($r['supply_cooling_now_k']===4.,'Zuluft-Kuehlvorteil gegen Innenraum');
-tested($r['hot_hours']===18,'Heisse Stunden gezaehlt, keine fehlenden Stunden aufgefuellt');
+tested($r['hot_hours']===17,'Heisse Stunden gezaehlt, keine fehlenden Stunden aufgefuellt');
 tested($r['temperature_min_c']===17. && $r['temperature_max_c']===28.,'Prognose Temperaturbereich korrekt');
 tested($r['notice']!=='','Hinweis auf notwendige Ist-Pruefung vorhanden');
 $bad=$forecast;
@@ -56,7 +56,7 @@ tested($r9['cooling_windows'][0]['hours']===2,'Erster Fensterabschnitt korrekt')
 tested($r9['cooling_windows'][1]['hours']===3,'Zweiter Fensterabschnitt korrekt');
 $dup=$forecast;$dup[]=$forecast[2];
 $r10=JVHeliosForecastAdvisor::analyze($dup,$now,25.,12.,'VERIFIED');
-tested($r10['forecast_hours']===24,'Doppelte Forecast-Timestamps werden nicht doppelt gezaehlt');
+tested($r10['forecast_hours']===23,'Doppelte Forecast-Timestamps werden nicht doppelt gezaehlt');
 // Actual DST transition: 2026-10-25 02:00 happens twice locally. UTC interval remains 3600 s.
 $tDst=strtotime('2026-10-25T00:00:00Z');
 $dst=[];

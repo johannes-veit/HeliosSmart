@@ -18,3 +18,5 @@ php tests/test_daily_strategy.php
 php tests/test_drying_interpretation.php
 
 php tests/test_comfort_season.php
+
+php tests/test_need_and_horizon.php

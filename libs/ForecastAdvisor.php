@@ -18,6 +18,8 @@ final class JVHeliosForecastAdvisor
             'status' => 'INSUFFICIENT',
             'forecast_hours' => 0,
             'high_confidence_hours' => 0,
+            'horizon_start_at'=>$now, 'horizon_end_at'=>$now+24*3600,
+            'longest_contiguous_hours'=>0,
             'earliest_at' => null, 'latest_at' => null,
             'temperature_min_c' => null, 'temperature_max_c' => null,
             'cooling_windows' => [], 'drying_windows' => [],
@@ -58,8 +60,9 @@ final class JVHeliosForecastAdvisor
         foreach ($forecast as $r) {
             if (!is_array($r) || !isset($r['observed_at'], $r['temperature'], $r['rh'])) continue;
             $ts=(int)$r['observed_at'];
-            // Cut off stale/too distant forecasts and an implicit null timestamp.
-            if ($ts<$now || $ts>$now+24*3600+1800) continue;
+            // Strict [now, now+24h) UTC horizon. The boundary hour belongs to NEXT horizon,
+            // regardless of local daylight saving time. Never report 25 hours in 24h.
+            if ($ts<$now || $ts>=$now+24*3600) continue;
             $q=(string)($r['confidence']??'LOW');
             if ($q!=='OK') continue;
             $pair=JVWeatherMath::readPair($r['temperature'],$r['rh']);
@@ -71,8 +74,18 @@ final class JVHeliosForecastAdvisor
                 'dewpoint'=>$pair['dewpoint'],'rh'=>$pair['rh']];
         }
         ksort($hours,SORT_NUMERIC);
+        // Defensive cap for irregular upstream timestamps. A 24-hour display
+        // must never count more than 24 distinct forecast-hour evidence points.
+        if (count($hours)>24) $hours=array_slice($hours,0,24,true);
         $result['high_confidence_hours']=count($hours);
         $result['forecast_hours']=count($hours);
+        $longest=0;$run=0;$last=null;
+        foreach ($hours as $hourKey=>$point) {
+            $run=($last!==null && $hourKey===$last+1)?$run+1:1;
+            $longest=max($longest,$run);
+            $last=$hourKey;
+        }
+        $result['longest_contiguous_hours']=$longest;
         if (count($hours)<8) {
             $result['summary']='Weniger als acht vertrauenswuerdige Prognosestunden';
             return $result;
@@ -96,8 +109,8 @@ final class JVHeliosForecastAdvisor
             $states[$h]=['at'=>$p['at'],'cool'=>$cool,'dry'=>$dry,
                 'dewpoint'=>$p['dewpoint'],'temperature'=>$p['t']];
         }
-        $result['cooling_windows']=self::windows($states,'cool',2);
-        $result['drying_windows']=self::windows($states,'dry',2);
+        $result['cooling_windows']=self::windows($states,'cool',2,$now+24*3600);
+        $result['drying_windows']=self::windows($states,'dry',2,$now+24*3600);
         $result['drying_opportunity_only']=(count($result['drying_windows'])>0);
         $result['status']=$hasMoisture?'READY':'NO_FRESH_INDOOR_HUMIDITY';
         $result['next_window']=$result['cooling_windows'][0]??null;
@@ -106,14 +119,14 @@ final class JVHeliosForecastAdvisor
         } elseif ($result['cooling_windows']) {
             $first=$result['cooling_windows'][0];
             $result['summary']='Moegliches Kuehlfenster ab '.self::localTime($first['start_at'])
-                .' ('.$first['hours'].' h), vor Ort mit Zuluft pruefen';
+                .' (bis zu '.($first['duration_hours']??$first['hours']).' h), vor Ort mit Zuluft pruefen';
         } elseif ($result['drying_windows']) {
             $first=$result['drying_windows'][0];
             // Wetterverhaeltnis ist keine Anforderung an einen Ventilator!
             // Auch bei 24 h trockenerer Aussenluft nicht ganztags boosten.
             $hours=(int)$first['hours'];
             $period=$hours>=20
-                ? 'Aussenluft voraussichtlich weitgehend ganztags trockener ('.$hours.' h)'
+                ? 'Aussenluft voraussichtlich weitgehend ganztags trockener (bis zu '.round((float)($first['duration_hours']??$hours),1).' h)'
                 : 'Aussenluft ab '.self::localTime($first['start_at']).' fuer '.$hours.' h voraussichtlich trockener';
             $need=$currentHumidityDemand
                 ? 'tatsaechlichen Feuchtebedarf mit frischem Badwert pruefen'
@@ -126,15 +139,19 @@ final class JVHeliosForecastAdvisor
     }
 
     /** Consecutive forecast hours, with DST safe UTC arithmetic. */
-    private static function windows(array $states, string $flag, int $minHours): array
+    private static function windows(array $states, string $flag, int $minHours, int $endAt): array
     {
         $windows=[];$first=null;$last=null;$count=0;
-        $flush=static function() use (&$windows,&$first,&$last,&$count,$minHours): void {
+        $flush=static function() use (&$windows,&$first,&$last,&$count,$minHours,$endAt): void {
             if ($first!==null && $count>=$minHours) {
-                $windows[]=['start_at'=>$first,'end_at'=>$last+3600,
+                $end=min($last+3600,$endAt);
+                if ($end>$first) $windows[]=['start_at'=>$first,'end_at'=>$end,
                     'local_start'=>self::localTime($first),
-                    'local_end'=>self::localTime($last+3600),
-                    'hours'=>$count];
+                    'local_end'=>self::localTime($end),
+                    // 'hours' counts usable hourly forecast points, NOT a promise
+                    // of continuous 24 h when the first/last slot is partial.
+                    'hours'=>$count,
+                    'duration_hours'=>round(($end-$first)/3600,2)];
             }
             $first=null;$last=null;$count=0;
         };
