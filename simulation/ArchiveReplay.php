@@ -82,6 +82,95 @@ final class JVHeliosArchiveReplay
         return $why;
     }
 
+    /**
+     * Retrospective free-running weather-conditioned hindcast. This sees
+     * ACTUAL FUTURE archived outside and supply values; it is explicitly NOT
+     * a deployable 6h/24h weather-forecast or future supply forecast.
+     * State is reset only at a window's beginning, never between its hours.
+     */
+    private static function hindcast(array $rows,array $gains,array $zones,
+        array $links,array $stages,int $split,int $horizon):array
+    {
+        $n=count($rows);
+        $globalError=0.;$globalPersist=0.;$samples=0;
+        $windows=0;$discarded=0;
+        $perRoom=[];
+        foreach($zones as $name=>$_)
+            $perRoom[$name]=['sum_model'=>0.,'sum_persistence'=>0.,'count'=>0];
+        for($start=$split;$start+$horizon<$n;$start+=$horizon) {
+            $initial=$rows[$start]['rooms']??[];
+            $starting=[];$forecast=[];
+            $valid=true;
+            foreach($zones as $name=>$_) {
+                if(!is_array($initial[$name]??null)
+                    || !self::number($initial[$name]['c']??null,5,45)) {
+                    $valid=false;break;
+                }
+                $starting[$name]=(float)$initial[$name]['c'];
+            }
+            if (!$valid) {$discarded++;continue;}
+            $predicted=$starting;
+            for($i=$start;$i<$start+$horizon;$i++) {
+                $a=$rows[$i];$b=$rows[$i+1];
+                if(self::sampleProblems($a,$zones,$stages)) {$valid=false;break;}
+                foreach($zones as $name=>$_) {
+                    $value=$b['rooms'][$name]??null;
+                    $end=(int)$b['at'];
+                    if(!is_array($value) || !self::number($value['c']??null,5,45)
+                        || !is_int($value['updated_at']??null)
+                        ||$value['updated_at']>$end+120
+                        ||$end-$value['updated_at']>7200) {
+                        $valid=false;break;
+                    }
+                }
+                if (!$valid) break;
+                $actualSupply=(float)$a['supply_c'];
+                // Validated observed stage, not invented future stage curves.
+                $byStage=[];
+                foreach($stages as $key=>$_) $byStage[$key]=$actualSupply;
+                $weather=['outside_c'=>(float)$a['outside_c'],
+                    'solar_w'=>(float)$gains[$i]['solar_w'],
+                    'internal_w'=>(float)$gains[$i]['internal_w'],
+                    'supply_c_by_stage'=>$byStage];
+                $response=JVHeliosMultiZoneResponse::hour($predicted,$zones,$links,
+                    $stages,$weather,(int)$a['fan_stage']);
+                if ($response===null) {$valid=false;break;}
+                $predicted=$response['rooms_c'];
+            }
+            if (!$valid) {$discarded++;continue;}
+            $windows++;
+            foreach($zones as $name=>$_) {
+                $actual=(float)$rows[$start+$horizon]['rooms'][$name]['c'];
+                $err=abs($predicted[$name]-$actual);
+                $persist=abs($starting[$name]-$actual);
+                $perRoom[$name]['sum_model']+=$err;
+                $perRoom[$name]['sum_persistence']+=$persist;
+                $perRoom[$name]['count']++;
+                $globalError+=$err;
+                $globalPersist+=$persist;
+                $samples++;
+            }
+        }
+        $rooms=[];
+        foreach($perRoom as $name=>$r) $rooms[$name]=[
+            'mae_c'=>$r['count']?round($r['sum_model']/$r['count'],4):null,
+            'persistence_mae_c'=>$r['count']?
+                round($r['sum_persistence']/$r['count'],4):null,
+            'windows'=>$r['count'],
+        ];
+        return [
+            'horizon_hours'=>$horizon,'windows'=>$windows,
+            'discarded_windows'=>$discarded,
+            'mae_c'=>$samples?round($globalError/$samples,4):null,
+            'persistence_mae_c'=>$samples?round($globalPersist/$samples,4):null,
+            'per_room'=>$rooms,
+            'future_weather_and_supply_are_retrospectively_observed'=>true,
+            'future_weather_and_supply_forecast_skill_tested'=>false,
+            'no_state_reset_within_window'=>true,
+            'counterfactual_fan_stages_tested'=>false,
+        ];
+    }
+
     public static function evaluate(array $input):array
     {
         $origin=(string)($input['origin']??'');
@@ -235,6 +324,12 @@ final class JVHeliosArchiveReplay
             'model_improves_persistence'=>$mae!==null && $persistent!==null
                 && $mae+0.002<$persistent,
         ];
+        $r['metrics']['hindcasts']=[
+            '6_hour'=>self::hindcast($rows,$gains,$zones,$links,$stages,$split,6),
+            '24_hour'=>self::hindcast($rows,$gains,$zones,$links,$stages,$split,24),
+        ];
+        // Even a good 24h hindcast with hindsight weather/supply cannot
+        // prove 24h ACTUAL forecast skill, nor stage-3/4 counterfactual effects.
         // A look-ahead free one-hour validation cannot certify a 48h schedule.
         $trainGood=true;$holdGood=true;
         foreach($r['per_room'] as $p) {
