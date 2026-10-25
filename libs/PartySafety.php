@@ -59,7 +59,7 @@ final class JVHeliosPartySafety
         $expires=(int)($owned['expires_at']??0);
         if ($last<0 || $last>$now+120 || $expires>$now+180*60) $issues[]='INVALID_COMMAND_STATE';
         if ($expires>$now) $issues[]='PARTY_WINDOW_RESERVED';
-        if ($last>0 && $now-$last<((($proposal['source']??null)==='WEATHER_OPTIMAL')?180*60:($highPowerRequested?45*60:30*60))) $issues[]='COOLDOWN_30_MIN';
+        if ($last>0 && $now-$last<((($proposal['source']??null)==='WEATHER_OPTIMAL')?180*60:($highPowerRequested?45*60:30*60))) $issues[]=($proposal['source']??null)==='WEATHER_OPTIMAL'?'COOLDOWN_180_MIN':($highPowerRequested?'COOLDOWN_45_MIN':'COOLDOWN_30_MIN');
         return [
             'command_allowed'=>count($issues)===0,
             'airflow_basis'=>$measured?'MEASURED_CONFIRMED_BY_OPERATOR':($limited?'ESTIMATED_ONLY_OPERATOR_OPT_IN':'NOT_ACCEPTED'),
