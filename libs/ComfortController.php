@@ -17,7 +17,8 @@ final class JVHeliosComfortController
             'rooms_usable'=>0,'rooms'=>[],
             'living_average_temperature_c'=>null,'living_average_absolute_humidity_gm3'=>null,
             'hottest_room'=>null,'most_humid_room'=>null,'coolest_room'=>null,
-            'cooling_floor_c'=>21.0,'rooms_below_cooling_floor'=>[],
+            'cooling_floor_rule'=>'Schlafraeume >=19 C, sonst >=20.5 C; nur Wetter-S4',
+            'rooms_below_cooling_floor'=>[],
             'night_precooling_safe'=>null,
             'temperature_target_summer_c'=>'23-26 (orientation, measured air only)',
             'humidity_target_rh_pct'=>'40-55 (operator preference, not a standard)',
@@ -42,19 +43,21 @@ final class JVHeliosComfortController
             $pair=JVWeatherMath::readPair($room['temperature']??null,$room['rh']??null);
             if ($pair===null || $pair['temperature']<12 || $pair['temperature']>37) continue;
             $t=(float)$pair['temperature'];$rh=(float)$pair['rh'];$dp=(float)$pair['dewpoint'];
+            $floor=preg_match('/schlaf/ui',$name)?19.0:20.5;
             $hotRoom=$t>=25.5;$humidRoom=$rh>=60 || $dp>=17.5;
             $dryRoom=$rh<35;
-            $heatScore=max(0.0,($t-25.0)*8.0, (20.5-$t)*7.0);
+            $heatScore=max(0.0,($t-25.0)*8.0, ($floor-$t)*7.0);
             // RH and dewpoint describe correlated vapor pressure. Do not double
             // count them as two independent discomfort mechanisms.
             $moistScore=max(0.0,($rh-55.0)*1.2,($dp-16.5)*5.0,(35.0-$rh)*0.8);
             $score=(int)max(0,min(100,round(100-$heatScore-$moistScore)));
             $kind=$hotRoom && $humidRoom?'ZU_WARM_UND_SCHWUEL':
                 ($humidRoom?'ZU_FEUCHT':($hotRoom?'ZU_WARM':
-                ($dryRoom?'ZU_TROCKEN':($t<20.5?'ZU_KUEHL':'ANGENEHM'))));
+                ($dryRoom?'ZU_TROCKEN':($t<$floor?'ZU_KUEHL':'ANGENEHM'))));
             $items[]=['room'=>$name,'temperature_c'=>$t,'rh_pct'=>$rh,
                 'dewpoint_c'=>$dp,'absolute_humidity_gm3'=>(float)$pair['absolute_humidity'],
                 'classification'=>$kind,'comfort_index'=>$score,
+                'minimum_cooling_temperature_c'=>$floor,
                 'age_temperature_min'=>(int)floor(($now-$tt)/60),
                 'age_humidity_min'=>(int)floor(($now-$ht)/60)];
             $scores[]=$score;
@@ -83,7 +86,7 @@ final class JVHeliosComfortController
         usort($sortedCool,static fn($a,$b)=>$a['temperature_c']<=>$b['temperature_c']);
         $base['coolest_room']=$sortedCool[0];
         $belowFloor=array_values(array_map(static fn($r)=>$r['room'],
-            array_filter($items,static fn($r)=>$r['temperature_c']<21.0)));
+            array_filter($items,static fn($r)=>$r['temperature_c']<$r['minimum_cooling_temperature_c'])));
         $base['rooms_below_cooling_floor']=$belowFloor;
         $base['night_precooling_safe']=count($belowFloor)===0;
 
@@ -111,7 +114,7 @@ final class JVHeliosComfortController
         $summer=($decision['season_signal']??null)!=='HEATING_SEASON';
         // Whole-house S4 cools EVERY supplied room. A comfortable house
         // average can conceal an already-cold bedroom: never request extra
-        // *weather-only* cooling when a measured living room is below 21 C.
+        // *weather-only* cooling when a measured room is below its use-based floor.
         $safeToCool=count($belowFloor)===0;
 
         if ($needsDry && !$compatible) {
@@ -161,7 +164,7 @@ final class JVHeliosComfortController
                 :['Keine zusaetzliche Luefterstufe aus Behaglichkeit ableiten.'];
         }
         if (!$safeToCool && $summer) {
-            $base['recommendations'][]='Mindestens ein Wohn-/Schlafraum unter 21 Grad: keine zusaetzliche wetterbedingte Ganzhaus-Kuehllueftung.';
+            $base['recommendations'][]='Mindestens ein Raum unter der nutzungsbezogenen Kuehluntergrenze: keine zusaetzliche wetterbedingte Ganzhaus-Kuehllueftung.';
             $base['weather_boost_compatible']=false;
             if (in_array($base['requested_improvement'],['COOL_WITH_MOISTURE_GUARD','DRY_IF_OUTSIDE_DRIER'],true)) {
                 $base['requested_improvement']='PROTECT_COOL_ROOMS_WHILE_MAINTAINING_WEEKLY';
