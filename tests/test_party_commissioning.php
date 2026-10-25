@@ -69,6 +69,17 @@ pc(JVHeliosBoostCoordinator::propose($nightWeather,$none,2,true)['source']!=='WE
 $nightStrong=$nightWeather;$nightStrong['indoor_temperature']=27;$nightStrong['supply_temperature']=20;
 pc(JVHeliosBoostCoordinator::propose($nightStrong,$none,2,true)['source']==='WEATHER_OPTIMAL',
  'Strong night thermal relief still permits S4');
+$morning=$weatherGood;
+$morning['now']=strtotime('2026-10-26 06:30:00 UTC');
+$morning['mode']='WEEKLY_BASE';
+$morning['indoor_temperature']=22.5;$morning['supply_temperature']=20;
+$morning['indoor_absolute_humidity']=10.2;$morning['outside_absolute_humidity']=7.8;
+$morning['morning_activity_evidence']=true;
+pc(JVHeliosBoostCoordinator::propose($morning,$none,2,true)['weather_flush']['type']==='MORNING_MOISTURE',
+ 'Real morning activity plus interior moisture load qualifies');
+$morning['morning_activity_evidence']=false;
+pc(JVHeliosBoostCoordinator::propose($morning,$none,2,true)['kind']==='KEEP_WEEKLY',
+ 'Clock alone must not provoke ventilation');
 $weatherDamp=$weatherGood;$weatherDamp['outside_absolute_humidity']=13;
 pc(JVHeliosBoostCoordinator::propose($weatherDamp,$none,2,true)['source']!=='WEATHER_OPTIMAL',
  'Damp outside air cannot trigger S4 flush');
