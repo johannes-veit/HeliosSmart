@@ -74,3 +74,13 @@ Für einen realen 6-/24h-Rückblick wird zunächst ein separates, dokumentiertes
 5. Erst nach unabhängiger Volumenstromabnahme kann aus einer simulierten Lüfterstufe eine physikalische Kühlleistung abgeleitet werden.
 
 **Handlungsstand:** GitHub-Theoriepaket kann schon getestet werden; auf der laufenden SymBox ist nichts zu installieren oder auszuführen.
+
+## Einfache Qualitätsanzeige (25.10.2026)
+
+Der bestehende Export liefert jetzt zusätzlich das Feld `quality_summary`, **ohne neue Variablen, Module oder Tabellen**. Es gibt nur drei Zähler:
+
+- **Wertänderungen gefunden:** Archivierung aktiv, Änderungen im geprüften Zeitraum protokolliert; nicht gleichbedeutend mit frischen Sensor-Telegrammen.
+- **Keine Änderungen:** Archivierung vorhanden, aber kein Wertwechsel; **kein Beweis für einen Sensorfehler**.
+- **Fehlt/fehlerhaft:** Variablen-ID unbekannt, Link, Archivierung aus oder Leseproblem; separat zu prüfen.
+
+Zusätzlich zeigt `quality_summary.rooms` die beiden Zustände pro Raum (Temperatur und Feuchte), `historical_outside_weather_complete` die Archivgrundlage für echte Außenwerte und `next_steps` eine kurze Handlungsempfehlung. **Die beiden Freigabefelder `ready_for_replay` und `ready_for_automatic_control` bleiben immer `false`.** Die Auswertung wird direkt aus den bereits exportierten Daten erzeugt, ohne zusätzliche Archivabfragen oder Schaltaktionen. Der erste praktische Schritt ist später die Überprüfung der zwei noch nicht zugeordneten Wetterarchivquellen; bis dahin bleibt die Entwicklung theoretisch.
