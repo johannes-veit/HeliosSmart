@@ -44,3 +44,17 @@ Die **geräteintern eingestellte Stufe** bleibt die hygienische Grundlüftung. S
 - Bundesumweltministerium, 'Richtiges Lüften und Heizen' https://www.bundesumweltministerium.de/themen/gesundheit/innenraumluft/richtiges-lueften-und-heizen
 - Helios easyControls Dokumentation, 'Party-/Ruhebetrieb' / 'Wochenprogramm' https://www.easycontrols.net/de/service/hilfe/hilfe-lokaler-ws?showall=1
 - Passivhaus Institut, 'Lüftungsstrategien – Sommerkomfort' https://passipedia.de/passipedia_de/_media/picopen/pb57_konzepte_heisse_sommer_phi_2021_geschuetzt.pdf
+
+
+## Benchmark führender Geräte – Umsetzung Oktober 2026
+Ein universelles „weltbestes Gerät“ ist nicht seriös nachweisbar. Als relevante Architekturvorbilder dienen:
+- Zehnder ComfoAir Q: feuchteanstiegsbezogener Boost, Flow-Control und adaptiver Sommer-Bypass (https://www.zehnder-systems.de/de/zuhause-endverbraucher/wohnraumlueftung/nach-art/zentrale-wohnraumlueftung/comfoair-q).
+- Brink Flair 400: Bypass-Boost nur bei passender Kombination aus Innen-/Außentemperatur und Schaltschwellen mit Hysterese (https://www.brinkclimatesystems.nl/documenten/flair-400-installation-regulations-614895.pdf).
+- Systemair SAVE: Bedarfssensoren und Wärmerückgewinnungssteuerung (https://www.systemair.com/en/products/residential-ventilation-systems/air-handling-units/save).
+- Passivhaus Trust: zentrale Wärmerückgewinnung darf nicht mit aktivem Klimagerät verwechselt werden; Badfeuchte kann selbst bei permanentem Abluftstrom 20–30 Minuten benötigen, um sich abzubauen (https://passivhaustrust.org.uk/UserFiles/File/Technical%20Papers/MVHR%20Maintenance%20v1%2020241211.pdf).
+
+### Übernommenes Prinzip: adaptive Badfeuchteerkennung
+Die bisherigen festen Kriterien für Badfeuchte bleiben. Zusätzlich dürfen bereits durch native LCN-Änderungsereignisse bestätigte, frische mehrstufige RH-Anstiege S4/30-Minuten anfordern, **selbst bei RH 55–59 %**. Notwendig sind ein mehrstufiger Feuchteanstieg (mindestens zwei Schritte und sechs Prozentpunkte), gültiger Original-Sensor, aktuelle Außenfeuchte und mindestens 1,5 g/m³ abtransportierbarer Feuchteunterschied. Bei fehlender Wetterqualität, zu kleinem Feuchtegradienten oder veralteten Ereignissen bleibt diese Abkürzung gesperrt. Eine erkannte RH-Spitze ist ein Bedarfshinweis, kein Beweis, dass tatsächlich geduscht wird.
+
+### Nicht implementierbar ohne weitere Signale
+Zehnder Flow-Control lässt sich nicht aus Helios-Stellspannungen nachbilden. Ein automatischer Bypass-Algorithmus lässt sich nicht verifizieren, wenn kein verlässlicher Bypassstatus und keine dedizierte API vorliegen. Zeitbezogenes Bedarfslüften ersetzt keine raumübergreifende CO2-Überwachung. Deshalb bleibt die bedarfsgerechte Zusatzlüftung auf Hersteller-Party mit Wochenprogramm als Grundniveau beschränkt.
