@@ -19,6 +19,8 @@ final class JVHeliosArchiveChangeExport
             'sensors_mutated'=>false,'ready_for_replay'=>false,
             'archive_id'=>$archiveId,'start_utc'=>$start,'end_utc'=>$end,
             'source_count'=>0,'series'=>[],'problems'=>[],
+            'source_coverage_complete'=>false,'unresolved_sources'=>[],
+            'logged_change_only_sources'=>0,
             'important'=>'AC_GetLoggedValues is CHANGE-ONLY. Event timestamps do NOT prove subsequent sensor updates or stable device modes.',
             'missing_for_replay'=>[
                 'continuous sensor-update evidence for interval freshness',
@@ -122,7 +124,19 @@ final class JVHeliosArchiveChangeExport
             }
             $result['series'][$label]=$entry;
         }
-        if($result['problems']) $result['status']='PARTIAL_OR_FAILED_CHANGE_EVENT_EXPORT';
+        foreach($result['series'] as $key=>$entry) {
+            if(in_array($entry['archive_coverage'],
+                ['CHANGE_EVENTS_ONLY','NO_CHANGE_EVENTS_IN_WINDOW'],true))
+                $result['logged_change_only_sources']++;
+            else $result['unresolved_sources'][]=$key.':'.$entry['archive_coverage'];
+        }
+        $result['source_coverage_complete']=$result['unresolved_sources']===[] 
+            && $result['problems']===[];
+        if($result['problems']) {
+            $result['status']='PARTIAL_OR_FAILED_CHANGE_EVENT_EXPORT';
+        } elseif(!$result['source_coverage_complete']) {
+            $result['status']='MISSING_ARCHIVE_SOURCES_NOT_REPLAY_READY';
+        }
         return $result;
     }
 }
