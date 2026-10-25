@@ -15,6 +15,7 @@ require_once __DIR__ . '/../libs/AirflowModel.php';
 require_once __DIR__ . '/../libs/PartyMonitor.php';
 require_once __DIR__ . '/../libs/WeatherFlush.php';
 require_once __DIR__ . '/../libs/BoostCoordinator.php';
+require_once __DIR__ . '/../libs/SummerAirflow.php';
 require_once __DIR__ . '/../libs/PartySafety.php';
 require_once __DIR__ . '/../libs/PartyProtocol.php';
 require_once __DIR__ . '/../libs/CookingSignalHealth.php';
@@ -576,6 +577,7 @@ class HeliosSmart extends IPSModule
         $decision['now']=$now;
         $decision['morning_activity_evidence']=($cooking['advice']['recent_ground_floor_motion']??false)===true
             && ($cooking['advice']['occupancy']['home_presence_hint']??false)===true;
+        $decision['summer_airflow']=JVHeliosSummerAirflow::advise($decision);
         $candidate=JVHeliosBoostCoordinator::propose(
             $decision,$cooking['advice'],(int)GetValue($fanID),
             $this->ReadPropertyBoolean('EnableHighPowerParty'));
