@@ -47,3 +47,4 @@ php tests/test_model_fitter.php
 php tests/test_multi_zone_planner.php
 php tests/test_multi_zone_house.php
 php tests/test_archive_replay.php
+php tests/test_archive_change_export.php
