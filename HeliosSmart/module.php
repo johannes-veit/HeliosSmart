@@ -555,6 +555,7 @@ class HeliosSmart extends IPSModule
         ];
         // Productive command engineering is fully simulated here, never executed.
         // Weekly programs remain the factory-defined fail-safe, not a Symcon timer.
+        $decision['now']=$now;
         $candidate=JVHeliosBoostCoordinator::propose(
             $decision,$cooking['advice'],(int)GetValue($fanID),
             $this->ReadPropertyBoolean('EnableHighPowerParty'));
