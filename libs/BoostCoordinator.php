@@ -38,9 +38,18 @@ final class JVHeliosBoostCoordinator
             $choices[]=['source'=>'BATH_HUMIDITY','rank'=>3,'level'=>$highPower?4:3,'minutes'=>$highPower?30:15];
         }
         if (($cooking['potential_odor_boost']??false)===true
-            && in_array(($cooking['classification']??''),['COOKING_LIKELY','COOKING_RECENTLY_LIKELY'],true)
+            && in_array(($cooking['classification']??''),
+                ['COOKING_LIKELY','COOKING_RECENTLY_LIKELY',
+                 'COOKING_ACTIVITY_LIKELY','COOKING_ACTIVITY_RECENT'],true)
             && is_int($cooking['suggested_fan_level']??null)) {
-            $choices[]=['source'=>'COOKING','rank'=>2,'level'=>$highPower?4:(int)$cooking['suggested_fan_level'],'minutes'=>$highPower?30:20];
+            // Moderate-load evidence can authorize only the limited S3/15 path;
+            // reserve S4/30 for the stronger independently-confirmed evidence.
+            $activityEvidence=($cooking['moderate_activity_based']??false)===true
+                || in_array(($cooking['classification']??''),
+                    ['COOKING_ACTIVITY_LIKELY','COOKING_ACTIVITY_RECENT'],true);
+            $choices[]=['source'=>'COOKING','rank'=>2,
+                'level'=>$activityEvidence?3:($highPower?4:(int)$cooking['suggested_fan_level']),
+                'minutes'=>$activityEvidence?15:($highPower?30:20)];
         }
         // The legacy COOLING proposal was intrinsically rejected by PartySafety.
         // Keep passive-cooling interpretation in the decision diagnostics, but
