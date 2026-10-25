@@ -142,6 +142,12 @@ final class JVHeliosCookingAdvisor
         // learned idle baseline, extended kitchen light and real motion.
         // No power sample timestamp => no moderate-load proof.
         $lightMinutes=max(0,min(1440,(int)($signals['light']['on_minutes']??0)));
+        $lastKitchenPositiveAge=$signals['motions']['Wohnkueche']['last_positive_age_seconds']??null;
+        $extendedKitchenMotion=$kitchenMotion
+            || ($light && $lightMinutes>=8
+                && is_int($lastKitchenPositiveAge)
+                && $lastKitchenPositiveAge>=0 && $lastKitchenPositiveAge<=15*60);
+
         $moderateThreshold=max(1400,$threshold-400);
         $moderate=$watts!==null && $watts>=$moderateThreshold;
         $moderateUpdate=(int)($previous['last_moderate_updated_at']??0);
@@ -175,7 +181,7 @@ final class JVHeliosCookingAdvisor
             && ($light || ($mealTime && $homeHint));
         $moderateLikely=!$strongLikely && $moderateMultiple && $baselineValid
             && $delta!==null && $delta>=250 && $light && $lightMinutes>=8
-            && $kitchenMotion && $mealTime;
+            && $extendedKitchenMotion && $mealTime;
         $likely=$strongLikely || $moderateLikely;
         $possible=!$likely && (($kitchenMotion && $light)
             || ($highPower && ($kitchenMotion || ($hallMotion && $light))));
@@ -220,6 +226,7 @@ final class JVHeliosCookingAdvisor
                 'moderate_activity_based'=>$activityKind,
                 'missing_evidence'=>$likely?[]:array_values(array_filter([
                     !$kitchenMotion?'NO_RECENT_KITCHEN_MOTION':null,
+                    !$extendedKitchenMotion?'NO_KITCHEN_MOTION_WITHIN_15_MIN':null,
                     !$light?'KITCHEN_LIGHT_OFF':null,
                     $light && $lightMinutes<8?'LIGHT_DURATION_TOO_SHORT_FOR_MODERATE':null,
                     !$powerUsable?'POWER_SOURCE_STALE_OR_MISSING':null,
@@ -233,6 +240,9 @@ final class JVHeliosCookingAdvisor
                 'power_rise_supported'=>$powerRisePlausible,
                 'helios_automatic_mode'=>$automatic,'kitchen_light_on'=>$light,'recent_ground_floor_motion'=>$motion,
                 'motion_zones'=>$motions,'kitchen_motion_recent'=>$kitchenMotion,
+                'kitchen_motion_extended_for_moderate'=>$extendedKitchenMotion,
+                'kitchen_motion_last_positive_age_seconds'=>is_int($lastKitchenPositiveAge)
+                    ?$lastKitchenPositiveAge:null,
                 'meal_time'=>$mealTime,'score'=>$score,
                 'occupancy'=>$occupancy,
                 'suggested_fan_level'=>$level,'suggested_minutes'=>$boost?20:0,
