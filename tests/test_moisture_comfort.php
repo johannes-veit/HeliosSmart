@@ -44,6 +44,27 @@ mh(JVHeliosMoistureComfort::analyze($dew)['regime']==='HIGH_OUTSIDE_DEWPOINT',
 $invalid=$good;$invalid['fresh_humidity_room_count']=2;
 mh(JVHeliosMoistureComfort::analyze($invalid)['weather_cooling_boost_allowed']===false,
  'Uncertain indoor humidity cannot authorize additional cooling ventilation');
+// Humidity relief: a house at 27 C / high RH may be far muggier
+// than 21.5 C outdoor air despite a 17.5 C exterior dewpoint.
+$relief=$good;
+$relief['indoor_temperature']=27.0;
+$relief['indoor_absolute_humidity']=18.5;
+$relief['outside_temperature']=21.5;
+$relief['outside_absolute_humidity']=14.7;
+$relief['outside_dewpoint']=17.6;
+$relief['supply_temperature']=22.0;
+$reliefMoisture=JVHeliosMoistureComfort::analyze($relief);
+mh($reliefMoisture['weather_cooling_boost_allowed'],
+ 'Strong actual indoor vapor excess can justify humidity removal');
+$reliefPlan=JVHeliosBoostCoordinator::propose($relief,[],2,true);
+mh($reliefPlan['source']==='WEATHER_OPTIMAL'
+    && $reliefPlan['weather_flush']['type']==='HIGH_INDOOR_HUMIDITY_RELIEF',
+ 'Moderately humid but materially drier outside qualifies for bounded room drying');
+$weak=$relief;
+$weak['outside_absolute_humidity']=17.4;
+$weak['outside_dewpoint']=19.2;
+mh(JVHeliosBoostCoordinator::propose($weak,[],2,true)['kind']==='KEEP_WEEKLY',
+ 'Outside too humid or weak drying advantage cannot use relief exception');
 $winter=$good;$winter['season_signal']='HEATING_SEASON';
 mh(JVHeliosBoostCoordinator::propose($winter,[],2,true)['weather_flush']['bypass_strategy']
     ==='CLOSED_FOR_HEAT_RECOVERY','Winter heat retention recommendation preserved');
