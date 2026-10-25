@@ -8,7 +8,7 @@ final class JVHeliosWeatherFlush {
     public static function analyze(array $d):array {
         $out=['eligible'=>false,'reason'=>'INSUFFICIENT_LIVE_EVIDENCE','type'=>null,
             'indoor_outdoor_ah_gap'=>null,'indoor_supply_temperature_gap'=>null,
-            'duration_minutes'=>0,'level'=>null,'daypart'=>null,'energy_priority'=>null];
+            'duration_minutes'=>0,'level'=>null,'daypart'=>null,'energy_priority'=>null,'morning_activity_supported'=>false];
         if (($d['weather_quality']??'')!=='VERIFIED'
             || ($d['trusted_weather']??false)!==true
             || (int)($d['fresh_room_count']??0)<5
@@ -22,6 +22,7 @@ final class JVHeliosWeatherFlush {
         $quiet=$hour!==null && ($hour>=22 || $hour<7);
         $out['daypart']=$hour===null?'UNSPECIFIED':($quiet?'NIGHT':'DAY');
         $out['energy_priority']=$quiet?'QUIET_LOW_NOISE':'DAYTIME_COMFORT';
+        $out['morning_activity_supported']=($hour!==null && $hour>=6 && $hour<10 && ($d['morning_activity_evidence']??false)===true);
         $in=(float)$d['indoor_temperature'];
         $supply=(float)$d['supply_temperature'];
         $outside=(float)$d['outside_temperature'];
@@ -47,6 +48,14 @@ final class JVHeliosWeatherFlush {
         elseif ($inAh>=($quiet?11.5:10.5) && $gap>=$humidityThreshold
             && $supply>=($quiet?20.0:19.0) && $in>=21.5)
             $out['type']='MOISTURE_FLUSH';
+        // Morning routine is not inferred from the clock alone. A recent,
+        // independent living-area motion plus home-phone context supports
+        // a smaller moisture threshold after the night's occupancy.
+        $morning=$hour!==null && $hour>=6 && $hour<10
+            && ($d['morning_activity_evidence']??false)===true;
+        if ($out['type']===null && $morning && $inAh>=10.0
+            && $gap>=2.2 && $supply>=19 && $in>=21.5)
+            $out['type']='MORNING_MOISTURE';
         if ($out['type']===null) {
             $out['reason']='NO_MATERIAL_COMFORT_GAIN';return $out;
         }
