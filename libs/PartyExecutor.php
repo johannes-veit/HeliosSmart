@@ -14,7 +14,7 @@ final class JVHeliosPartyExecutor
         if (($gate['command_allowed']??false)!==true || ($proposal['kind']??'')!=='PARTY_CANDIDATE') return $result;
         $target=$proposal['suggested_level']??null;
         $duration=$proposal['suggested_minutes']??null;
-        if (!is_int($target)||$target<1||$target>3||!is_int($duration)||$duration<5||$duration>15||$now<=0) {
+        if (!is_int($target)||$target<1||$target>4||!is_int($duration)||$duration<5||$duration>30||($target===4 && $duration!==30)||$now<=0) {
             $result['status']='INVALID_TRANSACTION';return $result;
         }
         try {
@@ -44,7 +44,7 @@ final class JVHeliosPartyExecutor
         callable $send, callable $after):array
     {
         if (($reserved['status']??'')!=='RESERVED'||($reserved['attempted']??false)!==true
-            || $level<1||$level>3||$minutes<5||$minutes>15) {
+            || $level<1||$level>4||$minutes<5||$minutes>30||($level===4 && $minutes!==30)) {
             $reserved['status']='NOT_RESERVED';return $reserved;
         }
         try {
