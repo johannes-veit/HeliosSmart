@@ -39,7 +39,7 @@ final class JVHeliosComfortController
             $pair=JVWeatherMath::readPair($room['temperature']??null,$room['rh']??null);
             if ($pair===null || $pair['temperature']<12 || $pair['temperature']>37) continue;
             $t=(float)$pair['temperature'];$rh=(float)$pair['rh'];$dp=(float)$pair['dewpoint'];
-            $hotRoom=$t>=26.5;$humidRoom=$rh>=60 || $dp>=17.5;
+            $hotRoom=$t>=25.5;$humidRoom=$rh>=60 || $dp>=17.5;
             $dryRoom=$rh<35;
             $heatScore=max(0.0,($t-25.0)*8.0, (20.5-$t)*7.0);
             // RH and dewpoint describe correlated vapor pressure. Do not double
@@ -107,7 +107,7 @@ final class JVHeliosComfortController
                 'Keine Feuchteanhebung durch die KWL behaupten.',
             ];
         } elseif ($needsCool || ($summer && $heatwave && $temperature>=23)) {
-            $base['classification']=$needsDry?'WARM_UND_FEUCHT':'ZU_WARM';
+            $base['classification']=$needsDry?'WARM_UND_FEUCHT':($needsCool?'ZU_WARM':'HITZEVORSORGE');
             $base['requested_improvement']=$compatible?'COOL_WITH_MOISTURE_GUARD':'PROTECT_FROM_HUMID_AIR';
             $base['weather_boost_compatible']=$compatible && $realCooling && $summer && !$dryConcern;
             $base['recommendations']=$compatible
