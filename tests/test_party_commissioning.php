@@ -37,6 +37,22 @@ pc(count($bw['candidate_sources'])===2,'Zwei Bedarfsquellen erhalten');
 $wet['wetrooms']=[['boost_recommended'=>false]];
 pc(JVHeliosBoostCoordinator::propose($wet,$none,2)['kind']==='KEEP_WEEKLY',
     'Alte Badfeuchte ohne explizite Eignung genügt nicht');
+$spike=$weekly;
+$spike['wetrooms']=[['name'=>'OG Bad','relative_humidity'=>57,
+ 'gradient_to_outside_gm3'=>3.0,'boost_recommended'=>false]];
+$spike['wetroom_trend']=['observed_rises'=>['OG Bad']];
+$spikeYes=JVHeliosBoostCoordinator::propose($spike,$none,2,true);
+pc($spikeYes['source']==='BATH_HUMIDITY' && $spikeYes['suggested_level']===4,
+ 'Multiple real bath RH rises can trigger S4 below static 60 pct');
+$spikeBad=$spike;$spikeBad['wetrooms'][0]['gradient_to_outside_gm3']=0.5;
+pc(JVHeliosBoostCoordinator::propose($spikeBad,$none,2,true)['kind']==='KEEP_WEEKLY',
+ 'Confirmed RH rise cannot boost into humid outside air');
+$spikeStale=$spike;$spikeStale['wetroom_trend']['observed_rises']=[];
+pc(JVHeliosBoostCoordinator::propose($spikeStale,$none,2,true)['kind']==='KEEP_WEEKLY',
+ 'No fresh multi-step event means no shortcut to bath boost');
+$spikeNoWeather=$spike;$spikeNoWeather['weather_usable_for_advice']=false;
+pc(JVHeliosBoostCoordinator::propose($spikeNoWeather,$none,2,true)['kind']==='KEEP_WEEKLY',
+ 'Missing outdoors prohibits relative humidity event shortcut');
 $cool=$weekly;$cool['mode']='PASSIVE_COOLING';$cool['requested_level']=3;
 $cool['indoor_temperature']=26;$cool['supply_temperature']=21;
 pc(JVHeliosBoostCoordinator::propose($cool,$none,2)['source']==='COOLING','Echte kühlere Zuluft als Kandidat');
