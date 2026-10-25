@@ -18,4 +18,12 @@ sa($r['regime']==='HEATWAVE_PRECOOL_WINDOW','Forecast and actual cool supply sel
 sa($r['recommended_stage']===4 && $r['preferred_bypass']==='OPEN_IF_ALLOWED','Precool bypass preference');
 $d['weather_quality']='MODEL_SUPPORTED';
 sa(JVHeliosSummerAirflow::advise($d)['recommended_stage']===null,'Bad weather quality fails closed');
+$winter=$d;$winter['weather_quality']='VERIFIED';
+$winter['season_signal']='HEATING_SEASON';
+$winter['indoor_temperature']=22.33;$winter['supply_temperature']=20.2;
+$winter['outside_temperature']=9;$winter['intake_after_ewt']=14.2;
+$w=JVHeliosSummerAirflow::advise($winter);
+sa($w['regime']==='HEATING_SEASON_HEAT_RECOVERY','Winter state is not mislabeled as summer cooling');
+sa($w['preferred_bypass']==='CLOSED_FOR_HEAT_RECOVERY','Winter bypass advisory honors heat retention');
+sa($w['recommended_stage']===null,'Winter advisory must not command fan change');
 echo "ALL SUMMER ADVISOR CHECKS PASSED\n";
