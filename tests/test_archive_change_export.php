@@ -42,6 +42,23 @@ ae($r['source_coverage_complete']===false
     && $r['logged_change_only_sources']===4
     && count($r['unresolved_sources'])===2,
     'Missing verified weather and link sources are reflected in export completeness');
+$quality=$r['quality_summary'];
+ae($quality['groups']['changes_found']===3
+    && $quality['groups']['no_changes_recorded']===1
+    && $quality['groups']['missing_or_failed']===2,
+    'Three transparent groups classify changes, no changes and missing sources');
+ae($quality['rooms']['EG Wohnen']['temperature']==='CHANGES_FOUND'
+    && $quality['rooms']['EG Wohnen']['humidity']==='CHANGES_FOUND',
+    'Existing living room temperature and humidity are readable separately');
+ae($quality['rooms']['OG Schlafen 1']['temperature']==='NO_CHANGES_RECORDED'
+    && $quality['rooms']['OG Schlafen 1']['humidity']==='NOT_IN_EXPORT',
+    'Unchanged archived value is explicitly not confused with absent humidity source');
+ae(!$quality['historical_outside_weather_complete']
+    && !$quality['ready_for_replay'] && !$quality['ready_for_automatic_control'],
+    'Missing historical outside data cannot authorize replay or automation');
+ae(!$quality['sensor_updates_proven'] && !$quality['fan_and_bypass_stability_proven'],
+    'A raw change history proves neither fresh messages nor a steady ventilation stage');
+
 $t=$r['series']['room.EG Wohnen.temperature'];
 ae($t['raw_event_count']===3 && $t['events'][0]['at']===$start+600,
   'Symcon reverse-chronological archive entries restored to strict chronological timestamps');
@@ -93,4 +110,20 @@ $raw=JVHeliosArchiveChangeExport::build(1234,$start,$start+3600,
     ['room'=>['id'=>29782]],$read,$logged,$variable,$link);
 ae($raw['important']!=='' && count($raw['missing_for_replay'])>=4,
     'Export declares that change timestamps cannot authenticate freshness or control');
+$complete=JVHeliosArchiveChangeExport::qualitySummary(['series'=>[
+    'weather.actual_outside_temperature_c'=>['archive_coverage'=>'CHANGE_EVENTS_ONLY'],
+    'weather.actual_outside_dewpoint_c'=>['archive_coverage'=>'CHANGE_EVENTS_ONLY'],
+    'helios.supply_after_exchanger_c'=>['archive_coverage'=>'CHANGE_EVENTS_ONLY'],
+]]);
+ae($complete['historical_outside_weather_complete']
+    && $complete['helios_supply_change_evidence']
+    && !$complete['ready_for_replay'],
+    'Even complete raw weather and supply change evidence never proves sensor freshness');
+$unchangedWeather=JVHeliosArchiveChangeExport::qualitySummary(['series'=>[
+    'weather.actual_outside_temperature_c'=>['archive_coverage'=>'NO_CHANGE_EVENTS_IN_WINDOW'],
+    'weather.actual_outside_dewpoint_c'=>['archive_coverage'=>'NO_CHANGE_EVENTS_IN_WINDOW'],
+]]);
+ae(!$unchangedWeather['historical_outside_weather_complete']
+    && $unchangedWeather['groups']['no_changes_recorded']===2,
+    'Quiet archives are not falsely declared fresh verified outdoor weather');
 echo "CHANGE-ONLY SYMCON ARCHIVE EXPORT TESTS PASSED\n";
