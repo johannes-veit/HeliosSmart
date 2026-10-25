@@ -107,6 +107,32 @@ pc(JVHeliosBoostCoordinator::propose($winter,$none,2,true)['kind']==='KEEP_WEEKL
 $winter['indoor_absolute_humidity']=12.5;
 pc(JVHeliosBoostCoordinator::propose($winter,$none,2,true)['source']==='WEATHER_OPTIMAL',
  'Strong genuine winter moisture excess still allows drying');
+// Verified 30C+ forecast advances pre-cooling but never overrides live sensors.
+$heat=$weatherGood;$heat['now']=strtotime('2026-07-14 21:00:00 UTC');
+$heat['indoor_temperature']=23.5;$heat['supply_temperature']=20.9;
+$heat['outside_temperature']=19;$heat['outside_dewpoint']=10;
+$heat['outside_absolute_humidity']=8;$heat['indoor_absolute_humidity']=10;
+$heat['season_signal']='SUMMER';
+$heat['forecast_advice']=['status'=>'READY','high_confidence_hours'=>20,
+ 'longest_contiguous_hours'=>15,'temperature_max_c'=>33.5];
+$heatPlan=JVHeliosBoostCoordinator::propose($heat,$none,2,true);
+pc(($heatPlan['weather_flush']['type']??null)==='HEATWAVE_PRECOOL',
+ 'Heatwave forecast prioritizes measured evening night pre-cooling');
+pc($heatPlan['source']==='WEATHER_OPTIMAL' && $heatPlan['suggested_level']===4,
+ 'Verified measured heatwave window proposes bounded S4');
+$heat['forecast_advice']['temperature_max_c']=29.0;
+pc(JVHeliosBoostCoordinator::propose($heat,$none,2,true)['kind']==='KEEP_WEEKLY',
+ 'Without heatwave forecast no marginal night pre-cool');
+$heat['forecast_advice']['temperature_max_c']=33.5;
+$heat['supply_temperature']=23;
+pc(JVHeliosBoostCoordinator::propose($heat,$none,2,true)['kind']==='KEEP_WEEKLY',
+ 'Hot EWT supply cannot justify pre-cooling');
+$heat['supply_temperature']=20.9;$heat['outside_absolute_humidity']=12;
+pc(JVHeliosBoostCoordinator::propose($heat,$none,2,true)['kind']==='KEEP_WEEKLY',
+ 'Humid outside air cancels heatwave boost');
+$heat['outside_absolute_humidity']=8;$heat['now']=strtotime('2026-07-14 13:00:00 UTC');
+pc(JVHeliosBoostCoordinator::propose($heat,$none,2,true)['kind']==='KEEP_WEEKLY',
+ 'Heatwave alone cannot force high ventilation all afternoon');
 $weatherDamp=$weatherGood;$weatherDamp['outside_absolute_humidity']=13;
 pc(JVHeliosBoostCoordinator::propose($weatherDamp,$none,2,true)['source']!=='WEATHER_OPTIMAL',
  'Damp outside air cannot trigger S4 flush');
