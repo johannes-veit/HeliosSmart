@@ -33,8 +33,12 @@ final class JVHeliosPartySafety
             || ($proposal['source']??'')==='COOLING') $issues[]='FIRST_STAGE_SCOPE_LIMIT';
         if (($proposal['kind']??'')!=='PARTY_CANDIDATE') $issues[]='NO_ACTUAL_DEMAND';
         // First production stage accepts only independently evaluated kitchen/bath demand.
-        if (!in_array($proposal['source']??null,['COOKING','BATH_HUMIDITY'],true))
+        if (!in_array($proposal['source']??null,['COOKING','BATH_HUMIDITY','WEATHER_OPTIMAL'],true))
             $issues[]='SOURCE_NOT_AUTHORIZED_FOR_FIRST_STAGE';
+        if (($proposal['source']??null)==='WEATHER_OPTIMAL') {
+            if (!$highPowerRequested || ($proposal['weather_flush']['eligible']??false)!==true)
+                $issues[]='WEATHER_FLUSH_REQUIRES_VERIFIED_S4';
+        }
         if (($proposal['suggested_level']??null)!==3 && !$highPowerRequested)
             $issues[]='FIRST_STAGE_REQUIRES_S3';
         if (($device['instance_exists']??false)!==true) $issues[]='HELIOS_INSTANCE_MISSING';
@@ -55,7 +59,7 @@ final class JVHeliosPartySafety
         $expires=(int)($owned['expires_at']??0);
         if ($last<0 || $last>$now+120 || $expires>$now+180*60) $issues[]='INVALID_COMMAND_STATE';
         if ($expires>$now) $issues[]='PARTY_WINDOW_RESERVED';
-        if ($last>0 && $now-$last<($highPowerRequested?45*60:30*60)) $issues[]='COOLDOWN_30_MIN';
+        if ($last>0 && $now-$last<((($proposal['source']??null)==='WEATHER_OPTIMAL')?180*60:($highPowerRequested?45*60:30*60))) $issues[]='COOLDOWN_30_MIN';
         return [
             'command_allowed'=>count($issues)===0,
             'airflow_basis'=>$measured?'MEASURED_CONFIRMED_BY_OPERATOR':($limited?'ESTIMATED_ONLY_OPERATOR_OPT_IN':'NOT_ACCEPTED'),
