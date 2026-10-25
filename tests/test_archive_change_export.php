@@ -35,9 +35,13 @@ $logged=static fn(int $archive,int $id):bool=>in_array($id,[29782,46360,41272,30
 $variable=static fn(int $id):bool=>in_array($id,[29782,46360,41272,30970,99999],true);
 $link=static fn(int $id):bool=>$id===99999;
 $r=JVHeliosArchiveChangeExport::build(1234,$start,$end,$sources,$read,$logged,$variable,$link);
-ae($r['status']==='COMPLETE_CHANGE_EVENT_EXPORT_NOT_REPLAY_READY'
+ae($r['status']==='MISSING_ARCHIVE_SOURCES_NOT_REPLAY_READY'
    && $r['read_only'] && !$r['hardware_authorized'] && !$r['ready_for_replay'],
    'Bounded raw event export clearly cannot authorize control or replay');
+ae($r['source_coverage_complete']===false
+    && $r['logged_change_only_sources']===4
+    && count($r['unresolved_sources'])===2,
+    'Missing verified weather and link sources are reflected in export completeness');
 $t=$r['series']['room.EG Wohnen.temperature'];
 ae($t['raw_event_count']===3 && $t['events'][0]['at']===$start+600,
   'Symcon reverse-chronological archive entries restored to strict chronological timestamps');
