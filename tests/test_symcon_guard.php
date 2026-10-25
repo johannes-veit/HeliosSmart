@@ -124,4 +124,12 @@ a(str_contains($hs->value('Status'),'24h:'),
  'Status enthaelt kurze 24h-Zusammenfassung');
 a(count($GLOBALS['calls'])===0,'Prognose erzeugt auch bei alten Freigaben null Helios-Befehle');
 
+$lastDecision=json_decode($hs->value('DecisionJSON'),true);
+a(isset($lastDecision['comfort_advice']['active_boost_authorized'])
+    && $lastDecision['comfort_advice']['active_boost_authorized']===false,
+    'V0.5 Komfortkontext kann keinen Boost aktivieren');
+a(isset($lastDecision['seasonal_advice']['program_changed'])
+    && $lastDecision['seasonal_advice']['program_changed']===false,
+    'V0.5 Saisonprofil bleibt eine Leseberechnung');
+a(count($GLOBALS['calls'])===0,'V0.5 weiterhin garantiert null Aktoraufrufe');
 echo "ALLE SYMCON-SCHUTZTESTS BESTANDEN\n";

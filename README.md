@@ -1,4 +1,4 @@
-# HELIOS SMART v0.4.1 – WetterZentrale & Lüftungsbeobachter
+# HELIOS SMART v0.5.0 – WetterZentrale & Lüftungsbeobachter
 
 **Entwicklungsfassung. Keine produktive Steuerungsfreigabe!**
 
@@ -22,6 +22,18 @@
 - Bei aktuellen Nutzerdaten: `VERIFIED`, elf frische Raumtemperaturen und drei frische Feuchtewerte sind konsistent; Wochenplan 3 bleibt als Grundstrategie. Beim Stand v0.3.0 zeigt `DecisionJSON` das Feld `forecast_advice`; fehlte es im uebermittelten JSON, war der aktualisierte Code noch nicht ausgefuehrt.
 - **Keine neuen Symcon-Variablen. Keine Helios-Schaltbefehle.** Alle alten Freigaben sind wirkungslos. Kein bestehendes Fremdmodul geaendert.
 
+
+
+## v0.5.0 – LCN-Raumkomfort und stabile Saisonprofile (25.10.2026)
+
+- Das bisherige Problem `2 frisch / 9 indikativ / 1 alt` wird differenziert behandelt. **Alle originalen LCN-Feuchtewerte** (einschließlich EG Flur ohne Temperaturpaar) können bis zu 12 Stunden als *veralteter, nur indikativ nutzbarer* relativer Raumfeuchte-Kontext einfließen. Werte über 12 Stunden oder außerhalb 0–100 % werden nicht als aktuelle Komfortmessung bewertet.
+- `comfort_advice` im bestehenden JSON zeigt getrennt **aktuell trockene**, **möglicherweise trockene**, **aktuell feuchte** und **möglicherweise feuchte** Räume. Niemals absolute Raumfeuchte ohne belegtes Temperaturpaar und **nie** ein Feuchte-Boost allein aus alten Werten.
+- Die Saison-Profilberatung `seasonal_advice` bewertet die 24-Stunden-Prognose und die Raumtemperatur gemeinsam: **Profil 4 nur für tatsächlich heißes Sommerwetter**, Profil 3 bei anhaltend gemäßigten/kühlen Bedingungen. Im Übergang wird nicht gewechselt.
+- Bevor eine abweichende Profilwahl überhaupt als Beratung ausgegeben wird, müssen **vier Stunden fortlaufende, ausreichend gute Prognosebelege** vorliegen. Einzelne Wärmepeaks, Prognoseausfall, ein aktiver anderer Wochenplan oder Lücken der Beobachtung setzen den Kandidaten zurück. State liegt als Instanz-Attribut statt als neue Variable.
+- Im Status erscheint eine einfache Profilbewertung, im Ergebnis-JSON die ausführliche Nachweislogik. **Es gibt keinerlei automatische Profileinstellung oder Helios-Schaltung in v0.5.0.**
+- 259 Offline-Prüfungen, darunter Sensoralter, Feuchte-Stagnation, Ausreißer, Profil-Hysterese, Prognoseabbruch, Schutz des Fremd-Wochenprogramms und Null-Geraetebefehle.
+
+**Aktualisierung:** IP-Symcon Kern-Instanzen → Modules → HeliosSmart aktualisieren, vorhandene Instanz #52187 öffnen, Übernehmen, `Nur lesen: Empfehlung berechnen`. Keine neue Instanz; WetterZentrale #40477 unverändert.
 
 ## v0.2.1 – Wetter-Zuordnung und LCN-Datenalter korrigiert (25.10.2026)
 

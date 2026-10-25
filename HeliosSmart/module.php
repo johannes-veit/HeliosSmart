@@ -4,6 +4,8 @@ require_once __DIR__ . '/../libs/RoomHistory.php';
 require_once __DIR__ . '/../libs/LCNRoomSources.php';
 require_once __DIR__ . '/../libs/ForecastAdvisor.php';
 require_once __DIR__ . '/../libs/DailyStrategy.php';
+require_once __DIR__ . '/../libs/ComfortAdvisor.php';
+require_once __DIR__ . '/../libs/SeasonalAdvisor.php';
 /** Vorhersagegestützter Beobachter; Aktor nur nach expliziter Freigabe. */
 class HeliosSmart extends IPSModule
 {
@@ -25,6 +27,7 @@ class HeliosSmart extends IPSModule
         $this->RegisterPropertyBoolean('DevicePartyReturnValidated',false);
         $this->RegisterPropertyBoolean('EnableProgramSwitch',false);
         $this->RegisterAttributeString('RoomHistory', '{}');
+        $this->RegisterAttributeString('SeasonalAdviceState', '{}');
         $this->RegisterAttributeInteger('LastCommandAt',0);
         $this->RegisterAttributeInteger('LastProgramAt',0);
         $this->RegisterAttributeInteger('OwnedPartyExpiresAt',0);
@@ -45,7 +48,7 @@ class HeliosSmart extends IPSModule
     {
         return json_encode([
             'elements'=>[
-                ['type'=>'Label','caption'=>'v0.4.1: Tagesstrategie, Vorhersagefenster und zwölf native LCN-Feuchtequellen; Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
+                ['type'=>'Label','caption'=>'v0.5.0: Tagesstrategie, Vorhersagefenster und zwölf native LCN-Feuchtequellen; Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
                 ['type'=>'NumberSpinner','name'=>'HeliosInstance','caption'=>'Helios-Instanz'],
                 ['type'=>'NumberSpinner','name'=>'WeatherCenterInstance','caption'=>'WetterZentrale-Instanz (0 = automatisch erkennen)'],
                 ['type'=>'NumberSpinner','name'=>'ClimateControlInstance','caption'=>'LCNClimateControl (nur lesend)'],
@@ -106,10 +109,13 @@ class HeliosSmart extends IPSModule
                     $sourceState='LINK_VERBOTEN';
                 }
             }
+            $rhValue=$hExists?GetValue($h):null;
             $humiditySources[]=[
                 'room'=>$name,'lcn_humidity_id'=>$h,'source'=>$sourceState,
                 'available'=>$hExists,'age_minutes'=>$hAge===null?null:(int)ceil($hAge/60),
                 'humidity_only'=>$t<=0,
+                'relative_humidity'=>is_numeric($rhValue) && $rhValue>=0 && $rhValue<=100
+                    ? (float)$rhValue : null,
             ];
             if (!$hExists) {
                 $missing[]=$name.' (LCN-Luftfeuchte #'.$h.' nicht vorhanden oder Link)';
@@ -228,13 +234,30 @@ class HeliosSmart extends IPSModule
             $decision, $forecastAdvice, $ewtMeasured, $weatherOutside, $humiditySources, $program);
         $decision['program_actual']=$program;
         $decision['program_recommended']=JVHeliosLogic::recommendProgram($weather,$decision,$now);
+        // Direct LCN RH context is allowed to use unchanged (indicative) values,
+        // but those readings NEVER authorize a humidity boost.
+        $decision['comfort_advice']=JVHeliosComfortAdvisor::analyze(
+            $humiditySources, $weatherOutside);
+        $lastSeason=json_decode($this->ReadAttributeString('SeasonalAdviceState'),true);
+        $season=JVHeliosSeasonalAdvisor::evaluate(
+            $decision,$forecastAdvice,$program,$now,is_array($lastSeason)?$lastSeason:[]);
+        $this->WriteAttributeString('SeasonalAdviceState',json_encode($season['state']));
+        $decision['seasonal_advice']=$season['advice'];
         $decision['helios_mode']=$mode;
         $decision['observation_only']=true;
         $this->SetValue('DecisionJSON',json_encode($decision,JSON_UNESCAPED_UNICODE));
-        // v0.4.1 is intentionally and unconditionally read-only.
+        // v0.5.0 is intentionally and unconditionally read-only.
         // Legacy approval properties remain registered to avoid migration issues,
         // but cannot authorize any HELIOS_* function from this version.
         $this->SetValue('Monitoring',true);
+        $seasonLabel=match ($season['advice']['status']) {
+            'ALREADY_MATCHES'=>'Wochenprofil passt',
+            'PENDING_STABILITY'=>'Profiltrend wird bestaetigt',
+            'ADVISORY_READY'=>'Profil '.($season['advice']['recommended_program']??'?').' nur empfohlen',
+            'TRANSITION'=>'Profil halten (Wechselwetter)',
+            'NONCUSTOM'=>'bestehendes Sonderprofil respektieren',
+            default=>'noch keine sichere Profilentscheidung',
+        };
         $this->SetValue('Status','BEOBACHTUNG | '.$decision['mode']
             .' | Wetter '.$decision['weather_quality'].' ('.$weatherConnection.') | '
             .($decision['mode']==='WEEKLY_BASE'
@@ -242,6 +265,7 @@ class HeliosSmart extends IPSModule
                 : 'Unverbindlicher Vorschlag Stufe '.$decision['requested_level'])
             .' | '.$decision['reason']
             .' | Tag: '.$decision['daily_strategy']['summary']
-            .' | 24h: '.$forecastAdvice['summary']);
+            .' | 24h: '.$forecastAdvice['summary']
+            .' | Profil: '.$seasonLabel);
     }
 }

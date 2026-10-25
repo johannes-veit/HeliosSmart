@@ -56,3 +56,11 @@ Originale LCN-Feuchtevariablen der zwoelf Raumbereiche aus SymBox-Backup gepruef
 ## v0.4.1 – Stufenbezeichnung und Bedarfsabgrenzung
 
 Neuer Regressionstest fuer gemeldeten Status 25.10.2026 mit 11 Temperaturquellen, zwei frischen Feuchtewerten und 24 Stunden guenstigem Trockenpotential. Testet Abgrenzung von Wetter-Gelegenheit und Dusch-Ereignis, verbleibende Wochenautomatik, begrenzte Sensorqualitaet sowie lesende Ist-Stufen-Anzeige.
+
+
+## v0.5.0 – LCN-Feuchte-Kontext und saisonale Profilstabilität
+
+- 259 bestandene PHP-Offline-Prüfungen: 222 bestehende plus 37 neue.
+- Komfort-Feuchte aus älteren LCN-RH-Originalvariablen ist streng von aktuellen Feuchteanstiegen und Schaltvoraussetzungen getrennt.
+- Saisonberatung ist eine pure Funktion mit persistiertem Instanzattribut, nur Ergebnisdarstellung. Vier Stunden stabiler Vorschläge werden verlangt.
+- Ein vollständiger Geräte-/SymBox-Livetest und die Bestätigung realer Luftmengen stehen weiterhin aus. Die Helios-Kommandoaufrufe sind aus der Beobachter-Instanz entfernt.
