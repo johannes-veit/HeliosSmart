@@ -63,6 +63,7 @@ $weatherGood['now']=strtotime('2026-10-26 14:00:00 UTC');
 $dayWeather=JVHeliosBoostCoordinator::propose($weatherGood,$none,2,true);
 pc($dayWeather['weather_flush']['daypart']==='DAY','Day-time recognized for ventilation optimization');
 $nightWeather=$weatherGood;$nightWeather['now']=strtotime('2026-10-26 22:30:00 UTC');
+$nightWeather['indoor_temperature']=24.5;$nightWeather['supply_temperature']=21;
 pc(JVHeliosBoostCoordinator::propose($nightWeather,$none,2,true)['source']!=='WEATHER_OPTIMAL',
  'Moderate weather cooling is not enough for noisy overnight S4');
 $nightStrong=$nightWeather;$nightStrong['indoor_temperature']=27;$nightStrong['supply_temperature']=20;
