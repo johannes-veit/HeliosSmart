@@ -28,6 +28,24 @@ ev($two['advice']['classification']==='COOKING_ACTIVITY_LIKELY',
  'One-hour real cooking with moderate cyclic stove load is detected within 17 min');
 ev($two['advice']['power_moderate_samples']>=2,'Two genuine moderate input messages');
 ev($two['advice']['power_baseline_w']===1375.,'Cooking did not train baseline upward');
+// Actual 19:39 trace had the last positive kitchen GUS edge about 11m old.
+$delayedMotion=$busy;
+$delayedMotion['motions']['Wohnkueche']=[
+  'recent'=>false,'last_positive_age_seconds'=>667];
+$delayedMotion['light']['on_minutes']=20;
+$evidence=JVHeliosCookingAdvisor::analyze($delayedMotion,$start+18*60,$one['state']);
+ev($evidence['advice']['classification']==='COOKING_ACTIVITY_LIKELY',
+ 'Real 11-minute-old kitchen motion with two distinct load samples still supports cooking');
+ev($evidence['advice']['kitchen_motion_extended_for_moderate']===true,
+ 'Distinct extended motion evidence is visible');
+$noSecond=JVHeliosCookingAdvisor::analyze($delayedMotion,$start+11*60,$one['state']);
+ev($noSecond['advice']['classification']!=='COOKING_ACTIVITY_LIKELY',
+ '11-minute-old motion and only the same source sample cannot force cooking');
+$expired=$delayedMotion;
+$expired['motions']['Wohnkueche']['last_positive_age_seconds']=16*60;
+$expiredEvidence=JVHeliosCookingAdvisor::analyze($expired,$start+18*60,$one['state']);
+ev($expiredEvidence['advice']['classification']!=='COOKING_ACTIVITY_LIKELY',
+ 'Old 16-minute kitchen edge cannot validate cooking');
 $proposal=JVHeliosBoostCoordinator::propose(
  ['mode'=>'WEEKLY_BASE','wetrooms'=>[]],$two['advice'],2,true);
 ev($proposal['source']==='COOKING' && $proposal['suggested_level']===3
