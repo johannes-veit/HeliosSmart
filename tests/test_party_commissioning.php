@@ -179,7 +179,7 @@ $hx=JVHeliosCookingSignalHealth::analyze($healthy);
 pc($hx['power_status']==='FRESH','Aktuelle Hichi-Werte korrekt');
 pc($hx['power_raw_value']===2300.,'Rohleistung bleibt sichtbar');
 pc(JVHeliosCookingSignalHealth::analyze(['power'=>['id'=>27700,'exists'=>true,'usable'=>false,
-    'raw_value'=>2300,'age_seconds'=>185,'value_type'=>'int']])['power_status']==='VALUE_NOT_UPDATED_2_MIN',
+    'raw_value'=>2300,'age_seconds'=>385,'value_type'=>'int']])['power_status']==='VALUE_NOT_UPDATED_6_MIN',
     'Gültiger alter Wert ist keine aktuelle Lastprobe');
 pc(JVHeliosCookingSignalHealth::analyze(['power'=>['id'=>27700,'exists'=>false]])['power_status']==='SOURCE_NOT_FOUND',
     'Fehlende Quelle eigener Diagnosegrund');
