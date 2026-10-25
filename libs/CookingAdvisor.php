@@ -108,7 +108,14 @@ final class JVHeliosCookingAdvisor
                 // Early re-evaluations may not postpone the next independent sample.
                 $newHighSampleAt=$lastHigh;
             }
-        } else { $since=0; $samples=0; }
+        } else {
+            // Induction hobs and thermostatic ovens cycle below the threshold.
+            // A brief low sample must not discard earlier REAL high-power
+            // source updates while a kitchen event is still underway.
+            if (!$kitchenMotion || $lastHigh<=0 || $now-$lastHigh>12*60) {
+                $since=0; $samples=0;
+            }
+        }
         $powerSustained=$highPower && $samples>=2 && $now-$since>=60;
         $baseline=$previous['baseline_power_w']??null;
         $baselineAt=(int)($previous['baseline_at']??0);
@@ -116,12 +123,40 @@ final class JVHeliosCookingAdvisor
             && $now-$baselineAt<=3*3600;
         $delta=$baselineValid && $watts!==null?(float)$watts-(float)$baseline:null;
         $powerRisePlausible= !$baselineValid || ($delta!==null && $delta>=700);
-        if ($watts!==null && $watts<=$threshold-300) {
+        // Learn true idle power only outside an active kitchen episode. In the
+        // old logic every 1.5 kW reading during cooking raised the baseline,
+        // making later genuine cooking spikes fail the +700 W condition.
+        if ($watts!==null && $watts<=$threshold-300 && !$light && !$kitchenMotion) {
             // A low-consumption value is the ONLY safe time to update baseline.
             $baseline=(float)$watts;
             $baselineAt=$now;
             $baselineValid=true;
         }
+        // Alternative for moderate, intermittent cooking (oven, low induction):
+        // TWO original distinct Tasmota updates, meaningful increase above a
+        // learned idle baseline, extended kitchen light and real motion.
+        // No power sample timestamp => no moderate-load proof.
+        $lightMinutes=max(0,min(1440,(int)($signals['light']['on_minutes']??0)));
+        $moderateThreshold=max(1400,$threshold-400);
+        $moderate=$watts!==null && $watts>=$moderateThreshold;
+        $moderateUpdate=(int)($previous['last_moderate_updated_at']??0);
+        $moderateLast=(int)($previous['last_moderate_sample_at']??0);
+        $moderateSince=(int)($previous['moderate_since']??0);
+        $moderateCount=max(0,min(10,(int)($previous['moderate_samples']??0)));
+        $distinctModerate=$hasSampleTime && $powerUpdated>$moderateUpdate
+            && $powerUpdated<=$now+120 && $now-$powerUpdated<=360;
+        if ($moderate && $distinctModerate
+            && ($moderateLast<=0 || $now-$moderateLast>=60)) {
+            if ($moderateLast<=0 || $moderateLast>$now || $now-$moderateLast>20*60
+                || $moderateSince<=0 || $now-$moderateSince>20*60) {
+                $moderateCount=1;$moderateSince=$now;
+            } else $moderateCount=min(10,$moderateCount+1);
+            $moderateLast=$now;
+            $moderateUpdate=(int)$powerUpdated;
+        }
+        $moderateMultiple=$moderate && $moderateCount>=2
+            && $moderateSince>0 && $now-$moderateSince>=60
+            && $now-$moderateLast<=6*60 && $now-$moderateSince<=20*60;
         $hour=(int)(new DateTimeImmutable('@'.$now))->setTimezone(new DateTimeZone('Europe/Berlin'))->format('G');
         $mealTime=($hour>=10 && $hour<15) || ($hour>=17 && $hour<22);
         $homeHint=count($home)>0;
@@ -132,8 +167,12 @@ final class JVHeliosCookingAdvisor
             +($powerSustained?3:($highPower?1:0))+($mealTime?1:0)+($homeHint?1:0);
         // A kitchen light + high total power, or corridor-only motion,
         // cannot be sufficient: at least a real kitchen-area motion is required.
-        $likely=$powerSustained && $powerRisePlausible && $kitchenMotion
+        $strongLikely=$powerSustained && $powerRisePlausible && $kitchenMotion
             && ($light || ($mealTime && $homeHint));
+        $moderateLikely=!$strongLikely && $moderateMultiple && $baselineValid
+            && $delta!==null && $delta>=250 && $light && $lightMinutes>=8
+            && $kitchenMotion && $mealTime;
+        $likely=$strongLikely || $moderateLikely;
         $possible=!$likely && (($kitchenMotion && $light)
             || ($highPower && ($kitchenMotion || ($hallMotion && $light))));
         $priorUntil=max(0,(int)($previous['hold_until']??0));
@@ -141,19 +180,26 @@ final class JVHeliosCookingAdvisor
         $hold=$likely ? $now+15*60 : ($validPrevious ? $priorUntil : 0);
         $held=!$likely && $hold>$now;
         // The hold is merely a pending ventilation suggestion, never new evidence.
-        $kind=$likely?'COOKING_LIKELY':($held?'COOKING_RECENTLY_LIKELY':
-            ($possible?'COOKING_POSSIBLE':'NO_CONFIRMED_COOKING'));
+        $previousKind=(string)($previous['last_likely_kind']??'');
+        $activityKind=$moderateLikely
+            || ($held && $previousKind==='COOKING_ACTIVITY_LIKELY');
+        $kind=$moderateLikely?'COOKING_ACTIVITY_LIKELY':
+            ($strongLikely?'COOKING_LIKELY':
+            ($held?($activityKind?'COOKING_ACTIVITY_RECENT':'COOKING_RECENTLY_LIKELY'):
+            ($possible?'COOKING_POSSIBLE':'NO_CONFIRMED_COOKING')));
         $fan=max(1,min(4,(int)($signals['current_fan_level']??2)));
         $automatic=($signals['helios_automatic_mode']??true)===true;
         $residentMismatch=$bothNotHome && $likely;
         $occupancy['kitchen_activity_conflicts_with_nonhome_reports']=$residentMismatch;
         $occupancy['independent_kitchen_motion_can_indicate_guests']=true;
-        $boost=($likely || $held) && $automatic && $fan<4;
-        $level=$boost ? min(4,max(3,$fan+1)) : null;
-        $summary=$kind==='COOKING_LIKELY'?'Kochen wahrscheinlich (mehrere unabhaengige Indizien)':
+        $boost=($likely || $held) && $automatic && $fan<($activityKind?3:4);
+        $level=$boost ? ($activityKind?3:min(4,max(3,$fan+1))) : null;
+        $summary=$activityKind && $likely
+            ?'Kochen wahrscheinlich: wiederholte moderate Leistung und laengere Kuechenaktivitaet'
+            :($kind==='COOKING_LIKELY'?'Kochen wahrscheinlich (mehrere unabhaengige Indizien)':
             ($held?'Kochen vor kurzem wahrscheinlich; Geruchs-Nachlauf nur als Vorschlag':
             ($possible?'Kochen moeglich, aber noch nicht ausreichend bestaetigt':
-            'Kochen derzeit nicht ausreichend belegt'));
+            'Kochen derzeit nicht ausreichend belegt')));
         if ($residentMismatch) $summary.='; Bewohner abwesend/in Firma gemeldet, dennoch Kuechenaktivitaet erkannt';
         if (($likely || $held) && !$automatic) $summary.='; manueller Helios-Modus hat Vorrang';
         elseif (($likely || $held) && $fan>=4) $summary.='; Stufe 4 bereits aktiv';
@@ -163,6 +209,21 @@ final class JVHeliosCookingAdvisor
                 'power_w'=>$watts,'power_threshold_w'=>$threshold,
                  'power_high'=>$highPower, 'power_multiple_samples'=>$powerSustained,
                 'power_high_samples'=>$samples,
+                'power_moderate_threshold_w'=>$moderateThreshold,
+                'power_moderate_samples'=>$moderateCount,
+                'power_moderate_distinct_updates'=>$moderateMultiple,
+                'kitchen_light_on_minutes'=>$lightMinutes,
+                'moderate_activity_based'=>$activityKind,
+                'missing_evidence'=>$likely?[]:array_values(array_filter([
+                    !$kitchenMotion?'NO_RECENT_KITCHEN_MOTION':null,
+                    !$light?'KITCHEN_LIGHT_OFF':null,
+                    $light && $lightMinutes<8?'LIGHT_DURATION_TOO_SHORT_FOR_MODERATE':null,
+                    !$powerUsable?'POWER_SOURCE_STALE_OR_MISSING':null,
+                    !$powerSustained?'LESS_THAN_TWO_HIGH_POWER_SAMPLES':null,
+                    !$moderateMultiple?'LESS_THAN_TWO_MODERATE_POWER_SAMPLES':null,
+                    $baselineValid && $delta!==null && $delta<250?'LOW_POWER_DELTA':null,
+                    !$baselineValid?'NO_IDLE_BASELINE_FOR_MODERATE':null,
+                ])),
                 'power_baseline_w'=>$baselineValid?round((float)$baseline,1):null,
                 'power_delta_from_baseline_w'=>$delta===null?null:round($delta,1),
                 'power_rise_supported'=>$powerRisePlausible,
@@ -183,8 +244,15 @@ final class JVHeliosCookingAdvisor
                 'high_power_since'=>$since,
                 'last_high_sample_at'=>$newHighSampleAt,
                 'last_high_updated_at'=>$highPower && $hasSampleTime
-                    ? ($newHighSampleAt===$now ? (int)$powerUpdated : $previousUpdate):0,
+                    ? ($newHighSampleAt===$now ? (int)$powerUpdated : $previousUpdate):$previousUpdate,
                 'high_power_samples'=>$samples,
+                'moderate_since'=>$moderateSince,
+                'last_moderate_sample_at'=>$moderateLast,
+                'last_moderate_updated_at'=>$moderateUpdate,
+                'moderate_samples'=>$moderateCount,
+                'last_likely_kind'=>$likely
+                    ?($moderateLikely?'COOKING_ACTIVITY_LIKELY':'COOKING_LIKELY')
+                    :$previousKind,
                 'baseline_power_w'=>$baselineValid?$baseline:null,
                 'baseline_at'=>$baselineValid?$baselineAt:0],
         ];
