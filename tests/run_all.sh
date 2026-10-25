@@ -37,4 +37,5 @@ php tests/test_party_live_executor.php
 php tests/test_live_symcon_integration.php
 php tests/test_party_monitor.php
 
+php tests/test_moisture_comfort.php
 php tests/test_summer_airflow.php
