@@ -54,7 +54,19 @@ final class JVHeliosBoostCoordinator
         // The legacy COOLING proposal was intrinsically rejected by PartySafety.
         // Keep passive-cooling interpretation in the decision diagnostics, but
         // use WEATHER_OPTIMAL only after independent live air and humidity checks.
-        $flush=JVHeliosWeatherFlush::analyze($decision);
+        // Global house averages include transient bathroom humidity. Summer
+        // weather S4 must be based on occupied living/sleeping conditions,
+        // while independent wetroom and kitchen events retain their priority.
+        $weatherDecision=$decision;
+        $comfort=(array)($decision['comfort_control']??[]);
+        if (($decision['season_signal']??'')!=='HEATING_SEASON'
+            && ($comfort['status']??'')==='READY'
+            && is_numeric($comfort['living_average_temperature_c']??null)
+            && is_numeric($comfort['living_average_absolute_humidity_gm3']??null)) {
+            $weatherDecision['indoor_temperature']=(float)$comfort['living_average_temperature_c'];
+            $weatherDecision['indoor_absolute_humidity']=(float)$comfort['living_average_absolute_humidity_gm3'];
+        }
+        $flush=JVHeliosWeatherFlush::analyze($weatherDecision);
         if ($highPower && $flush['eligible']) {
             $choices[]=['source'=>'WEATHER_OPTIMAL','rank'=>1.5,'level'=>4,'minutes'=>30];
         }
