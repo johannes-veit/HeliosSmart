@@ -8,7 +8,7 @@ final class JVHeliosWeatherFlush {
     public static function analyze(array $d):array {
         $out=['eligible'=>false,'reason'=>'INSUFFICIENT_LIVE_EVIDENCE','type'=>null,
             'indoor_outdoor_ah_gap'=>null,'indoor_supply_temperature_gap'=>null,
-            'duration_minutes'=>0,'level'=>null,'daypart'=>null,'energy_priority'=>null,'morning_activity_supported'=>false,'heatwave_pre_cooling'=>false,'forecast_peak_c'=>null];
+            'duration_minutes'=>0,'level'=>null,'daypart'=>null,'energy_priority'=>null,'morning_activity_supported'=>false,'heatwave_pre_cooling'=>false,'forecast_peak_c'=>null,'bypass_actual'=>null,'bypass_strategy'=>'UNKNOWN','intake_after_ewt'=>null];
         if (($d['weather_quality']??'')!=='VERIFIED'
             || ($d['trusted_weather']??false)!==true
             || (int)($d['fresh_room_count']??0)<5
@@ -41,6 +41,17 @@ final class JVHeliosWeatherFlush {
         $dew=(float)$d['outside_dewpoint'];
         $gap=$inAh-$outAh;
         $cool=$in-$supply;
+        $intake=$d['intake_after_ewt']??null;
+        $flap=$d['bypass_actual']??null;
+        $out['bypass_actual']=is_bool($flap)?$flap:null;
+        $out['intake_after_ewt']=is_numeric($intake)?round((float)$intake,2):null;
+        if (is_numeric($intake) && (float)$intake>=-10 && (float)$intake<=45) {
+            if ((float)$intake<=$in-1.5 && $in>=23)
+                $out['bypass_strategy']='OPEN_PREFERRED_IF_MANUFACTURER_PERMITS';
+            elseif ((float)$intake>=$in+1)
+                $out['bypass_strategy']='CLOSED_FOR_COOL_RECOVERY';
+            else $out['bypass_strategy']='NO_STRONG_ADVANTAGE';
+        }
         $out['indoor_outdoor_ah_gap']=round($gap,2);
         $out['indoor_supply_temperature_gap']=round($cool,2);
         // Avoid introducing damp air, cold winter drafts or excessive heating energy.
