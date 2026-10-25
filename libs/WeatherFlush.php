@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__.'/MoistureComfort.php';
 /**
  * Conservative combined indoor/outdoor weather decision. No independent actuator.
  * Actual supply is measured AFTER EWT; outdoor weather is measured externally.
@@ -8,7 +9,7 @@ final class JVHeliosWeatherFlush {
     public static function analyze(array $d):array {
         $out=['eligible'=>false,'reason'=>'INSUFFICIENT_LIVE_EVIDENCE','type'=>null,
             'indoor_outdoor_ah_gap'=>null,'indoor_supply_temperature_gap'=>null,
-            'duration_minutes'=>0,'level'=>null,'daypart'=>null,'energy_priority'=>null,'morning_activity_supported'=>false,'heatwave_pre_cooling'=>false,'forecast_peak_c'=>null,'bypass_actual'=>null,'bypass_strategy'=>'UNKNOWN','intake_after_ewt'=>null];
+            'duration_minutes'=>0,'level'=>null,'daypart'=>null,'energy_priority'=>null,'morning_activity_supported'=>false,'heatwave_pre_cooling'=>false,'forecast_peak_c'=>null,'bypass_actual'=>null,'bypass_strategy'=>'UNKNOWN','intake_after_ewt'=>null,'moisture_comfort'=>null];
         if (($d['weather_quality']??'')!=='VERIFIED'
             || ($d['trusted_weather']??false)!==true
             || (int)($d['fresh_room_count']??0)<5
@@ -54,8 +55,22 @@ final class JVHeliosWeatherFlush {
                 $out['bypass_strategy']='CLOSED_FOR_COOL_RECOVERY';
             else $out['bypass_strategy']='NO_STRONG_ADVANTAGE';
         }
+        $out['moisture_comfort']=JVHeliosMoistureComfort::analyze($d);
+        // In moist weather, the enthalpy exchanger can be preferable to
+        // direct bypassed incoming air. We cannot force the Helios bypass
+        // or certify actual supply humidity without a supply RH sensor.
+        if (($d['season_signal']??'')!=='HEATING_SEASON'
+            && ($out['moisture_comfort']['humidity_import_risk']??false)===true) {
+            $out['bypass_strategy']='ENTHALPY_EXCHANGER_PREFERRED_FOR_MOISTURE';
+        }
         $out['indoor_outdoor_ah_gap']=round($gap,2);
         $out['indoor_supply_temperature_gap']=round($cool,2);
+        // Moisture import is a hard block on discretionary weather S4:
+        // strong measured sensible cooling never justifies a muggy house.
+        if (($out['moisture_comfort']['weather_cooling_boost_allowed']??false)!==true) {
+            $out['reason']='SUMMER_MOISTURE_PRIORITY_GUARD';
+            return $out;
+        }
         // Avoid introducing damp air, cold winter drafts or excessive heating energy.
         if ($dew>16 || $outAh>$inAh+0.2 || $supply<17 || $outside<8) {
             $out['reason']='MOISTURE_OR_COLD_SUPPLY_GUARD';return $out;
