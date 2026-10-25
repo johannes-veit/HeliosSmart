@@ -21,15 +21,21 @@ final class JVHeliosPartySafety
         if ($limited && !$measured && (($proposal['source']??'')==='COOLING'
             || (int)($proposal['suggested_level']??0)>3
             || (int)($proposal['suggested_minutes']??0)>15)) $issues[]='ESTIMATED_FLOW_LIMIT_EXCEEDED';
-        // Independently enforce stage-3/15-min limit for this first production release.
-        if ((int)($proposal['suggested_level']??0)>3
-            || (int)($proposal['suggested_minutes']??0)>15
+        $highPowerRequested=($proposal['suggested_level']??null)===4 && ($proposal['suggested_minutes']??null)===30;
+        if ($highPowerRequested) {
+            if (($approvals['high_power_opt_in']??false)!==true) $issues[]='HIGH_POWER_OPT_IN_MISSING';
+            if (($approvals['high_power_safety']??false)!==true) $issues[]='HIGH_POWER_INSTALLATION_SAFETY_UNVERIFIED';
+            if (!$measured) $issues[]='HIGH_POWER_REQUIRES_MEASURED_AIRFLOW';
+        }
+        // Existing S3/15 remains unchanged, S4/30 requires separate approvals.
+        if ((!$highPowerRequested && ((int)($proposal['suggested_level']??0)>3
+            || (int)($proposal['suggested_minutes']??0)>15))
             || ($proposal['source']??'')==='COOLING') $issues[]='FIRST_STAGE_SCOPE_LIMIT';
         if (($proposal['kind']??'')!=='PARTY_CANDIDATE') $issues[]='NO_ACTUAL_DEMAND';
         // First production stage accepts only independently evaluated kitchen/bath demand.
         if (!in_array($proposal['source']??null,['COOKING','BATH_HUMIDITY'],true))
             $issues[]='SOURCE_NOT_AUTHORIZED_FOR_FIRST_STAGE';
-        if (($proposal['suggested_level']??null)!==3)
+        if (($proposal['suggested_level']??null)!==3 && !$highPowerRequested)
             $issues[]='FIRST_STAGE_REQUIRES_S3';
         if (($device['instance_exists']??false)!==true) $issues[]='HELIOS_INSTANCE_MISSING';
         if (($device['module_verified']??false)!==true) $issues[]='HELIOS_MODULE_ID_NOT_VERIFIED';
@@ -49,7 +55,7 @@ final class JVHeliosPartySafety
         $expires=(int)($owned['expires_at']??0);
         if ($last<0 || $last>$now+120 || $expires>$now+180*60) $issues[]='INVALID_COMMAND_STATE';
         if ($expires>$now) $issues[]='PARTY_WINDOW_RESERVED';
-        if ($last>0 && $now-$last<30*60) $issues[]='COOLDOWN_30_MIN';
+        if ($last>0 && $now-$last<($highPowerRequested?45*60:30*60)) $issues[]='COOLDOWN_30_MIN';
         return [
             'command_allowed'=>count($issues)===0,
             'airflow_basis'=>$measured?'MEASURED_CONFIRMED_BY_OPERATOR':($limited?'ESTIMATED_ONLY_OPERATOR_OPT_IN':'NOT_ACCEPTED'),
