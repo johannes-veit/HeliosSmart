@@ -705,6 +705,8 @@ class HeliosSmart extends IPSModule
             .' | 24h: '.$forecastAdvice['summary']
             .' | Profil: '.$seasonLabel
             .' | Bedarf: '.$decision['ventilation_need']['summary']
+            .' | Behaglichkeit: '.($decision['comfort_control']['classification']??'UNBEKANNT')
+                .' / '.($decision['comfort_control']['requested_improvement']??'KEINE_DATEN')
             .' | Kochen: '.$decision['cooking_advice']['summary']
             .' | Party: '.$decision['execution_status'].' / '.($guard['command_allowed']?'FREIGABE':'GESPERRT'). ' ('.($guard['airflow_basis']??'NO_AIRFLOW').')'
             .(!empty($decision['occupancy_advice']['away_status_reports'])
