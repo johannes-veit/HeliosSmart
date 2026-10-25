@@ -9,7 +9,7 @@ final class JVHeliosWeatherFlush {
     public static function analyze(array $d):array {
         $out=['eligible'=>false,'reason'=>'INSUFFICIENT_LIVE_EVIDENCE','type'=>null,
             'indoor_outdoor_ah_gap'=>null,'indoor_supply_temperature_gap'=>null,
-            'duration_minutes'=>0,'level'=>null,'daypart'=>null,'energy_priority'=>null,'morning_activity_supported'=>false,'heatwave_pre_cooling'=>false,'forecast_peak_c'=>null,'bypass_actual'=>null,'bypass_strategy'=>'UNKNOWN','intake_after_ewt'=>null,'moisture_comfort'=>null];
+            'duration_minutes'=>0,'level'=>null,'daypart'=>null,'energy_priority'=>null,'morning_activity_supported'=>false,'heatwave_pre_cooling'=>false,'forecast_peak_c'=>null,'bypass_actual'=>null,'bypass_strategy'=>'UNKNOWN','intake_after_ewt'=>null,'moisture_comfort'=>null,'humidity_relief_exception'=>false];
         if (($d['weather_quality']??'')!=='VERIFIED'
             || ($d['trusted_weather']??false)!==true
             || (int)($d['fresh_room_count']??0)<5
@@ -71,8 +71,19 @@ final class JVHeliosWeatherFlush {
             $out['reason']='SUMMER_MOISTURE_PRIORITY_GUARD';
             return $out;
         }
+        // A fixed dewpoint >16 C would prohibit drying an even muggier
+        // occupied house. Permit a limited special case only when outside
+        // vapor load is *materially* lower, actual cool supply is useful and
+        // the manufacturer-safe weather/room gates are all satisfied.
+        $insideDew=$out['moisture_comfort']['indoor_dewpoint_estimated_c']??null;
+        $humidRelief=($d['season_signal']??'')!=='HEATING_SEASON'
+            && $dew>16.0 && $dew<=19.0
+            && $inAh>=14.0 && $gap>=3.5
+            && is_numeric($insideDew) && (float)$insideDew>=$dew+2.5
+            && $in>=23.0 && $cool>=2.0 && $supply>=19.0;
+        $out['humidity_relief_exception']=$humidRelief;
         // Avoid introducing damp air, cold winter drafts or excessive heating energy.
-        if ($dew>16 || $outAh>$inAh+0.2 || $supply<17 || $outside<8) {
+        if (($dew>16 && !$humidRelief) || $outAh>$inAh+0.2 || $supply<17 || $outside<8) {
             $out['reason']='MOISTURE_OR_COLD_SUPPLY_GUARD';return $out;
         }
         // At night a weather-only S4 run needs a substantially stronger benefit
@@ -84,7 +95,9 @@ final class JVHeliosWeatherFlush {
         $humidityThreshold=$quiet?3.5:2.5;
         // During heating season, do not consume heating energy merely because
         // outdoor air is dry; demand must be material and supply comfortable.
-        if ($in>=($precool?23.0:($quiet?25.0:24.0)) && $cool>=$coolThreshold && $gap>=-0.2)
+        if ($humidRelief) {
+            $out['type']='HIGH_INDOOR_HUMIDITY_RELIEF';
+        } elseif ($in>=($precool?23.0:($quiet?25.0:24.0)) && $cool>=$coolThreshold && $gap>=-0.2)
             $out['type']=$precool?'HEATWAVE_PRECOOL':'THERMAL_COOLING';
         elseif ($inAh>=($quiet?11.5:10.5) && $gap>=$humidityThreshold
             && $supply>=($quiet?20.0:19.0) && $in>=21.5)
