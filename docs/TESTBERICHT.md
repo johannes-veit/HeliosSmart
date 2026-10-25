@@ -94,3 +94,11 @@ Neue Nachweise: `VM_UPDATE` akzeptiert boolesches `true` und Ganzzahl `1`; zwei 
 Gesamtintegration: Nach zwei echten LCN-Updates erscheint ein Hinweis unter `wetroom_trend` im existierenden Entscheidungs-JSON. `ventilation_need` verwechselt den Trend nicht mit nachgewiesenem Lueftungsbedarf. Alle historischen Freigaben bleiben ohne Wirkung: kein Aufruf einer HELIOS-Schaltfunktion.
 
 Grenzen: Die Grenzwerte sind nur vorlaeufige Beobachtungsparameter. Das Format der `VM_UPDATE`-Datenfelder ist nicht offiziell als stabile Struktur zugesichert. Die Integration ist offline simuliert; eine reale Bestätigung auf der SymBox liegt noch nicht vor. Unbekannte Datenformate bleiben passiv; der 5-Minuten-Beobachter laeuft unabhaengig.
+
+## v0.9.0 – Koch-/Bewohnererkennung (Offline-Testprotokoll)
+- 379 PASS-Meldungen der Testsuite, plus 28 PHP-Lintpruefungen, `tests/run_all.sh` Exit 0.
+- Haussensoren per Original-ID: #51009 Kuechenlicht, #51040 Wohnen/Kueche Bewegung, #39155 EG-Flur-Bewegung, #27700 Holley Hausleistung W. IDs aus SymBox-Backup (06.10.2026).
+- Anwesenheit per Modul GUID `{D94700DB-96B0-490C-9F23-E6AE39677384}`, Instanz #32969, Idents `JohannesPresence`, `CarinaPresence`, `EvidenceJSON`. Read-only. Das Referenzmodul JVPresenceIdentityShadow/`JVResidentPresenceDisplay.php` unterscheidet nur Handyhinweise, keine sicher belegte Personenzahl / Leerstand.
+- Mehrfachindikatoren, kochfreie Grenzfaelle, Nachtkochen, Zeitstempel, Work-WLAN, angeblich abwesende Bewohner, stale power/motion, manuelle Helios-Bedienung und Stufe 4 durch reine Funktionstests geprueft.
+- Integration unter simuliertem Symcon: Carina HOME-Hinweis, Johannes WORK-Handy, Kuechenlicht an, Bewegung ja, Hausleistung 2.600 W, keine HELIOS_* Aufrufe.
+- Weder eine Veraenderung von LCN-/SHADOW-Modulen noch das Einschalten von Party- oder Wochenprogrammen ist Teil dieser Version. No production commissioning.

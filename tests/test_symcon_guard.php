@@ -10,9 +10,11 @@ $GLOBALS['values']=[
 ];
 $GLOBALS['variableTime']=time()-100;
 $GLOBALS['calls']=[];
-function IPS_InstanceExists($id){return in_array($id,[11842,16987,19285,17597,42],true);}
+function IPS_InstanceExists($id){return in_array($id,[11842,16987,19285,17597,42,32969],true);}
+function IPS_GetInstance($id){return ['ModuleInfo'=>['ModuleID'=>$id===32969?'{D94700DB-96B0-490C-9F23-E6AE39677384}':($id===42?'{685106B4-47EC-43C9-9CA9-9BAE53E4B304}':'{OTHER-INSTANCE}')]];}
+function IPS_GetObjectIDByIdent($ident,$instance){return $instance===32969?(['JohannesPresence'=>60001,'CarinaPresence'=>60002,'EvidenceJSON'=>60003][$ident]??0):0;}
 function IPS_VariableExists($id){return array_key_exists($id,$GLOBALS['values']);}
-function IPS_GetVariable($id){return ['VariableUpdated'=>$GLOBALS['variableTime']];}
+function IPS_GetVariable($id){return ['VariableUpdated'=>$GLOBALS['variableTime'],'VariableChanged'=>$GLOBALS['changedAt'][$id]??0];}
 function GetValue($id){return $GLOBALS['values'][$id];}
 function IPS_GetConfiguration($id){return json_encode(['Location'=>json_encode(['latitude'=>50,'longitude'=>7])]);}
 function JVWC_Snapshot($id){return json_encode($GLOBALS['weatherForTest']??['quality'=>'VERIFIED','current'=>JVWeatherMath::readPair(5,100)+['observed_at'=>time()-120], 'forecast'=>[]]);}
@@ -204,3 +206,45 @@ $afterUnregister=json_decode($trendModule->value('DecisionJSON'),true);
 a(($afterUnregister['wetroom_trend']['observed_rises']??[])===[],
     'Beim Umkonfigurieren abgemeldeter Feuchtetrend verschwindet auch aus Diagnose');
 a(count($GLOBALS['calls'])===0,'Keine Hardwarebefehle auch nach Konfigurationsmigration');
+
+// v0.9.0: read-only Kochhinweis aus den bestaetigten Original-IDs plus SHADOW Idents.
+foreach ([12812,36518,21585,29782,25557,30970,25330] as $roomTempID) $GLOBALS['values'][$roomTempID]=22.3;
+$GLOBALS['values'][53361]=47.0; $GLOBALS['values'][28802]=49.0;
+$GLOBALS['values'][51009]=true;
+$GLOBALS['values'][51040]=true;
+$GLOBALS['values'][39155]=false;
+$GLOBALS['values'][27700]=2600;
+$GLOBALS['values'][60001]='WORK (Firmen-WLAN-Handy)';
+$GLOBALS['values'][60002]='ANWESEND (Handyhinweis)';
+$GLOBALS['values'][60003]='{}';
+$GLOBALS['changedAt'][51040]=time()-60;
+$GLOBALS['variableTime']=time()-90;
+$hs->Evaluate();
+$withCook=json_decode($hs->value('DecisionJSON'),true);
+a(($withCook['cooking_advice']['classification']??'')==='COOKING_LIKELY',
+  'Kuechenlicht, Bewegung und Hausleistung koennen gemeinsames Kochen nahelegen');
+a(($withCook['cooking_advice']['suggested_fan_level']??0)===3,
+  'Bestehende Stufe 2: nur unverbindlicher Vorschlag Stufe 3');
+a(($withCook['occupancy_advice']['home_phone_hints']??[])===['Carina'],
+  'Carina aus vorhandener Anwesenheitserkennung per Ident eingebunden');
+a(($withCook['occupancy_advice']['work_phone_hints']??[])===['Johannes'],
+  'Johannes Firmenhinweis eingebunden, ohne Hausleerstand anzunehmen');
+a(($withCook['occupancy_advice']['house_empty_proven']??null)===false,
+  'Auch bei gemischtem Bewohnerstatus kein Beweis fuer Hausleerstand');
+a(($withCook['mode']??null)==='COOKING_BOOST',
+  'Kochbetrieb als separate Beobachtungsstrategie gekennzeichnet');
+a(!str_contains($withCook['reason']??'','Kein zusaetzlicher Lueftungsvorteil belegt'),
+  'Bei erkanntem Kochen keine widerspruechliche Wochenplanbegruendung');
+a(($withCook['cooking_advice']['hardware_authorized']??null)===false,
+  'Kochhinweis hat unter keinen Bedingungen eine Hardwarefreigabe');
+a(count($GLOBALS['calls'])===0,'Auch mit Carina zuhause + 2600W + Bewegung: keine Helios-Befehle');
+$GLOBALS['values'][51009]=false;
+$GLOBALS['values'][51040]=false;
+$GLOBALS['values'][27700]=1400;
+$GLOBALS['changedAt'][51040]=time()-2400;
+$hs->WriteAttributeString('CookingAdviceState','{}');
+$hs->Evaluate();
+$withoutCook=json_decode($hs->value('DecisionJSON'),true);
+a(($withoutCook['cooking_advice']['potential_odor_boost']??null)===false,
+  'Ausgeschaltetes Licht und keine frische Bewegung / Leistung: kein Boost');
+a(count($GLOBALS['calls'])===0,'Bewohnerstatus veraendert niemals den Helios-Wochenplan');

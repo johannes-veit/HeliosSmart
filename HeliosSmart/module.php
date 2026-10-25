@@ -8,6 +8,7 @@ require_once __DIR__ . '/../libs/ComfortAdvisor.php';
 require_once __DIR__ . '/../libs/SeasonalAdvisor.php';
 require_once __DIR__ . '/../libs/VentilationNeed.php';
 require_once __DIR__ . '/../libs/WetroomEvents.php';
+require_once __DIR__ . '/../libs/CookingAdvisor.php';
 /** Vorhersagegestützter Beobachter; Aktor nur nach expliziter Freigabe. */
 class HeliosSmart extends IPSModule
 {
@@ -22,6 +23,13 @@ class HeliosSmart extends IPSModule
         $this->RegisterPropertyInteger('HeliosProgramVariable',12877);
         $this->RegisterPropertyInteger('HeliosSupplyTemperature',41272);
         $this->RegisterPropertyInteger('HeliosIntakeAfterEWT',28581);
+        // Originalvariablen aus dem SymBox-Backup; alle ausschliesslich lesend.
+        $this->RegisterPropertyInteger('KitchenLightVariable',51009);
+        $this->RegisterPropertyInteger('KitchenMotionVariable',51040);
+        $this->RegisterPropertyInteger('GroundFloorHallMotionVariable',39155);
+        $this->RegisterPropertyInteger('HousePowerVariable',27700);
+        $this->RegisterPropertyInteger('ResidentShadowInstance',32969);
+        $this->RegisterPropertyInteger('CookingPowerThresholdW',2000);
         $this->RegisterPropertyString('Rooms',json_encode(JVHeliosLCNRoomSources::SOURCES, JSON_UNESCAPED_UNICODE));
         $this->RegisterPropertyBoolean('EnableControl',false);
         $this->RegisterPropertyBoolean('MinimumVentilationValidated',false);
@@ -31,6 +39,7 @@ class HeliosSmart extends IPSModule
         $this->RegisterAttributeString('RoomHistory', '{}');
         $this->RegisterAttributeString('SeasonalAdviceState', '{}');
         $this->RegisterAttributeString('WetroomEventState', '{}');
+        $this->RegisterAttributeString('CookingAdviceState', '{}');
         $this->RegisterAttributeInteger('LastCommandAt',0);
         $this->RegisterAttributeInteger('LastProgramAt',0);
         $this->RegisterAttributeInteger('OwnedPartyExpiresAt',0);
@@ -83,7 +92,7 @@ class HeliosSmart extends IPSModule
     {
         return json_encode([
             'elements'=>[
-                ['type'=>'Label','caption'=>'v0.8.0: Mehrstufige ereignisbasierte Badfeuchte-Trends, 24h-Echtzeitfenster, Bedarfsbeurteilung, Tagesstrategie, Vorhersagefenster und zwölf native LCN-Feuchtequellen; Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
+                ['type'=>'Label','caption'=>'v0.9.0: Indizienbasierte Koch- und Bewohneranalyse, mehrstufige ereignisbasierte Badfeuchte-Trends, 24h-Echtzeitfenster, Bedarfsbeurteilung, Tagesstrategie, Vorhersagefenster und zwölf native LCN-Feuchtequellen; Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
                 ['type'=>'NumberSpinner','name'=>'HeliosInstance','caption'=>'Helios-Instanz'],
                 ['type'=>'NumberSpinner','name'=>'WeatherCenterInstance','caption'=>'WetterZentrale-Instanz (0 = automatisch erkennen)'],
                 ['type'=>'NumberSpinner','name'=>'ClimateControlInstance','caption'=>'LCNClimateControl (nur lesend)'],
@@ -92,6 +101,12 @@ class HeliosSmart extends IPSModule
                 ['type'=>'NumberSpinner','name'=>'HeliosProgramVariable','caption'=>'Helios Wochenprogramm'],
                 ['type'=>'NumberSpinner','name'=>'HeliosSupplyTemperature','caption'=>'Helios Zulufttemperatur nach EWT und WRG'],
                 ['type'=>'NumberSpinner','name'=>'HeliosIntakeAfterEWT','caption'=>'Helios-Geräteeintritt NACH Sole-EWT'],
+                ['type'=>'NumberSpinner','name'=>'KitchenLightVariable','caption'=>'Kuechenlicht Status (Original #51009)'],
+                ['type'=>'NumberSpinner','name'=>'KitchenMotionVariable','caption'=>'Bewegung Wohnen / Kueche (#51040)'],
+                ['type'=>'NumberSpinner','name'=>'GroundFloorHallMotionVariable','caption'=>'Bewegung EG Flur (#39155)'],
+                ['type'=>'NumberSpinner','name'=>'HousePowerVariable','caption'=>'Hausverbrauch W (#27700)'],
+                ['type'=>'NumberSpinner','name'=>'ResidentShadowInstance','caption'=>'Anwesenheit SHADOW (#32969)'],
+                ['type'=>'NumberSpinner','name'=>'CookingPowerThresholdW','caption'=>'Leistungsschwelle W (Standard 2000)'],
                 ['type'=>'ValidationTextBox','name'=>'Rooms','caption'=>'Raumsensoren JSON'],
             ],
             'actions'=>[['type'=>'Button','caption'=>'Nur lesen: Empfehlung berechnen','onClick'=>'JVHS_Evaluate($id);']]
@@ -175,6 +190,82 @@ class HeliosSmart extends IPSModule
             ];
         }
         return [$rooms,$missing,$humiditySources];
+    }
+
+    /** LCN/Zaehler-Status lesen: Messalter und Typ pruefen, nie Schaltaktionen. */
+    private function ReadCookingSignals(int $now): array
+    {
+        $bool = static function (int $id, int $maxAge) use ($now): array {
+            $out=['id'=>$id,'usable'=>false,'on'=>false,'age_seconds'=>null];
+            if ($id<=0 || !IPS_VariableExists($id)) return $out;
+            $v=IPS_GetVariable($id);
+            $age=$now-(int)($v['VariableUpdated']??0);
+            $value=GetValue($id);
+            $out['age_seconds']=$age>=0?$age:null;
+            $out['usable']=$age>=-120 && $age<=$maxAge
+                && (is_bool($value) || $value===0 || $value===1);
+            $out['on']=$out['usable'] && (bool)$value;
+            return $out;
+        };
+        $motion=static function (int $id) use ($now, $bool): array {
+            $s=$bool($id,900);
+            if (!$s['usable']) return $s+['recent'=>false];
+            $v=IPS_GetVariable($id);
+            // VariableChanged ist entscheidend: haeufige unveraenderte FALSE-Updates
+            // duerfen keine Bewegung erfinden. TRUE darf nur wenige Minuten alt sein.
+            $changed=(int)($v['VariableChanged']??0);
+            $age=$now-$changed;
+            $s['recent']=$changed>0 && $age>=-120 && $age<=5*60;
+            return $s;
+        };
+        $light=$bool($this->ReadPropertyInteger('KitchenLightVariable'),24*3600);
+        $motions=[
+            'Wohnkueche'=>$motion($this->ReadPropertyInteger('KitchenMotionVariable')),
+            'EG Flur'=>$motion($this->ReadPropertyInteger('GroundFloorHallMotionVariable')),
+        ];
+        $powerID=$this->ReadPropertyInteger('HousePowerVariable');
+        $power=['id'=>$powerID,'usable'=>false,'watts'=>null,'age_seconds'=>null];
+        if ($powerID>0 && IPS_VariableExists($powerID)) {
+            $v=GetValue($powerID); $meta=IPS_GetVariable($powerID);
+            $age=$now-(int)($meta['VariableUpdated']??0);
+            $power['age_seconds']=$age>=0?$age:null;
+            if (is_numeric($v) && $age>=-120 && $age<=10*60 && (float)$v>=0 && (float)$v<=100000) {
+                $power['usable']=true;$power['watts']=(float)$v;
+            }
+        }
+        $residents=[];$shadow=$this->ReadPropertyInteger('ResidentShadowInstance');
+        $trusted=false;
+        if ($shadow>0 && IPS_InstanceExists($shadow) && function_exists('IPS_GetInstance')) {
+            $module=(string)(IPS_GetInstance($shadow)['ModuleInfo']['ModuleID']??'');
+            $trusted=strcasecmp($module,'{D94700DB-96B0-490C-9F23-E6AE39677384}')===0;
+        }
+        if ($trusted && function_exists('IPS_GetObjectIDByIdent')) {
+            $reportID=0;
+            try { $reportID=(int)@IPS_GetObjectIDByIdent('EvidenceJSON',$shadow); }
+            catch (Throwable $e) { $reportID=0; }
+            $reportRecent=false;
+            if ($reportID>0 && IPS_VariableExists($reportID)) {
+                $time=(int)(IPS_GetVariable($reportID)['VariableUpdated']??0);
+                $reportRecent=$time>0 && $time<=$now+120 && $now-$time<=30*60;
+            }
+            foreach (['Johannes','Carina'] as $name) {
+                $id=0;
+                try { $id=(int)@IPS_GetObjectIDByIdent($name.'Presence',$shadow); }
+                catch (Throwable $e) { $id=0; }
+                $raw=$id>0 && IPS_VariableExists($id)?GetValue($id):null;
+                $statusAge=$id>0 && IPS_VariableExists($id)
+                    ? $now-(int)(IPS_GetVariable($id)['VariableUpdated']??0):PHP_INT_MAX;
+                $residents[$name]=[
+                    'id'=>(int)$id,'status'=>is_string($raw)?$raw:null,
+                    'source_recent'=>$reportRecent || ($statusAge>=-120 && $statusAge<=30*60),
+                    'status_age_minutes'=>$statusAge>=0 && $statusAge<PHP_INT_MAX
+                        ?(int)ceil($statusAge/60):null,
+                ];
+            }
+        }
+        return ['light'=>$light,'motions'=>$motions,'power'=>$power,'residents'=>$residents,
+            'shadow_instance_verified'=>$trusted,
+            'power_threshold_w'=>$this->ReadPropertyInteger('CookingPowerThresholdW')];
     }
 
     public function Evaluate(): void
@@ -286,6 +377,34 @@ class HeliosSmart extends IPSModule
         // Bedarf ist ein eigener Nachweis und niemals gleich einem guten Wetterfenster.
         $decision['ventilation_need']=JVHeliosVentilationNeed::analyze(
             $decision,$decision['comfort_advice'],$forecastAdvice,$decision['daily_strategy'],$wetroomTrend);
+        // Kochen braucht mehr als ein einzelnes Signal. Bewohnerstatus ist
+        // nur ein Mobiltelefonhinweis; fehlende Signale beweisen kein leeres Haus.
+        $cookingState=json_decode($this->ReadAttributeString('CookingAdviceState'),true);
+        $cookingInputs=$this->ReadCookingSignals($now);
+        $cookingInputs['current_fan_level']=(int)GetValue($fanID);
+        $cookingInputs['helios_automatic_mode']=($mode===0);
+        $cooking=JVHeliosCookingAdvisor::analyze($cookingInputs,$now,
+            is_array($cookingState)?$cookingState:[]);
+        $this->WriteAttributeString('CookingAdviceState',json_encode($cooking['state']));
+        $decision['cooking_advice']=$cooking['advice'];
+        $decision['occupancy_advice']=$cooking['advice']['occupancy'];
+        if ($cooking['advice']['potential_odor_boost']) {
+            $decision['ventilation_need']['hardware_authorized']=false;
+            $decision['ventilation_need']['cooking_context']=$cooking['advice']['summary'];
+            // Aktuellen Badfeuchtebedarf NICHT durch einen blossen Kochhinweis ersetzen.
+            // Separate unverbindliche Zusatzstrategie, wenn bisher nur Wochenplan.
+            if ($decision['mode']==='WEEKLY_BASE') {
+                $decision['ventilation_need']['classification']='LIKELY_COOKING_ODOR_NEED';
+                $decision['ventilation_need']['evidence']=$cooking['advice']['confidence'];
+                $decision['ventilation_need']['action']='CONSIDER_ONLY_AFTER_COMMISSIONING';
+                $decision['ventilation_need']['summary']='Vermutetes Kochen: Geruchslueftung nur als Vorschlag';
+                $decision['mode']='COOKING_BOOST';
+                $decision['requested_level']=$cooking['advice']['suggested_fan_level'];
+                $decision['duration_minutes']=$cooking['advice']['suggested_minutes'];
+                $decision['reason']=str_replace(' | Kein zusaetzlicher Lueftungsvorteil belegt','',
+                    $decision['reason']).' | Mehrere Kochindikatoren erkannt; Geruchs-Boost nur empfohlen';
+            }
+        }
         $decision['wetroom_event_monitor']=[
             'watched_original_ids'=>array_values((array)($wetEvent['watched']??[])),
             'last_changed_at'=>(int)($wetEvent['last_event_at']??0),
@@ -297,7 +416,7 @@ class HeliosSmart extends IPSModule
         $decision['helios_mode']=$mode;
         $decision['observation_only']=true;
         $this->SetValue('DecisionJSON',json_encode($decision,JSON_UNESCAPED_UNICODE));
-        // v0.8.0 is intentionally and unconditionally read-only.
+        // v0.9.0 is intentionally and unconditionally read-only.
         // Legacy approval properties remain registered to avoid migration issues,
         // but cannot authorize any HELIOS_* function from this version.
         $this->SetValue('Monitoring',true);
@@ -318,6 +437,7 @@ class HeliosSmart extends IPSModule
             .' | Tag: '.$decision['daily_strategy']['summary']
             .' | 24h: '.$forecastAdvice['summary']
             .' | Profil: '.$seasonLabel
-            .' | Bedarf: '.$decision['ventilation_need']['summary']);
+            .' | Bedarf: '.$decision['ventilation_need']['summary']
+            .' | Kochen: '.$decision['cooking_advice']['summary']);
     }
 }

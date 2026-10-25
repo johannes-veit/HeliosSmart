@@ -1,4 +1,4 @@
-# HELIOS SMART v0.8.0 – WetterZentrale & Lüftungsbeobachter
+# HELIOS SMART v0.9.0 – WetterZentrale & Lüftungsbeobachter
 
 **Entwicklungsfassung. Keine produktive Steuerungsfreigabe!**
 
@@ -182,3 +182,14 @@ Siehe `docs/TECHNISCHE_BASIS.md` für verifizierte IDs, Sicherheitslücken und w
 - `wetroom_trend` im bestehenden `#52866` zeigt je Bad die urspruengliche Sensor-ID, Zahl der Anstiegsmeldungen, RH-Anstieg und Gueltigkeit. `ventilation_need` unterscheidet RH-Trend von nachgewiesenem Zusatzlueftungsbedarf.
 - Keine neuen sichtbaren Variablen, keine Modifikation fremder Symcon-Module, **keinerlei HELIOS-Aktorbefehle**. Urspruengliche Wochenprogramme sind unveraendert.
 - Schwellenwerte sind vorlaeufige **Beobachtungsparameter**, keine freigegebenen Schaltschwellen; ohne Luftmengen-/Kamin-Abnahme kein Automatikbetrieb.
+
+
+## v0.9.0 – Kocherkennung und Anwesenheitskontext (25.10.2026)
+
+- Read-only-Kochhinweis aus Küchenlicht #51009, Bewegung Wohnen/Küche #51040, EG-Flur #39155 und Hausleistung #27700 (Leistungsschwelle standardmaessig 2000 W; nie Stromverbrauch als alleinigen Kochbeweis ausgeben).
+- Bewohnerstatus aus existierender SHADOW-Instanz #32969 direkt über die Idents `JohannesPresence`, `CarinaPresence`; Modul-GUID validiert. Kein Auslesen der HTML-Visu und keine Änderung der Anwesenheitserkennung. Anwesenheit der Handys ≠ sicherer Personenbeweis, und fehlende Anwesenheitsindizien ≠ leeres Haus.
+- Tageszeit (Mittag/Abend, Europe/Berlin) und Carina/Johannes können die Kochhypothese stützen, sind aber keine zwingenden Bedingungen; echte Küchenindikatoren entscheiden. Ein hohes Hausstromsignal allein, ungeprüfte alte Bewegungsdaten oder nur ein Bewohnerstatus lösen keinen Boost aus.
+- Wenn starke Kochindizien vorhanden: `COOKING_BOOST` als unverbindlicher Vorschlag für Stufe mindestens 3, maximal aktuelle Stufe, 20 min. Nur Analyse; letzte wahrscheinliche Kocherkennung hält den Vorschlag höchstens 15 Minuten nach. Kein weiteres Objekt, kein Aktorbefehl.
+- Bei nur teilweiser Evidenz: `COOKING_POSSIBLE`, ohne Boost. Bei Quelle fehlt: Diagnose bleibt aussagekräftig. Bei nur Arbeits-WLAN oder Abwesend-Meldungen bleibt Hausleerstand unbewiesen, Wochenplan wird nie reduziert.
+- Risikohinweis Kamin/Unterdruck und keine automatische Partymodus-Aktivierung vor Mindest-Luftmengen- und Rauchgassicherheitstest.
+- Ergebnisfelder: `cooking_advice`, `occupancy_advice` im vorhandenen JSON #52866; kurze Ergänzung im Status #46848. Keine Änderungen an Helios, LCN oder SHADOW.
