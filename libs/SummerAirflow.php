@@ -23,6 +23,15 @@ final class JVHeliosSummerAirflow
             || !is_numeric($in)||!is_numeric($supply)) return $result;
         $gap=(float)$in-(float)$supply;
         $result['thermal_gap_k']=round($gap,2);
+        // The summer-only advisor must never suggest opening the bypass in
+        // ordinary winter heat-retention operation merely because the EWT inlet
+        // is colder than the occupied rooms. Manufacturer safety still leads.
+        if (($d['season_signal']??'')==='HEATING_SEASON') {
+            $result['regime']='HEATING_SEASON_HEAT_RECOVERY';
+            $result['preferred_bypass']='CLOSED_FOR_HEAT_RECOVERY';
+            $result['reason']='Winter heat retention; bypass manufacturer control has priority';
+            return $result;
+        }
         if (is_numeric($intake)) {
             $result['preferred_bypass']=(float)$intake < (float)$in-1.5?'OPEN_IF_ALLOWED':
                 ((float)$intake>(float)$in+1.0?'CLOSED_COOL_RECOVERY':'NEUTRAL');
