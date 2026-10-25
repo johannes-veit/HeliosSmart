@@ -140,6 +140,12 @@ pc(JVHeliosBoostCoordinator::propose($bypassCtx,$none,2,true)['weather_flush']['
 $bypassCtx['intake_after_ewt']=29;$bypassCtx['bypass_actual']=false;
 pc(JVHeliosBoostCoordinator::propose($bypassCtx,$none,2,true)['weather_flush']['bypass_strategy']
  ==='CLOSED_FOR_COOL_RECOVERY','Hot inlet favors cool recovery');
+$winterBypass=$weatherGood;
+$winterBypass['season_signal']='HEATING_SEASON';
+$winterBypass['intake_after_ewt']=14.2;
+pc(JVHeliosBoostCoordinator::propose($winterBypass,$none,3,true)
+ ['weather_flush']['bypass_strategy']==='CLOSED_FOR_HEAT_RECOVERY',
+ 'Cold EWT inlet in winter must never be described as request to open bypass');
 $weatherDamp=$weatherGood;$weatherDamp['outside_absolute_humidity']=13;
 pc(JVHeliosBoostCoordinator::propose($weatherDamp,$none,2,true)['source']!=='WEATHER_OPTIMAL',
  'Damp outside air cannot trigger S4 flush');
