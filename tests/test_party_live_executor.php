@@ -46,6 +46,26 @@ foreach([0,1,2,3,4] as $mode){
  liveCheck(JVHeliosPartySafety::inspect($p,$v,$f,$owned,$now,true)['command_allowed']===($mode===0),
      'Betriebsart '.$mode.' prueft Bedienhoheit');
 }
+
+// S4/30 opt-in: explicit verified installation safety, not a reinterpretation of estimated airflow.
+$hi=$p;$hi['suggested_level']=4;$hi['suggested_minutes']=30;
+$hf=$f;$hf['high_power_opt_in']=true;$hf['high_power_safety']=true;$hf['minimum_airflow']=true;
+liveCheck(JVHeliosPartySafety::inspect($hi,$d,$hf,$owned,$now,true)['command_allowed'],
+ 'S4 30min with independent measured installation approval');
+foreach (['high_power_opt_in','high_power_safety','minimum_airflow'] as $flag) {
+ $denied=$hf;$denied[$flag]=false;
+ liveCheck(!JVHeliosPartySafety::inspect($hi,$d,$denied,$owned,$now,true)['command_allowed'],
+   'S4 denied without '.$flag);
+}
+$hiGate=JVHeliosPartySafety::inspect($hi,$d,$hf,$owned,$now,true);
+$hiTxn=JVHeliosPartyExecutor::execute($hi,$hiGate,$now,
+ static fn()=>['mode'=>0,'fan'=>2,'program'=>3],static fn()=>true,static fn()=>[]);
+liveCheck($hiTxn['status']==='RESERVED' && $hiTxn['reserved_until']===$now+1920,
+ 'S4 reservation covers 30 min plus readback allowance');
+$hiDone=JVHeliosPartyExecutor::dispatch($hiTxn,4,30,static fn()=>true,
+ static fn()=>['mode'=>2,'fan'=>4,'program'=>3,'remaining_minutes'=>29]);
+liveCheck($hiDone['status']==='PARTY_CONFIRMED','S4 30min manufacturer readback verified');
+
 $live=['mode'=>0,'fan'=>2,'program'=>3];
 $read=0;$writes=0;
 $tx=JVHeliosPartyExecutor::execute($p,$g,$now,static function()use(&$read,$live){$read++;return $live;},
