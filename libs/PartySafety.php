@@ -26,6 +26,11 @@ final class JVHeliosPartySafety
             || (int)($proposal['suggested_minutes']??0)>15
             || ($proposal['source']??'')==='COOLING') $issues[]='FIRST_STAGE_SCOPE_LIMIT';
         if (($proposal['kind']??'')!=='PARTY_CANDIDATE') $issues[]='NO_ACTUAL_DEMAND';
+        // First production stage accepts only independently evaluated kitchen/bath demand.
+        if (!in_array($proposal['source']??null,['COOKING','BATH_HUMIDITY'],true))
+            $issues[]='SOURCE_NOT_AUTHORIZED_FOR_FIRST_STAGE';
+        if (($proposal['suggested_level']??null)!==3)
+            $issues[]='FIRST_STAGE_REQUIRES_S3';
         if (($device['instance_exists']??false)!==true) $issues[]='HELIOS_INSTANCE_MISSING';
         if (($device['module_verified']??false)!==true) $issues[]='HELIOS_MODULE_ID_NOT_VERIFIED';
         if (($device['mode_fresh']??false)!==true || ($device['fan_fresh']??false)!==true
