@@ -270,6 +270,13 @@ class HeliosSmart extends IPSModule
             $pulse=JVHeliosCookingEvents::recentPositive($cookingEventState,$role,$now);
             $s['recent']=$direct || $pulse;
             $s['recent_from']=$direct?'CURRENT_TRUE':($pulse?'RECORDED_TRUE_EDGE':null);
+            // Preserve age of an ORIGINAL positive edge separately from the
+            // normal five-minute motion window. This is not synthetic motion.
+            $lastPositive=(int)($cookingEventState['motion_positive_at'][$role]??0);
+            if ($direct && $changed>$lastPositive) $lastPositive=$changed;
+            $s['last_positive_age_seconds']=$lastPositive>0
+                && $lastPositive<=$now+120 && $now-$lastPositive<=30*60
+                    ?max(0,$now-$lastPositive):null;
             return $s;
         };
         $light=$bool($this->ReadPropertyInteger('KitchenLightVariable'),24*3600);
