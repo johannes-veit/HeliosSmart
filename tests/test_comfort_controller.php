@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__.'/../libs/ComfortController.php';
 require_once __DIR__.'/../libs/BoostCoordinator.php';
+require_once __DIR__.'/../libs/SummerAirflow.php';
 function cc(bool $value,string $why):void {
     if (!$value) {fwrite(STDERR,"FAIL $why\n");exit(1);}
     echo "PASS $why\n";
@@ -57,6 +58,13 @@ foreach ($stale as &$room) {$room['humidity_observed_at']=$now-3*3600;}
 unset($room);
 cc(JVHeliosComfortController::analyze($decision,$stale,$now)['status']==='INSUFFICIENT',
  'Old room humidity cannot be treated as current comfort');
+$missingComfort=$decision;
+$missingComfort['comfort_control']=JVHeliosComfortController::analyze($decision,$stale,$now);
+cc(JVHeliosBoostCoordinator::propose($missingComfort,[],2,true)['kind']==='KEEP_WEEKLY',
+ 'Poor living-room coverage blocks discretionary weather party even if mean sensors look plausible');
+$consistent=JVHeliosSummerAirflow::advise($wet);
+cc($consistent['regime']==='HUMID_OUTDOOR_AIR_PROTECTION',
+ 'Summer stage recommendation also honors outdoor moisture risk');
 cc($r['comfort_index']!==null && $r['comfort_index_kind']==='HEURISTIC_NOT_PMV',
  'Comfort index is expressly heuristic, not a norm claim');
 echo "ALL COMFORT CONTROLLER CHECKS PASSED\n";
