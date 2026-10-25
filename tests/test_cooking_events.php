@@ -1,0 +1,62 @@
+<?php
+/** VM_UPDATE-Kuechenimpulse: gebuendelt, ohne LCN/Aktorbefehle oder neue Variablen. */
+require_once __DIR__.'/../libs/CookingEvents.php';
+if (!defined('VM_UPDATE')) define('VM_UPDATE',10603);
+$checks=0;
+function kc(bool $v,string $msg):void {global $checks; if(!$v){fwrite(STDERR,"FAIL ".$msg."\n");exit(1);}echo "PASS $msg\n";$checks++;}
+$ids=['Wohnkueche'=>51040,'EG Flur'=>39155,'Kuechenlicht'=>51009,'Leistung'=>27700];
+$w=JVHeliosCookingEvents::desired($ids,static fn($id)=>true,static fn($id)=>false);
+kc(count($w)===4,'Nur vier benannte Quellvariablen');
+kc($w[51040]==='Wohnkueche' && $w[27700]==='Leistung','Sensorrollen korrekt');
+$miss=JVHeliosCookingEvents::desired($ids,static fn($id)=>$id!==27700,static fn($id)=>$id===51009);
+kc(!isset($miss[51009]) && !isset($miss[27700]),'Nicht vorhandene Quellen und Links nicht abonniert');
+$state=JVHeliosCookingEvents::prune([], $w);
+kc(count($state['watched'])===4,'Abonnements in verstecktem Attribut');
+$t=1800000000;
+$x=JVHeliosCookingEvents::process($state,51040,VM_UPDATE,[false,true,true],$t,2000);
+kc($x['changed'] && $x['evaluate'],'AUS-Flanke darf aktualisieren, ist aber keine Bewegung');
+kc(!JVHeliosCookingEvents::recentPositive($x['state'],'Wohnkueche',$t),'AUS-Flanke ist kein frischer Bewegungshinweis');
+$state=$x['state'];
+$x=JVHeliosCookingEvents::process($state,51040,VM_UPDATE,[true,true,false],$t+4,2000);
+kc($x['changed'] && !$x['evaluate'],'TRUE-Puls wird auch innerhalb der Entprellung aufgezeichnet');
+kc(JVHeliosCookingEvents::recentPositive($x['state'],'Wohnkueche',$t+200),'Kurzer TRUE-Puls bleibt fuer Kuechenauswertung erhalten');
+kc(!JVHeliosCookingEvents::recentPositive($x['state'],'Wohnkueche',$t+310),'Puls verfällt nach fuenf Minuten');
+$state=$x['state'];
+$x=JVHeliosCookingEvents::process($state,51040,VM_UPDATE,[false,true,true],$t+20,2000);
+kc(JVHeliosCookingEvents::recentPositive($x['state'],'Wohnkueche',$t+22),'Nachfolgendes AUS loescht echten frueheren TRUE-Puls nicht');
+$state=$x['state'];
+$x=JVHeliosCookingEvents::process($state,51040,VM_UPDATE,[true,false,true],$t+80,2000);
+kc(!$x['changed'] && !$x['evaluate'],'Unveraendertes TRUE wird kein neuer Puls');
+$x=JVHeliosCookingEvents::process($state,51040,VM_UPDATE,[true,1,false],$t+80,2000);
+kc($x['changed'] && $x['evaluate'],'Numerische 1 als Changed-Flag akzeptiert');
+$state=$x['state'];
+$x=JVHeliosCookingEvents::process($state,27700,VM_UPDATE,[2350,true,1550],$t+90,2000);
+kc($x['changed'] && $x['evaluate'],'Hochlast-Schwellenuebertritt loest auch direkt eine Auswertung aus');
+$state=$x['state'];
+$x=JVHeliosCookingEvents::process($state,27700,VM_UPDATE,[2450,true,2350],$t+150,2000);
+kc($x['evaluate'],'Leistung bei fortgesetztem Hochverbrauch hoechstens jede Minute aktualisieren');
+$state=$x['state'];
+$x=JVHeliosCookingEvents::process($state,27700,VM_UPDATE,[2451,true,2450],$t+151,2000);
+kc(!$x['evaluate'],'Zaehler-Ereignissturm unterdrueckt');
+$state=$x['state'];
+$x=JVHeliosCookingEvents::process($state,27700,VM_UPDATE,[810,true,2451],$t+160,2000);
+kc($x['changed'] && $x['evaluate'],'Lastabfall ueber die Schwelle wird ohne Debounceverzug bewertet');
+$state=$x['state'];
+$x=JVHeliosCookingEvents::process($state,51009,VM_UPDATE,[true,true,false],$t+190,2000);
+kc($x['evaluate'],'Lichtkante loest baldige Neubewertung aus');
+$state=$x['state'];
+$x=JVHeliosCookingEvents::process($state,30000,VM_UPDATE,[true,true,false],$t+220,2000);
+kc(!$x['changed'],'Fremde Symcon-Variable nicht beobachten');
+$x=JVHeliosCookingEvents::process($state,51040,VM_UPDATE,[true,true,false],$t+220,2000);
+kc($x['changed'],'Ein neuer echter GUS-Puls wird erfasst');
+$pruned=JVHeliosCookingEvents::prune($x['state'],JVHeliosCookingEvents::desired(
+    ['Wohnkueche'=>44444,'EG Flur'=>39155,'Kuechenlicht'=>51009,'Leistung'=>27700],
+    static fn($id)=>true,static fn($id)=>false));
+kc(!JVHeliosCookingEvents::recentPositive($pruned,'Wohnkueche',$t+230),'Konfigurationswechsel laesst keine alte positive Bewegung stehen');
+$bad=JVHeliosCookingEvents::process($state,27700,VM_UPDATE,['nan',true,0],$t+250,2000);
+kc(!$bad['changed'],'Unplausible Verbrauchszahl wird ignoriert');
+$bad=JVHeliosCookingEvents::process($state,27700,VM_UPDATE,[200000,true,0],$t+250,2000);
+kc(!$bad['changed'],'Unplausibel hohe Hausleistung wird ignoriert');
+$bad=JVHeliosCookingEvents::process($state,51040,12345,[true,true,false],$t+250,2000);
+kc(!$bad['changed'],'Falsche Event-Nachricht ignoriert');
+echo "ALLE $checks KOCH-EVENT-TESTS BESTANDEN\n";

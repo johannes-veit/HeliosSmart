@@ -9,6 +9,7 @@ require_once __DIR__ . '/../libs/SeasonalAdvisor.php';
 require_once __DIR__ . '/../libs/VentilationNeed.php';
 require_once __DIR__ . '/../libs/WetroomEvents.php';
 require_once __DIR__ . '/../libs/CookingAdvisor.php';
+require_once __DIR__ . '/../libs/CookingEvents.php';
 /** Vorhersagegestützter Beobachter; Aktor nur nach expliziter Freigabe. */
 class HeliosSmart extends IPSModule
 {
@@ -40,6 +41,7 @@ class HeliosSmart extends IPSModule
         $this->RegisterAttributeString('SeasonalAdviceState', '{}');
         $this->RegisterAttributeString('WetroomEventState', '{}');
         $this->RegisterAttributeString('CookingAdviceState', '{}');
+        $this->RegisterAttributeString('CookingEventState', '{}');
         $this->RegisterAttributeInteger('LastCommandAt',0);
         $this->RegisterAttributeInteger('LastProgramAt',0);
         $this->RegisterAttributeInteger('OwnedPartyExpiresAt',0);
@@ -67,10 +69,27 @@ class HeliosSmart extends IPSModule
                     (int)(IPS_GetObject($id)['ObjectType']??2)===6;
             });
         $prior=array_values(array_unique(array_map('intval',(array)($state['watched']??[]))));
-        foreach (array_diff($prior,$desired) as $id) $this->UnregisterMessage($id, VM_UPDATE);
-        foreach ($desired as $id) $this->RegisterMessage($id, VM_UPDATE);
+        $cooking=json_decode($this->ReadAttributeString('CookingEventState'),true);
+        $cooking=is_array($cooking)?$cooking:[];
+        $power=(int)$this->ReadPropertyInteger('HousePowerVariable');
+        $cookingDesired=JVHeliosCookingEvents::desired([
+            'Wohnkueche'=>$this->ReadPropertyInteger('KitchenMotionVariable'),
+            'EG Flur'=>$this->ReadPropertyInteger('GroundFloorHallMotionVariable'),
+            'Kuechenlicht'=>$this->ReadPropertyInteger('KitchenLightVariable'),
+            'Leistung'=>$power,
+        ], static fn(int $id):bool => IPS_VariableExists($id),
+        static function(int $id):bool {
+            return function_exists('IPS_GetObject') && (int)(IPS_GetObject($id)['ObjectType']??2)===6;
+        });
+        $allPrior=array_unique(array_merge($prior,array_map('intval',array_keys((array)($cooking['watched']??[])))));
+        $allDesired=array_unique(array_merge($desired,array_map('intval',array_keys($cookingDesired))));
+        foreach (array_diff($allPrior,$allDesired) as $id) $this->UnregisterMessage($id, VM_UPDATE);
+        foreach ($allDesired as $id) $this->RegisterMessage($id, VM_UPDATE);
         $state=JVHeliosWetroomEvents::prune($state,$desired);
         $this->WriteAttributeString('WetroomEventState',json_encode($state));
+        $this->WriteAttributeString('CookingEventState',json_encode(
+            JVHeliosCookingEvents::prune($cooking,$cookingDesired)));
+
     }
 
     /** Aenderungs-Ereignisse der vorhandenen Bad-RH-Variablen statt fuenf Minuten Polling. */
@@ -80,19 +99,28 @@ class HeliosSmart extends IPSModule
         $state=is_array($stored)?$stored:[];
         $event=JVHeliosWetroomEvents::process(
             $state,(int)$SenderID,(int)$Message,is_array($Data)?$Data:[],time());
-        if (!$event['changed']) return;
-        // Auch unterhalb der 10-Sekunden-Sperre muss die Feuchte-Kette erhalten bleiben.
-        $this->WriteAttributeString('WetroomEventState',json_encode($event['state']));
-        if (!$event['evaluate']) return;
-        // Auch diese sofortige Auswertung bleibt ausschliesslich lesend.
-        $this->Evaluate();
+        $evaluateWet=false;
+        if ($event['changed']) {
+            // Auch unterhalb der 10-Sekunden-Sperre muss die Feuchte-Kette erhalten bleiben.
+            $this->WriteAttributeString('WetroomEventState',json_encode($event['state']));
+            $evaluateWet=(bool)$event['evaluate'];
+        }
+        $cooking=json_decode($this->ReadAttributeString('CookingEventState'),true);
+        $cookEvent=JVHeliosCookingEvents::process(is_array($cooking)?$cooking:[],
+            (int)$SenderID,(int)$Message,is_array($Data)?$Data:[],time(),
+            $this->ReadPropertyInteger('CookingPowerThresholdW'));
+        if ($cookEvent['changed']) {
+            $this->WriteAttributeString('CookingEventState',json_encode($cookEvent['state']));
+        }
+        // Vereinte Auswertung: nie doppelt starten, keinerlei Aktorbefehle.
+        if ($evaluateWet || $cookEvent['evaluate']) $this->Evaluate();
     }
 
     public function GetConfigurationForm(): string
     {
         return json_encode([
             'elements'=>[
-                ['type'=>'Label','caption'=>'v0.9.0: Indizienbasierte Koch- und Bewohneranalyse, mehrstufige ereignisbasierte Badfeuchte-Trends, 24h-Echtzeitfenster, Bedarfsbeurteilung, Tagesstrategie, Vorhersagefenster und zwölf native LCN-Feuchtequellen; Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
+                ['type'=>'Label','caption'=>'v0.10.0: Verbesserte ereignisbasierte Koch- und Bewohneranalyse, mehrstufige ereignisbasierte Badfeuchte-Trends, 24h-Echtzeitfenster, Bedarfsbeurteilung, Tagesstrategie, Vorhersagefenster und zwölf native LCN-Feuchtequellen; Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
                 ['type'=>'NumberSpinner','name'=>'HeliosInstance','caption'=>'Helios-Instanz'],
                 ['type'=>'NumberSpinner','name'=>'WeatherCenterInstance','caption'=>'WetterZentrale-Instanz (0 = automatisch erkennen)'],
                 ['type'=>'NumberSpinner','name'=>'ClimateControlInstance','caption'=>'LCNClimateControl (nur lesend)'],
@@ -207,21 +235,24 @@ class HeliosSmart extends IPSModule
             $out['on']=$out['usable'] && (bool)$value;
             return $out;
         };
-        $motion=static function (int $id) use ($now, $bool): array {
+        $state=json_decode($this->ReadAttributeString('CookingEventState'),true);
+        $cookingEventState=is_array($state)?$state:[];
+        $motion=static function (int $id,string $role) use ($now, $bool, $cookingEventState): array {
             $s=$bool($id,900);
-            if (!$s['usable']) return $s+['recent'=>false];
-            $v=IPS_GetVariable($id);
-            // VariableChanged ist entscheidend: haeufige unveraenderte FALSE-Updates
-            // duerfen keine Bewegung erfinden. TRUE darf nur wenige Minuten alt sein.
+            $v=$s['usable'] ? IPS_GetVariable($id) : [];
             $changed=(int)($v['VariableChanged']??0);
             $age=$now-$changed;
-            $s['recent']=$changed>0 && $age>=-120 && $age<=5*60;
+            // FALSE falling edge is never a new motion; retain only true rising pulses.
+            $direct=$s['usable'] && $s['on'] && $changed>0 && $age>=-120 && $age<=300;
+            $pulse=JVHeliosCookingEvents::recentPositive($cookingEventState,$role,$now);
+            $s['recent']=$direct || $pulse;
+            $s['recent_from']=$direct?'CURRENT_TRUE':($pulse?'RECORDED_TRUE_EDGE':null);
             return $s;
         };
         $light=$bool($this->ReadPropertyInteger('KitchenLightVariable'),24*3600);
         $motions=[
-            'Wohnkueche'=>$motion($this->ReadPropertyInteger('KitchenMotionVariable')),
-            'EG Flur'=>$motion($this->ReadPropertyInteger('GroundFloorHallMotionVariable')),
+            'Wohnkueche'=>$motion($this->ReadPropertyInteger('KitchenMotionVariable'),'Wohnkueche'),
+            'EG Flur'=>$motion($this->ReadPropertyInteger('GroundFloorHallMotionVariable'),'EG Flur'),
         ];
         $powerID=$this->ReadPropertyInteger('HousePowerVariable');
         $power=['id'=>$powerID,'usable'=>false,'watts'=>null,'age_seconds'=>null];
@@ -229,7 +260,7 @@ class HeliosSmart extends IPSModule
             $v=GetValue($powerID); $meta=IPS_GetVariable($powerID);
             $age=$now-(int)($meta['VariableUpdated']??0);
             $power['age_seconds']=$age>=0?$age:null;
-            if (is_numeric($v) && $age>=-120 && $age<=10*60 && (float)$v>=0 && (float)$v<=100000) {
+            if (is_numeric($v) && $age>=-120 && $age<=2*60 && (float)$v>=0 && (float)$v<=100000) {
                 $power['usable']=true;$power['watts']=(float)$v;
             }
         }
@@ -387,6 +418,7 @@ class HeliosSmart extends IPSModule
             is_array($cookingState)?$cookingState:[]);
         $this->WriteAttributeString('CookingAdviceState',json_encode($cooking['state']));
         $decision['cooking_advice']=$cooking['advice'];
+        $decision['cooking_event_monitor']=json_decode($this->ReadAttributeString('CookingEventState'),true);
         $decision['occupancy_advice']=$cooking['advice']['occupancy'];
         if ($cooking['advice']['potential_odor_boost']) {
             $decision['ventilation_need']['hardware_authorized']=false;

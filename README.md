@@ -1,6 +1,17 @@
-# HELIOS SMART v0.9.0 – WetterZentrale & Lüftungsbeobachter
+# HELIOS SMART v0.10.0 – WetterZentrale & Lüftungsbeobachter
 
 **Entwicklungsfassung. Keine produktive Steuerungsfreigabe!**
+
+## v0.10.0 – Echte Kochereignisse statt einmaliger Leistungsspitzen (25.10.2026)
+
+- **Behobener Fehlalarm:** Der Wechsel eines LCN-Bewegungsmelders auf FALSE wird nicht länger anhand seines `VariableChanged`-Zeitstempels als frische Bewegung gewertet. Gültig sind nur momentan TRUE mit aktuellem TRUE-Zeitstempel oder ein vorheriges echtes TRUE-Ereignis innerhalb von fünf Minuten.
+- **Vier bestehende Symcon-Originalquellen** werden zusätzlich über `VM_UPDATE` beobachtet: Küchenlicht `#51009`, Bewegung Wohnen/Küche `#51040`, Bewegung EG-Flur `#39155`, Hausleistung `#27700`. Bei raschen Ereignissen bleibt der ältere Fünf-Minuten-Timer als Auffangweg aktiv. Die Zählerauswertung ist zeitlich begrenzt, Leistungsschwellenwechsel lösen unmittelbar aus.
+- **Kochwahrscheinlichkeit vorsichtiger:** Der absolute Gesamtverbrauch ab 2000 W kann auch durch Heizung, Wärmepumpe, Trockner, Laden u. Ä. entstehen. Für `COOKING_LIKELY` sind daher zwei **zeitlich getrennte** Hochlastproben (mindestens 60 s Abstand, höchstens 8 min zwischen den Proben), eine echte frische Bewegung im gemeinsamen Wohn-/Küchenbereich und weitere Licht- oder Tageszeit/Handyhinweise nötig. EG-Flur allein reicht nicht. Eine vor kurzem gemessene niedrige Hausgrundlast mit Anstieg unter 700 W spricht gegen die Zuschreibung „Kochen“. Die Proben beweisen **keine durchgängige Leistung**.
+- **Nur Hinweis:** `cooking_advice` enthält jetzt `power_multiple_samples`, `power_high_samples`, `power_baseline_w`, `power_delta_from_baseline_w`, `kitchen_motion_recent`. `cooking_event_monitor` berichtet Abonnements und letzte Impulse, ohne neue sichtbare Variablen. `COOKING_POSSIBLE` führt niemals zum Boost-Vorschlag.
+- **Bewohnerstatus** bleibt nur Hinweis auf den Aufenthaltsort von Handys, kein Nachweis von Personenanwesenheit oder Hausleerstand. Der eigene Wohnungs-Wochenplan wird auch bei abwesenden/unklaren Handys nicht abgesenkt. SHADOW selbst bleibt unverändert.
+- **Sicherheit:** Eine wahrscheinliche Kochsituation erzeugt nur einen unverbindlichen Stufenvorschlag. Weder Helios-Party noch Wochenprogramm, LCN, Kochfeld oder Anwesenheitsmodul werden geschaltet. Volumenstrom und Kamin-/Unterdrucksicherheit sind weiterhin nicht abgenommen.
+- **Offline-Teststatus:** `bash tests/run_all.sh` mit 479 PASS-Prüfungen, PHP-Syntaxprüfung für alle Modul-, Bibliotheks- und Testdateien; noch keine Bestätigung echter Kochereignisse auf der SymBox.
+
 
 ## v0.6.0 – Exakt 24 h Planung und eigenstaendige Bedarfspruefung (25.10.2026)
 

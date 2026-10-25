@@ -102,3 +102,10 @@ Grenzen: Die Grenzwerte sind nur vorlaeufige Beobachtungsparameter. Das Format d
 - Mehrfachindikatoren, kochfreie Grenzfaelle, Nachtkochen, Zeitstempel, Work-WLAN, angeblich abwesende Bewohner, stale power/motion, manuelle Helios-Bedienung und Stufe 4 durch reine Funktionstests geprueft.
 - Integration unter simuliertem Symcon: Carina HOME-Hinweis, Johannes WORK-Handy, Kuechenlicht an, Bewegung ja, Hausleistung 2.600 W, keine HELIOS_* Aufrufe.
 - Weder eine Veraenderung von LCN-/SHADOW-Modulen noch das Einschalten von Party- oder Wochenprogrammen ist Teil dieser Version. No production commissioning.
+
+## v0.10.0 – Ereignissichere Kochbeobachtung (Offline)
+
+`bash tests/run_all.sh`: 479 PASS-Prüfungen, Syntaxprüfungen über alle vorhandenen PHP-Quelldateien.
+Behobene Fehlinterpretation: eine FALSE-Flanke darf keine neue Kuechenbewegung beweisen. TRUE-Flanken werden im versteckten CookingEventState-Attribut gespeichert und laufen nach 300 s ab. Schwellenwertwechsel der Hausleistung werden schnell bewertet, unveraenderte und hochfrequente Messungen loesen keine Ereignisflut aus. `ApplyChanges` registriert nur vorhandene Originalvariablen, meldet geaenderte IDs ab und loescht deren alte Pulse.
+Eine einzelne Lastspitze (auch 2600 W) wird nicht als wahrscheinliches Kochen eingestuft. Erst zwei getrennte Hochlastwerte (>=60 s auseinander), Bewegung im Wohn-/Kuechenbereich und Licht bzw. weiterer Kontext begruenden unverbindlich `COOKING_LIKELY`; ein bekanntes zu kleines Leistungsdelta widerspricht dem Hinweis. Ein Flurmelder allein ist kein hinreichender Beleg. Vollen Ventilationsnutzen oder Geruchsmessung beweist dies nicht.
+Integrationstest simuliert originale VM_UPDATE, LCN-FALSE-Flanke, kurzzeitigen TRUE-Puls, dichten Leistungstakt, fehlerhafte Quellen und Sensorwechsel. Alle bestehenden Hardwarefreigaben bleiben wirkungslos. Helios-Schaltaufrufe: 0. Reale Live-Abnahme bleibt aus.

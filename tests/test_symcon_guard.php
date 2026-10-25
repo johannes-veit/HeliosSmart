@@ -219,6 +219,9 @@ $GLOBALS['values'][60002]='ANWESEND (Handyhinweis)';
 $GLOBALS['values'][60003]='{}';
 $GLOBALS['changedAt'][51040]=time()-60;
 $GLOBALS['variableTime']=time()-90;
+// Zwei getrennte Leistungsproben statt ein einziges 2-kW-Ereignis.
+$hs->WriteAttributeString('CookingAdviceState',json_encode([
+  'high_power_since'=>time()-100,'last_high_sample_at'=>time()-90,'high_power_samples'=>1]));
 $hs->Evaluate();
 $withCook=json_decode($hs->value('DecisionJSON'),true);
 a(($withCook['cooking_advice']['classification']??'')==='COOKING_LIKELY',
@@ -248,3 +251,37 @@ $withoutCook=json_decode($hs->value('DecisionJSON'),true);
 a(($withoutCook['cooking_advice']['potential_odor_boost']??null)===false,
   'Ausgeschaltetes Licht und keine frische Bewegung / Leistung: kein Boost');
 a(count($GLOBALS['calls'])===0,'Bewohnerstatus veraendert niemals den Helios-Wochenplan');
+
+// v0.10: genuine kitchen VM_UPDATE subscriptions; one pulse must not be lost.
+$hs->ApplyChanges();
+$watch=$hs->getWatches();
+foreach ([51009,51040,39155,27700] as $id) {
+ a(($watch[$id]??null)===VM_UPDATE,'Kochbeobachter hat originale Variable #'.$id.' abonniert');
+}
+$GLOBALS['values'][51009]=true;
+$GLOBALS['values'][51040]=false;
+$GLOBALS['values'][39155]=false;
+$GLOBALS['values'][27700]=2750;
+$GLOBALS['changedAt'][51040]=time()-40; // FALSE edge is NOT movement.
+$hs->WriteAttributeString('CookingAdviceState',json_encode([
+ 'high_power_since'=>time()-100,'last_high_sample_at'=>time()-85,'high_power_samples'=>1]));
+$hs->Evaluate();
+$cookFalse=json_decode($hs->value('DecisionJSON'),true);
+a(($cookFalse['cooking_advice']['kitchen_motion_recent']??true)===false,
+ 'LCN-FALSE-Flanke darf nicht als frische Kuechenbewegung gelten');
+a(($cookFalse['cooking_advice']['classification']??'')!=='COOKING_LIKELY',
+ 'Hohe Hausleistung und Licht ohne Kuechenbewegung kein Kochnachweis');
+$hs->MessageSink(7,51040,VM_UPDATE,[true,true,false]);
+$hs->Evaluate();
+$cookPulse=json_decode($hs->value('DecisionJSON'),true);
+a(($cookPulse['cooking_advice']['kitchen_motion_recent']??false)===true,
+ 'Kurzer LCN-TRUE-Puls bleibt trotz inzwischen FALSE bei Auswertung vorhanden');
+a(($cookPulse['cooking_advice']['hardware_authorized']??null)===false,
+ 'Auch Kochnachweis aus Puls hat keine Aktorfreigabe');
+a(count($GLOBALS['calls'])===0,'VM_UPDATE Kochen: garantiert keine HELIOS-Geraetebefehle');
+$hs->setProperty('KitchenMotionVariable',99999);
+$hs->ApplyChanges();
+a(!isset($hs->getWatches()[51040]),'Alte Kuechenbewegung bei Sensorumzug abgemeldet');
+a(!isset(json_decode($hs->ReadAttributeString('CookingEventState'),true)['motion_positive_at']['Wohnkueche']),
+ 'Alter Kuechen-Bewegungsimpuls nach Sensorumzug geloescht');
+a(count($GLOBALS['calls'])===0,'Koch-Sensorumzug ohne Schaltbefehle');

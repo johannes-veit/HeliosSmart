@@ -11,7 +11,16 @@ $input=[
  'residents'=>['Johannes'=>['status'=>'WORK (Firmen-WLAN-Handy)','source_recent'=>true],
      'Carina'=>['status'=>'ANWESEND (Handyhinweis)','source_recent'=>true]],
 ];
-$one=JVHeliosCookingAdvisor::analyze($input,$now);
+$firstSample=JVHeliosCookingAdvisor::analyze($input,$now-90);
+ck($firstSample['advice']['classification']==='COOKING_POSSIBLE',
+   'Ein einzelner hoher Leistungswert ist trotz Kuechenlicht und Bewegung nicht ausreichend');
+ck($firstSample['advice']['power_multiple_samples']===false,'Erste Hochlastmessung nicht als bestaetigt ausgeben');
+$seed=$firstSample['state'];
+$early=JVHeliosCookingAdvisor::analyze($input,$now-70,$seed);
+ck($early['advice']['power_multiple_samples']===false,'Zwischenbewertung nach 20 Sekunden ist keine zweite unabhaengige Leistungsprobe');
+ck($early['state']['last_high_sample_at']===$seed['last_high_sample_at'],
+   'Zwischenbewertung verschiebt die naechste qualifizierte Leistungsprobe nicht');
+$one=JVHeliosCookingAdvisor::analyze($input,$now,$early['state']);
 $ad=$one['advice'];
 ck($ad['classification']==='COOKING_LIKELY','Kochhinweis aus Licht Bewegung Leistung und Bewohnerkontext');
 ck($ad['suggested_fan_level']===3,'Stufe 2 erzeugt unverbindlichen Vorschlag Stufe 3');
@@ -31,15 +40,15 @@ $r=JVHeliosCookingAdvisor::analyze($only,$now);
 ck($r['advice']['classification']==='COOKING_POSSIBLE','Licht und Bewegung koennen ohne Leistung nur moegliches Kochen bedeuten');
 ck($r['advice']['suggested_fan_level']===null,'Unbestaetigtes Kochen erzeugt keinen Boost');
 $night=strtotime('2026-10-25T23:30:00Z');
-$late=JVHeliosCookingAdvisor::analyze($input,$night);
+$late=JVHeliosCookingAdvisor::analyze($input,$night,['high_power_since'=>$night-90,'last_high_sample_at'=>$night-90,'high_power_samples'=>1]);
 ck($late['advice']['classification']==='COOKING_LIKELY','Auch spaetes Kochen wird erkannt');
 $noCarina=$input;$noCarina['residents']['Carina']['status']='Nicht bestaetigt';
 $noCarina['residents']['Johannes']['status']='Abwesend (vermutet)';
-$r=JVHeliosCookingAdvisor::analyze($noCarina,$now);
+$r=JVHeliosCookingAdvisor::analyze($noCarina,$now,$seed);
 ck($r['advice']['classification']==='COOKING_LIKELY','Kochen trotz fehlender persoenlicher Anwesenheitsindizien');
 ck($r['advice']['occupancy']['house_empty_proven']===false,'Nicht bestaetigt ist keine verifizierte Abwesenheit');
 $bothWork=$input;$bothWork['residents']['Carina']['status']='WORK (Firmen-WLAN-Handy)';
-$r=JVHeliosCookingAdvisor::analyze($bothWork,$now);
+$r=JVHeliosCookingAdvisor::analyze($bothWork,$now,$seed);
 ck($r['advice']['occupancy']['known_home_phone_count']===0,'Beide Arbeits-Handys liefern keine Zuhause-Indikation');
 ck($r['advice']['potential_odor_boost']===true,'Beide in Firma schliessen dritten Menschen im Haus nicht aus');
 ck($r['advice']['occupancy']['house_empty_proven']===false,'Auch zwei Arbeits-Handys sind kein Leerstandbeweis');
@@ -54,7 +63,7 @@ $staleMotion['residents']['Carina']['status']='NICHT BESTAETIGT';
 $r=JVHeliosCookingAdvisor::analyze($staleMotion,$now);
 ck(!$r['advice']['potential_odor_boost'],'Kuechenlicht und Leistung allein ohne zeitlichen oder Personenbezug nicht genug');
 $r=JVHeliosCookingAdvisor::analyze($input,$now+12*60,$one['state']);
-ck($r['advice']['potential_odor_boost'],'Aktuell verifizierte Kochindizien halten den Hinweis');
+ck($r['advice']['potential_odor_boost'],'Nachlauf erhaelt den Vorschlag auch bei kurz ausgebliebener erneuter Hochlastprobe');
 $quiet=$input;$quiet['light']['on']=false;$quiet['power']['watts']=750;
 $quiet['motions']['Wohnkueche']['recent']=false;
 $r=JVHeliosCookingAdvisor::analyze($quiet,$now+10*60,$one['state']);
@@ -68,14 +77,14 @@ ck(JVHeliosCookingAdvisor::normalizeResident($suspicious['Johannes'])==='UNKNOWN
 ck(JVHeliosCookingAdvisor::normalizeResident('WLAN ZUHAUSE (Geofence veraltet)')==='HOME_PHONE_HINT','Aktuelles WLAN Handy zuhause als schwacher Kontext');
 ck(JVHeliosCookingAdvisor::normalizeResident('WLAN ZUHAUSE (Geofence unbestaetigt)')==='HOME_PHONE_HINT', 'WLAN Zuhause trotz ungeprueften Geofence bleibt reiner Handyhinweis');
 $stage=$input;$stage['current_fan_level']=3;
-$r=JVHeliosCookingAdvisor::analyze($stage,$now);
+$r=JVHeliosCookingAdvisor::analyze($stage,$now,$seed);
 ck($r['advice']['suggested_fan_level']===4,'Stufe 3 ergibt nur Vorschlag Stufe 4');
 $stage['current_fan_level']=4;
-$r=JVHeliosCookingAdvisor::analyze($stage,$now);
+$r=JVHeliosCookingAdvisor::analyze($stage,$now,$seed);
 ck($r['advice']['suggested_fan_level']===null && !$r['advice']['potential_odor_boost'],
     'Bereits Stufe 4 nicht weiter steigern, nur Kochhinweis');
 $manual=$input;$manual['helios_automatic_mode']=false;
-$r=JVHeliosCookingAdvisor::analyze($manual,$now);
+$r=JVHeliosCookingAdvisor::analyze($manual,$now,$seed);
 ck(!$r['advice']['potential_odor_boost'],'Manuelle Helios-Bedienung hat Vorrang vor Kochvorschlag');
 $noSignals=$input;$noSignals['light']=['usable'=>false];$noSignals['motions']=[];
 $r=JVHeliosCookingAdvisor::analyze($noSignals,$now);
