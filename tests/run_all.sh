@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 cd "$(dirname "$0")/.."
-for p in libs/*.php WeatherZentrale/*.php HeliosSmart/*.php tests/*.php; do php -l "$p" >/dev/null; done
+for p in libs/*.php WeatherZentrale/*.php HeliosSmart/*.php simulation/*.php tests/*.php; do php -l "$p" >/dev/null; done
 php tests/test_core.php
 php tests/test_symcon_guard.php
 
@@ -40,3 +40,5 @@ php tests/test_party_monitor.php
 php tests/test_comfort_controller.php
 php tests/test_moisture_comfort.php
 php tests/test_summer_airflow.php
+
+php tests/test_theoretical_ventilation.php
