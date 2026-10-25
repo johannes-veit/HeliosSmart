@@ -41,7 +41,7 @@ $wet['comfort_control']=$wetComfort;
 cc(JVHeliosBoostCoordinator::propose($wet,[],2,true)['kind']==='KEEP_WEEKLY',
  'Closed loop: even very cool supply does not trigger humid summer S4');
 $unevenRooms=$rooms;
-$unevenRooms[2]['temperature']=20.4;
+$unevenRooms[2]['temperature']=18.8;
 $unevenRooms[2]['rh']=48;
 $uneven=JVHeliosComfortController::analyze($decision,$unevenRooms,$now);
 cc($uneven['coolest_room']['room']==='OG Schlafen 2'
@@ -51,7 +51,15 @@ cc(in_array('OG Schlafen 2',$uneven['rooms_below_cooling_floor'],true),
  'Room-based cooling lower comfort bound is diagnostic');
 $unevenDecision=$decision;$unevenDecision['comfort_control']=$uneven;
 cc(JVHeliosBoostCoordinator::propose($unevenDecision,[],2,true)['kind']==='KEEP_WEEKLY',
- 'No whole-house S4 when an occupied-room sensor is already below 21 C');
+ 'No whole-house S4 when bedroom is below its 19 C cooling floor');
+$coolButOkay=$rooms;
+$coolButOkay[2]['temperature']=20.4;
+$coolButOkay[2]['rh']=48;
+$okay=JVHeliosComfortController::analyze($decision,$coolButOkay,$now);
+cc($okay['night_precooling_safe']===true && $okay['weather_boost_compatible']===true,
+ 'Bedroom 20.4 C may benefit from cool nights: sleeping-room threshold is lower');
+cc($okay['coolest_room']['minimum_cooling_temperature_c']===19.0,
+ 'Bedroom-specific minimum cooling comfort is used');
 $normalRooms=$rooms;
 foreach ($normalRooms as &$room) {$room['temperature']=24;$room['rh']=48;}
 unset($room);
