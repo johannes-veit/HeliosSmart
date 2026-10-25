@@ -26,6 +26,7 @@ php tests/test_wetroom_events.php
 php tests/test_wetroom_trends.php
 
 php tests/test_cooking_presence.php
+php tests/test_cooking_hour_event.php
 
 php tests/test_cooking_events.php
 
