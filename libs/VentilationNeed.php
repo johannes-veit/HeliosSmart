@@ -2,7 +2,7 @@
 /** Only interprets already verified/read-only evidence. No actuator or new Symcon variables. */
 final class JVHeliosVentilationNeed
 {
-    public static function analyze(array $decision, array $comfort, array $forecast, array $daily): array
+    public static function analyze(array $decision, array $comfort, array $forecast, array $daily, array $wetroomTrend = []): array
     {
         $mode=(string)($decision['mode']??'WEEKLY_BASE');
         $weather=(bool)($decision['weather_usable_for_advice']??false);
@@ -12,6 +12,7 @@ final class JVHeliosVentilationNeed
         $wet=count((array)($comfort['humid_current']??[]));
         $drying=count((array)($forecast['drying_windows']??[]))>0;
         $cooling=count((array)($forecast['cooling_windows']??[]))>0;
+        $rhRises=(array)($wetroomTrend['observed_rises']??[]);
         $base=[
             'classification'=>'NO_DEMONSTRATED_ADDITIONAL_NEED',
             'evidence'=>'LIMITED',
@@ -20,6 +21,7 @@ final class JVHeliosVentilationNeed
             'current_humid_rooms'=>$wet,
             'forecast_drying_opportunity'=>$drying,
             'forecast_cooling_opportunity'=>$cooling,
+            'observed_wetroom_rises'=>$rhRises,
             'action'=>'KEEP_WEEKLY_PLAN',
             'air_quality_verified'=>false,
             'summary'=>'Kein zusaetzlicher Feuchte- oder Kuehlbedarf belegt',
@@ -40,6 +42,12 @@ final class JVHeliosVentilationNeed
             $base['evidence']='LIVE_SUPPLY_AND_INDOOR';
             $base['action']='CONSIDER_ONLY_AFTER_COMMISSIONING';
             $base['summary']='Zuluft aktuell kuehler; keine automatische Steuerfreigabe';
+        } elseif ($rhRises) {
+            // Mehrere gemessene RH-Anstiege sind ein Hinweis auf moegliche
+            // Feuchtelast, aber ohne Feuchtegradient *kein* Boost-Auftrag.
+            $base['classification']='WETROOM_RISE_OBSERVED_ONLY';
+            $base['evidence']='MULTISTEP_NATIVE_RH_CHANGE';
+            $base['summary']='Badfeuchte steigt mehrfach; Ursache und Bedarf noch nicht ausreichend verifiziert';
         } elseif ($dry>=2) {
             $base['classification']='DRY_AIR_CAUTION';
             $base['evidence']='MULTIPLE_CURRENT_RH_SENSORS';

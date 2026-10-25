@@ -177,3 +177,30 @@ $hs->setProperty('Rooms',json_encode(JVHeliosLCNRoomSources::SOURCES));
 $hs->ApplyChanges();
 a(array_keys($hs->getWatches())===[28802,53361],'Original-Zuordnung ist nach Rueckstellung wieder vollstaendig');
 a(count($GLOBALS['calls'])===0,'Konfigurationsmigration ohne Helios-Schaltbefehle');
+
+// v0.8.0: vollstaendige Symcon-Migration und eingehende LCN-Meldungen.
+$trendModule=new HeliosSmart();$trendModule->Create();$trendModule->ApplyChanges();
+$trendModule->setProperty('WeatherCenterInstance',42);
+$GLOBALS['values'][12812]=23.0;
+$GLOBALS['values'][53361]=63.0;
+$trendModule->MessageSink(100,53361,VM_UPDATE,[63.0,1,60.0]);
+$firstTrend=json_decode($trendModule->value('DecisionJSON'),true);
+a(($firstTrend['wetroom_trend']['observed_rises']??[])===[],
+    'Erste RH-Meldung ist kein bestaetigter Anstieg im Integrationstest');
+$GLOBALS['values'][53361]=68.0;
+$trendModule->MessageSink(101,53361,VM_UPDATE,[68.0,1,63.0]);
+$secondTrend=json_decode($trendModule->value('DecisionJSON'),true);
+a(($secondTrend['wetroom_trend']['observed_rises']??[])===['EG Bad'],
+    'Mehrfacher Anstieg aus numerischem HasDiff erreicht reales Modul-JSON');
+a(($secondTrend['wetroom_trend']['rooms'][0]['is_shower_proof']??null)===false,
+    'Integration deutet RH-Anstieg nicht als sichere Dusch-Erkennung');
+a(($secondTrend['ventilation_need']['hardware_authorized']??null)===false,
+    'Auch mehrstufiger Bad-Anstieg laesst Helios-Schaltsperre aktiv');
+a(count($GLOBALS['calls'])===0,'Kein HELIOS-Aktor nach mehrfacher sensorbasierter Neubewertung');
+$trendModule->setProperty('Rooms',json_encode([['name'=>'EG Bad','temperature'=>12812,'humidity'=>53361,'wetroom'=>false]]));
+$trendModule->ApplyChanges();
+$trendModule->Evaluate();
+$afterUnregister=json_decode($trendModule->value('DecisionJSON'),true);
+a(($afterUnregister['wetroom_trend']['observed_rises']??[])===[],
+    'Beim Umkonfigurieren abgemeldeter Feuchtetrend verschwindet auch aus Diagnose');
+a(count($GLOBALS['calls'])===0,'Keine Hardwarebefehle auch nach Konfigurationsmigration');

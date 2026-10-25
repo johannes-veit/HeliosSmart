@@ -22,3 +22,5 @@ php tests/test_comfort_season.php
 php tests/test_need_and_horizon.php
 
 php tests/test_wetroom_events.php
+
+php tests/test_wetroom_trends.php

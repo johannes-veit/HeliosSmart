@@ -83,3 +83,14 @@ Neuer Regressionstest fuer gemeldeten Status 25.10.2026 mit 11 Temperaturquellen
 - `ApplyChanges` registriert aktuell konfigurierte Feuchtequellen erneut und meldet entfernte ab; keine neuen sichtbaren Symcon-Variablen.
 - Sämtliche HELIOS- und LCN-Aktorbefehle sind weiterhin ausgeschlossen; alte Freigabe-Eigenschaften bleiben ohne Wirkung.
 - Nur Simulations-/Integrationstests, **kein Live-Nachweis** auf der realen SymBox oder für die tatsächliche Dusch-/Luftmengen-Erkennung.
+
+
+## v0.8.0 – RH-Aenderungsketten (25.10.2026)
+
+`bash tests/run_all.sh`: 393 bestandene lokale Offline-Pruefungen; PHP-Syntaxpruefung fuer alle Modul-, Bibliotheks- und Testdateien.
+
+Neue Nachweise: `VM_UPDATE` akzeptiert boolesches `true` und Ganzzahl `1`; zwei RH-Schritte von zusammen mindestens 6 Prozentpunkten in 25 Minuten; Einzelsprung ohne Ereignisfreigabe; aufeinanderfolgende Meldungen trotz 10-Sekunden-Berechnungsbremse; Alarm bleibt maximal 20 Minuten gueltig und muss zur tatsaechlichen aktuellen Original-LCN-Variable passen. Sensorfehler, unplausible RH-Spruenge, Rueckdatierung, aeltere Messung, verschwundene Zuordnung und abfallende RH heben den Befund auf. 10-minuetige Sperre nach unrealistischen Spruengen. Mehrere Werte aus verschiedenen Baedern werden nicht vermischt.
+
+Gesamtintegration: Nach zwei echten LCN-Updates erscheint ein Hinweis unter `wetroom_trend` im existierenden Entscheidungs-JSON. `ventilation_need` verwechselt den Trend nicht mit nachgewiesenem Lueftungsbedarf. Alle historischen Freigaben bleiben ohne Wirkung: kein Aufruf einer HELIOS-Schaltfunktion.
+
+Grenzen: Die Grenzwerte sind nur vorlaeufige Beobachtungsparameter. Das Format der `VM_UPDATE`-Datenfelder ist nicht offiziell als stabile Struktur zugesichert. Die Integration ist offline simuliert; eine reale Bestätigung auf der SymBox liegt noch nicht vor. Unbekannte Datenformate bleiben passiv; der 5-Minuten-Beobachter laeuft unabhaengig.

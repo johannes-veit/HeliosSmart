@@ -1,4 +1,4 @@
-# HELIOS SMART v0.7.0 – WetterZentrale & Lüftungsbeobachter
+# HELIOS SMART v0.8.0 – WetterZentrale & Lüftungsbeobachter
 
 **Entwicklungsfassung. Keine produktive Steuerungsfreigabe!**
 
@@ -169,3 +169,16 @@ Siehe `docs/TECHNISCHE_BASIS.md` für verifizierte IDs, Sicherheitslücken und w
 - Das Modul meldet `wetroom_event_monitor` (IDs, letzte Änderung) ausschließlich im bestehenden Entscheidungs-JSON. Alte RH-Werte gelten ausdrücklich nicht als live.
 - Konfigurationsänderungen entfernen alte Nachricht-Abonnements; eigene LCN-/Helios-Module werden nicht modifiziert.
 - Ein Event ist kein Duschbeweis; Temperatur, absolute Feuchte und Außenluftgefälle bleiben weitere Voraussetzungen für eine Empfehlung. Keine Schaltfreigabe.
+
+
+## v0.8.0 – Mehrstufige, ereignisbasierte Badfeuchte-Trends (25.10.2026)
+
+- Beruecksichtigt VM_UPDATE HasDiff sowohl als Boolean `true` als auch als Ganzzahl `1`.
+- Verarbeitet echte Aenderungen der LCN-Originalvariablen EG Bad `#53361` und OG Bad `#28802`.
+- **Beweiskette statt Einzelwert**: erst mindestens zwei passende RH-Anstiege, zusammen >=6 Prozentpunkte in maximal 25 Minuten, gelten als *Feuchteanstieg beobachtet* (nicht als bewiesener Duschvorgang).
+- Verwirft Spruenge >12 Prozentpunkte in einem Schritt (10 Minuten Trend-Sperre), widerspruechliche alte/neue Werte, falsche Sender und fehlerhafte Messwerte. Ein abfallender Wert beendet den aktuellen Anstieg.
+- Eingehende Sensorveraenderungen werden **auch waehrend der 10-Sekunden-Auswertungsbegrenzung gespeichert**. Neue relevante RH-Trends duerfen den Beobachter sofort aktualisieren.
+- **Begrenzte Gueltigkeit:** Ein Trend gilt hoechstens 20 Minuten und nur bei passender, aktueller LCN-Messung. Stale Daten und verlorene Abo-IDs geben keinen Hinweis frei.
+- `wetroom_trend` im bestehenden `#52866` zeigt je Bad die urspruengliche Sensor-ID, Zahl der Anstiegsmeldungen, RH-Anstieg und Gueltigkeit. `ventilation_need` unterscheidet RH-Trend von nachgewiesenem Zusatzlueftungsbedarf.
+- Keine neuen sichtbaren Variablen, keine Modifikation fremder Symcon-Module, **keinerlei HELIOS-Aktorbefehle**. Urspruengliche Wochenprogramme sind unveraendert.
+- Schwellenwerte sind vorlaeufige **Beobachtungsparameter**, keine freigegebenen Schaltschwellen; ohne Luftmengen-/Kamin-Abnahme kein Automatikbetrieb.
