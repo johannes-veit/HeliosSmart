@@ -555,6 +555,23 @@ class HeliosSmart extends IPSModule
         ];
         // Productive command engineering is fully simulated here, never executed.
         // Weekly programs remain the factory-defined fail-safe, not a Symcon timer.
+        // Manufacturer-backed bypass state, read-only. Never force hardware flap position.
+        $decision['bypass_actual']=null;
+        $decision['bypass_status']='UNAVAILABLE';
+        $heliosID=$this->ReadPropertyInteger('HeliosInstance');
+        if (IPS_InstanceExists($heliosID) && function_exists('HELIOS_Bypass_Get')) {
+            try {
+                $bypass=HELIOS_Bypass_Get($heliosID);
+                if (is_bool($bypass)) {
+                    $decision['bypass_actual']=$bypass;
+                    $decision['bypass_status']=$bypass?'OPEN':'CLOSED';
+                }
+            } catch (Throwable $e) {
+                $this->SendDebug('BypassRead',substr($e->getMessage(),0,120),0);
+            }
+        }
+        $decision['intake_after_ewt']=($ewtFresh && IPS_VariableExists($intakeID))
+            ?(float)GetValue($intakeID):null;
         $decision['season_signal']=$decision['daily_strategy']['season_signal']??null;
         $decision['now']=$now;
         $decision['morning_activity_evidence']=($cooking['advice']['recent_ground_floor_motion']??false)===true
