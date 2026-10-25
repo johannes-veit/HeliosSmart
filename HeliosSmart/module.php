@@ -42,6 +42,8 @@ class HeliosSmart extends IPSModule
         $this->RegisterPropertyInteger('CookingPowerThresholdW',2000);
         $this->RegisterPropertyString('Rooms',json_encode(JVHeliosLCNRoomSources::SOURCES, JSON_UNESCAPED_UNICODE));
         $this->RegisterPropertyBoolean('EnableControl',false);
+        $this->RegisterPropertyBoolean('EnableHighPowerParty',false);
+        $this->RegisterPropertyBoolean('HighPowerSafetyValidated',false);
         $this->RegisterPropertyBoolean('MinimumVentilationValidated',false);
         $this->RegisterPropertyBoolean('AllowEstimatedAirflowLimitedParty',false);
         $this->RegisterPropertyBoolean('CombustionSafetyValidated',false);
@@ -132,7 +134,7 @@ class HeliosSmart extends IPSModule
     {
         return json_encode([
             'elements'=>[
-                ['type'=>'Label','caption'=>'v0.12.0: Party-Steuerung technisch implementiert. Standard AUS. Modell-Luftmengen sind KEINE Messungen! Nur S3, maximal 15 Minuten, Kochen/Badfeuchte; Wochenprogramm bleibt erhalten. Betrieb nur nach ausdruecklicher Freigabe in diesen Haken.'],
+                ['type'=>'Label','caption'=>'v0.13: Standard S3/15 Minuten. OPTIONAL S4/30 Minuten ausschliesslich fuer bestaetigte Badfeuchte/Kochen nach eigener Hochleistungsfreigabe und gemessenen Luftmengen. Wochenprogramm bleibt erhalten.'],
                 ['type'=>'NumberSpinner','name'=>'HeliosInstance','caption'=>'Helios-Instanz'],
                 ['type'=>'NumberSpinner','name'=>'WeatherCenterInstance','caption'=>'WetterZentrale-Instanz (0 = automatisch erkennen)'],
                 ['type'=>'NumberSpinner','name'=>'ClimateControlInstance','caption'=>'LCNClimateControl (nur lesend)'],
@@ -152,6 +154,8 @@ class HeliosSmart extends IPSModule
                 ['type'=>'CheckBox','name'=>'AllowEstimatedAirflowLimitedParty','caption'=>'Modellbetrieb bewusst akzeptieren: Luftmengen NICHT gemessen; NUR Stufe 3 / max. 15 min'],
                 ['type'=>'CheckBox','name'=>'MinimumVentilationValidated','caption'=>'Alternativ: reale Luftmengen fachlich eingemessen (nur bei vorhandenem Nachweis)'],
                 ['type'=>'CheckBox','name'=>'CombustionSafetyValidated','caption'=>'Feuerstaette / Dunstabzug / Lueftung gemeinsam sicher betrieben und entsprechend freigegeben'],
+                ['type'=>'CheckBox','name'=>'EnableHighPowerParty','caption'=>'Optional: bei Badfeuchte/Kochen S4 fuer 30 Minuten (Standard AUS)'],
+                ['type'=>'CheckBox','name'=>'HighPowerSafetyValidated','caption'=>'S4 Anlagen-Sicherheit mit Luftmengen/Druck und Feuerstaette/Dunstabzug tatsaechlich geprueft'],
                 ['type'=>'CheckBox','name'=>'DevicePartyReturnValidated','caption'=>'Party endet am Geraet eigenstaendig und Wochenprogramm laeuft wieder'],
             ],
             'actions'=>[['type'=>'Button','caption'=>'Jetzt bewerten (bei Freigabe ggf. Party starten)','onClick'=>'JVHS_Evaluate($id);']]
@@ -551,7 +555,8 @@ class HeliosSmart extends IPSModule
         // Productive command engineering is fully simulated here, never executed.
         // Weekly programs remain the factory-defined fail-safe, not a Symcon timer.
         $candidate=JVHeliosBoostCoordinator::propose(
-            $decision,$cooking['advice'],(int)GetValue($fanID));
+            $decision,$cooking['advice'],(int)GetValue($fanID),
+            $this->ReadPropertyBoolean('EnableHighPowerParty'));
         $deviceStatus=[
             'instance_exists'=>IPS_InstanceExists($this->ReadPropertyInteger('HeliosInstance')),
             'module_verified'=>function_exists('IPS_GetInstance')
@@ -583,6 +588,8 @@ class HeliosSmart extends IPSModule
         }
         $approvals=[
             'estimated_flow_trial'=>$this->ReadPropertyBoolean('AllowEstimatedAirflowLimitedParty'),
+            'high_power_opt_in'=>$this->ReadPropertyBoolean('EnableHighPowerParty'),
+            'high_power_safety'=>$this->ReadPropertyBoolean('HighPowerSafetyValidated'),
             'enable_control'=>$this->ReadPropertyBoolean('EnableControl'),
             'minimum_airflow'=>$this->ReadPropertyBoolean('MinimumVentilationValidated'),
             'combustion_safety'=>$this->ReadPropertyBoolean('CombustionSafetyValidated'),
