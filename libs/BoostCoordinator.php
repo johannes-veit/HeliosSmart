@@ -30,8 +30,6 @@ final class JVHeliosBoostCoordinator
         }
         usort($choices,static fn($a,$b)=>($b['rank']<=>$a['rank']));
         $pick=$choices[0]??null;
-        // Cooling remains advisory-only; never send an automated Party for forecast cooling.
-        if ($pick!==null && $pick['source']==='COOLING') $pick=null;
         $level=$pick===null?null:min($highPower?4:3,max(1,(int)$pick['level']));
         $minutes=$pick===null?0:min($highPower?30:15,max(5,(int)$pick['minutes']));
         $useful=$pick!==null && $level>$fan;
