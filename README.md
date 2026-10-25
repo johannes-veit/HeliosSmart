@@ -1,4 +1,4 @@
-# HELIOS SMART v0.2.1 – WetterZentrale & Lüftungsbeobachter
+# HELIOS SMART v0.2.2 – WetterZentrale & Lüftungsbeobachter
 
 **Entwicklungsfassung. Keine produktive Steuerungsfreigabe!**
 
@@ -49,6 +49,21 @@ Die WetterZentrale nutzt zusaetzlich `Bright Sky /current_weather` mit explizite
 - https://brightsky.dev/
 
 **Betrieb nach Update:** WetterZentrale `#40477` aktualisieren, `Wetter jetzt aktualisieren` einmal drücken. Nach 1–3 Zyklen `Wetterdiagnose` prüfen. Die Fremdsteuerung bleibt gesperrt.
+
+
+## v0.2.2 – Direkte LCN-Originalfeuchtewerte (25.10.2026)
+
+Das SymBox-Backup vom 06.10.2026 bestaetigt zwoelf originale Luftfeuchtevariablen unter `LCN Module` (Variable-Objekte, keine Links im Info-Ordner).
+Alle zwoelf werden jetzt auch bei einer persistierten v0.2.1-Siebenraum-Konfiguration automatisch eingelesen; benutzerspezifische zusaetzliche Raeume bleiben erhalten. Erkannte Info-Link-IDs werden durch das richtige Original ersetzt. Die physikalisch belegten Temperaturvariablen aus `Info/Thermometer` werden unveraendert verwendet.
+
+EG: Bad #53361, Buero #19020, Flur #54341, Gaeste WC #16107, Kueche #52026, Schlafen #58531, Wohnen #46360.
+OG: Ankleide #43385, Bad #28802, Flur #13394, Schlafen 1 #37079, Schlafen 2 #22436.
+
+Fuer EG Flur wurde im Backup kein eindeutig eigener Temperatur-Istwert gefunden. Dieser Feuchtewert ist daher nur in der Diagnose sichtbar und geht ohne zugeordneten Temperaturwert nicht in die absolute Feuchteberechnung ein. Feuchte-Boost bleibt ausschliesslich fuer die zwei Duschbaeder aktiv.
+
+Im bestehenden Ergebnis-JSON (`Letzte Empfehlung JSON`) erscheinen `lcn_humidity_sources`, `lcn_humidity_source_count`, ID und Meldungsalter, ohne neue sichtbare Symcon-Variablen.
+
+HELIOS SMART ist weiterhin strikt **nur lesend**; keine `HELIOS_*`-Befehle. Es wurden keine LCN- oder Helios-Instanzen geaendert.
 
 ## Bestand
 

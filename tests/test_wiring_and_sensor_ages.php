@@ -109,5 +109,26 @@ $mod->Evaluate();
 $result=json_decode($mod->value('DecisionJSON'),true);
 verify($result['weather_center_id']===40477,'Fremde Modul-ID nicht als WetterZentrale akzeptiert');
 
-echo "ALLE v0.2.1 INTEGRATIONSTESTS BESTANDEN\n";
+// Reale Migration: sieben bisherige Konfigurationen, direkte LCN-Werte aus dem Backup.
+require_once __DIR__.'/../libs/LCNRoomSources.php';
+$oldSeven=array_values(array_filter(JVHeliosLCNRoomSources::SOURCES,
+    static fn($r)=>in_array($r['name'],['EG Bad','OG Bad','EG Küche','EG Wohnen','EG Schlafen','OG Schlafen 1','OG Schlafen 2'],true)));
+foreach (JVHeliosLCNRoomSources::SOURCES as $mapping) {
+    $GLOBALS['values'][$mapping['humidity']]=55;
+    if ($mapping['temperature']>0) $GLOBALS['values'][$mapping['temperature']]=23.5;
+}
+$GLOBALS['weatherInstances']=[40477];
+$expanded=new HeliosSmart();$expanded->Create();$expanded->ApplyChanges();
+$expanded->setProperty('Rooms',json_encode($oldSeven,JSON_UNESCAPED_UNICODE));
+$expanded->Evaluate();
+$full=json_decode((string)$expanded->value('DecisionJSON'),true);
+verify(count($full['lcn_humidity_sources'])===12,'Im alten Sieben-Raum-Objekt alle 12 originalen LCN-Quellen eingelesen');
+verify($full['lcn_humidity_source_count']===12,'Alle 12 Original-LCN-Feuchtevariablen auslesbar');
+verify(count(array_filter($full['lcn_humidity_sources'],static fn($s)=>$s['humidity_only']))===1,
+    'Nur EG Flur ohne erdachten Temperatur-Istwert');
+verify($full['observation_only']===true && $full['safe_to_execute']===false,
+    'Zwoelf LCN-Quellen veraendern die Sicherheitsgrenze nicht');
+verify(count($GLOBALS['commands'])===0,'Kein Helios-Befehl durch native LCN-Integration');
+
+echo "ALLE v0.2.1/0.2.2 INTEGRATIONSTESTS BESTANDEN\n";
 

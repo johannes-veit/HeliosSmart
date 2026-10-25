@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../libs/HeliosLogic.php';
 require_once __DIR__ . '/../libs/RoomHistory.php';
+require_once __DIR__ . '/../libs/LCNRoomSources.php';
 /** Vorhersagegestützter Beobachter; Aktor nur nach expliziter Freigabe. */
 class HeliosSmart extends IPSModule
 {
@@ -15,15 +16,7 @@ class HeliosSmart extends IPSModule
         $this->RegisterPropertyInteger('HeliosProgramVariable',12877);
         $this->RegisterPropertyInteger('HeliosSupplyTemperature',41272);
         $this->RegisterPropertyInteger('HeliosIntakeAfterEWT',28581);
-        $this->RegisterPropertyString('Rooms',json_encode([
-            ['name'=>'EG Bad','temperature'=>12812,'humidity'=>53361,'wetroom'=>true],
-            ['name'=>'OG Bad','temperature'=>36518,'humidity'=>28802,'wetroom'=>true],
-            ['name'=>'EG Küche','temperature'=>21585,'humidity'=>52026,'wetroom'=>false],
-            ['name'=>'EG Wohnen','temperature'=>29782,'humidity'=>46360,'wetroom'=>false],
-            ['name'=>'EG Schlafen','temperature'=>25557,'humidity'=>58531,'wetroom'=>false],
-            ['name'=>'OG Schlafen 1','temperature'=>30970,'humidity'=>37079,'wetroom'=>false],
-            ['name'=>'OG Schlafen 2','temperature'=>25330,'humidity'=>22436,'wetroom'=>false],
-        ],JSON_UNESCAPED_UNICODE));
+        $this->RegisterPropertyString('Rooms',json_encode(JVHeliosLCNRoomSources::SOURCES, JSON_UNESCAPED_UNICODE));
         $this->RegisterPropertyBoolean('EnableControl',false);
         $this->RegisterPropertyBoolean('MinimumVentilationValidated',false);
         $this->RegisterPropertyBoolean('CombustionSafetyValidated',false);
@@ -50,7 +43,7 @@ class HeliosSmart extends IPSModule
     {
         return json_encode([
             'elements'=>[
-                ['type'=>'Label','caption'=>'v0.2.1: Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
+                ['type'=>'Label','caption'=>'v0.2.2: Zwölf native LCN-Feuchtequellen; Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
                 ['type'=>'NumberSpinner','name'=>'HeliosInstance','caption'=>'Helios-Instanz'],
                 ['type'=>'NumberSpinner','name'=>'WeatherCenterInstance','caption'=>'WetterZentrale-Instanz (0 = automatisch erkennen)'],
                 ['type'=>'NumberSpinner','name'=>'ClimateControlInstance','caption'=>'LCNClimateControl (nur lesend)'],
@@ -96,13 +89,37 @@ class HeliosSmart extends IPSModule
         $rooms=[];
         $missing=[];
         $config=json_decode($this->ReadPropertyString('Rooms'),true);
-        foreach (is_array($config)?$config:[] as $r) {
+        $humiditySources=[];
+        foreach (JVHeliosLCNRoomSources::merge(is_array($config)?$config:[]) as $r) {
             $name=(string)($r['name']??'Raum');
             $t=(int)($r['temperature']??0);$h=(int)($r['humidity']??0);
-            // Beide IDs gehören zur gleichen Raumzuordnung; Temperatur bleibt
-            // trotz selten übertragener LCN-Feuchtewerte auswertbar.
-            if (!IPS_VariableExists($t) || !IPS_VariableExists($h)) {
-                $missing[]=$name.' (ID nicht vorhanden)';
+            // Feuchte direkt aus dem LCN-Modul, nie über Info/Link-Objekte.
+            $hExists=$h>0 && IPS_VariableExists($h);
+            $hAge=$hExists ? max(0,$now-(int)(IPS_GetVariable($h)['VariableUpdated']??0)) : null;
+            $sourceState=JVHeliosLCNRoomSources::isKnownRawHumidity($h)?'LCN_ORIGINAL':'KONFIGURIERT';
+            if ($hExists && function_exists('IPS_GetObject')) {
+                $object=IPS_GetObject($h);
+                if ((int)($object['ObjectType']??2)===6) {
+                    $hExists=false;
+                    $sourceState='LINK_VERBOTEN';
+                }
+            }
+            $humiditySources[]=[
+                'room'=>$name,'lcn_humidity_id'=>$h,'source'=>$sourceState,
+                'available'=>$hExists,'age_minutes'=>$hAge===null?null:(int)ceil($hAge/60),
+                'humidity_only'=>$t<=0,
+            ];
+            if (!$hExists) {
+                $missing[]=$name.' (LCN-Luftfeuchte #'.$h.' nicht vorhanden oder Link)';
+                continue;
+            }
+            if ($t<=0) {
+                // EG Flur hat keinen eindeutig zugeordneten Temperatur-Istwert im Backup.
+                // Relative Feuchte wird diagnostiziert; absolute Feuchte niemals geraten.
+                continue;
+            }
+            if (!IPS_VariableExists($t)) {
+                $missing[]=$name.' (Isttemperatur #'.$t.' nicht vorhanden)';
                 continue;
             }
             $tTime=(int)(IPS_GetVariable($t)['VariableUpdated']??0);
@@ -110,12 +127,11 @@ class HeliosSmart extends IPSModule
             $rooms[]=[
                 'name'=>$name, 'temperature'=>GetValue($t), 'rh'=>GetValue($h),
                 'temperature_observed_at'=>$tTime, 'humidity_observed_at'=>$hTime,
-                // Für alte Simulations-Harnesses und andere Konsumenten.
                 'observed_at'=>min($tTime,$hTime),
                 'wetroom'=>(bool)($r['wetroom']??false),
             ];
         }
-        return [$rooms,$missing];
+        return [$rooms,$missing,$humiditySources];
     }
 
     public function Evaluate(): void
@@ -149,7 +165,7 @@ class HeliosSmart extends IPSModule
         $mode=(int)GetValue($modeID);$program=(int)GetValue($progID);
         $supplyFresh=IPS_VariableExists($supplyID) && $now-(int)IPS_GetVariable($supplyID)['VariableUpdated']<=20*60;
         $supply=$supplyFresh?GetValue($supplyID):null;
-        [$rooms, $missingRooms] = $this->ReadRooms($now);
+        [$rooms, $missingRooms, $humiditySources] = $this->ReadRooms($now);
         // Humidity history is an attribute, not seven more user-facing variables.
         $prev=json_decode($this->ReadAttributeString('RoomHistory'),true);
         $tracking=JVHeliosRoomHistory::update(is_array($prev)?$prev:[],$rooms,$now);
@@ -180,12 +196,14 @@ class HeliosSmart extends IPSModule
         $decision['weather_connection']=$weatherConnection;
         $decision['weather_provider_reason']=(string)($weather['reason']??'');
         $decision['missing_room_mappings']=$missingRooms;
+        $decision['lcn_humidity_sources']=$humiditySources;
+        $decision['lcn_humidity_source_count']=count(array_filter($humiditySources,static fn($x)=>$x['available']));
         $decision['program_actual']=$program;
         $decision['program_recommended']=JVHeliosLogic::recommendProgram($weather,$decision,$now);
         $decision['helios_mode']=$mode;
         $decision['observation_only']=true;
         $this->SetValue('DecisionJSON',json_encode($decision,JSON_UNESCAPED_UNICODE));
-        // v0.2.0 is intentionally and unconditionally read-only.
+        // v0.2.2 is intentionally and unconditionally read-only.
         // Legacy approval properties remain registered to avoid migration issues,
         // but cannot authorize any HELIOS_* function from this version.
         $this->SetValue('Monitoring',true);
