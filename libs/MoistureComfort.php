@@ -73,7 +73,7 @@ final class JVHeliosMoistureComfort
             $r['priority']='PREVENT_MUGGY_SUPPLY';
             $r['bypass_moisture_preference']='KEEP_ENTHALPY_EXCHANGER_IF_DEVICE_PERMITS';
             $r['explanation']='Muggy dewpoint; sensible cooling alone cannot justify high airflow';
-        } elseif ($rh>=53 && $vpGap<0.8) {
+        } elseif ($rh>=53 && ($vpGap<1.5 || $gap<0.5)) {
             $r['regime']='INSUFFICIENT_DRYING_ADVANTAGE';
             $r['humidity_import_risk']=true;
             $r['priority']='PROTECT_INDOOR_HUMIDITY';
