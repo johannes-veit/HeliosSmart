@@ -6,7 +6,7 @@
  */
 final class JVHeliosBoostCoordinator
 {
-    public static function propose(array $decision, array $cooking, int $fan): array
+    public static function propose(array $decision, array $cooking, int $fan, bool $highPower=false): array
     {
         $fan=max(0,min(4,$fan));
         $choices=[];
@@ -15,12 +15,12 @@ final class JVHeliosBoostCoordinator
         $wetrooms=(array)($decision['wetrooms']??[]);
         $bathConfirmed=count(array_filter($wetrooms, static fn($r)=>is_array($r)&&($r['boost_recommended']??false)===true))>0;
         if ($mode==='HUMIDITY_BOOST' && $bathConfirmed && ($decision['weather_usable_for_advice']??false)) {
-            $choices[]=['source'=>'BATH_HUMIDITY','rank'=>3,'level'=>max(3,$requested),'minutes'=>15];
+            $choices[]=['source'=>'BATH_HUMIDITY','rank'=>3,'level'=>$highPower?4:max(3,$requested),'minutes'=>$highPower?30:15];
         }
         if (($cooking['potential_odor_boost']??false)===true
             && in_array(($cooking['classification']??''),['COOKING_LIKELY','COOKING_RECENTLY_LIKELY'],true)
             && is_int($cooking['suggested_fan_level']??null)) {
-            $choices[]=['source'=>'COOKING','rank'=>2,'level'=>(int)$cooking['suggested_fan_level'],'minutes'=>20];
+            $choices[]=['source'=>'COOKING','rank'=>2,'level'=>$highPower?4:(int)$cooking['suggested_fan_level'],'minutes'=>$highPower?30:20];
         }
         if ($mode==='PASSIVE_COOLING' && ($decision['weather_usable_for_advice']??false)
             && ($decision['supply_temperature']??null)!==null
@@ -30,8 +30,10 @@ final class JVHeliosBoostCoordinator
         }
         usort($choices,static fn($a,$b)=>($b['rank']<=>$a['rank']));
         $pick=$choices[0]??null;
-        $level=$pick===null?null:min(3,max(1,(int)$pick['level']));
-        $minutes=$pick===null?0:min(15,max(5,(int)$pick['minutes']));
+        // Cooling remains advisory-only; never send an automated Party for forecast cooling.
+        if ($pick!==null && $pick['source']==='COOLING') $pick=null;
+        $level=$pick===null?null:min($highPower?4:3,max(1,(int)$pick['level']));
+        $minutes=$pick===null?0:min($highPower?30:15,max(5,(int)$pick['minutes']));
         $useful=$pick!==null && $level>$fan;
         return [
             'kind'=>$useful?'PARTY_CANDIDATE':'KEEP_WEEKLY',
