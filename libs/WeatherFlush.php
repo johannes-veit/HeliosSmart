@@ -8,7 +8,7 @@ final class JVHeliosWeatherFlush {
     public static function analyze(array $d):array {
         $out=['eligible'=>false,'reason'=>'INSUFFICIENT_LIVE_EVIDENCE','type'=>null,
             'indoor_outdoor_ah_gap'=>null,'indoor_supply_temperature_gap'=>null,
-            'duration_minutes'=>0,'level'=>null,'daypart'=>null,'energy_priority'=>null,'morning_activity_supported'=>false];
+            'duration_minutes'=>0,'level'=>null,'daypart'=>null,'energy_priority'=>null,'morning_activity_supported'=>false,'heatwave_pre_cooling'=>false,'forecast_peak_c'=>null];
         if (($d['weather_quality']??'')!=='VERIFIED'
             || ($d['trusted_weather']??false)!==true
             || (int)($d['fresh_room_count']??0)<5
@@ -20,6 +20,16 @@ final class JVHeliosWeatherFlush {
         $hour=$instant>0?(int)(new DateTimeImmutable('@'.$instant))
             ->setTimezone(new DateTimeZone('Europe/Berlin'))->format('G'):null;
         $quiet=$hour!==null && ($hour>=22 || $hour<7);
+        // Forecast is a planning trigger only: it NEVER bypasses real supply,
+        // moisture and current sensor gates below.
+        $fc=(array)($d['forecast_advice']??[]);
+        $peak=$fc['temperature_max_c']??null;
+        $heatwave=($fc['status']??'')==='READY'
+            && (int)($fc['high_confidence_hours']??0)>=12
+            && (int)($fc['longest_contiguous_hours']??0)>=8
+            && is_numeric($peak) && (float)$peak>=30.0;
+        $out['forecast_peak_c']=is_numeric($peak)?(float)$peak:null;
+        $out['heatwave_pre_cooling']=$heatwave;
         $out['daypart']=$hour===null?'UNSPECIFIED':($quiet?'NIGHT':'DAY');
         $out['energy_priority']=$quiet?'QUIET_LOW_NOISE':'DAYTIME_COMFORT';
         $out['morning_activity_supported']=($hour!==null && $hour>=6 && $hour<10 && ($d['morning_activity_evidence']??false)===true);
@@ -39,12 +49,15 @@ final class JVHeliosWeatherFlush {
         }
         // At night a weather-only S4 run needs a substantially stronger benefit
         // to avoid noisy, repeated whole-house ventilation.
-        $coolThreshold=$quiet?4.0:2.5;
+        // Upcoming >=30 C shifts the pre-cooling window earlier into the
+        // evening/night/morning, but never allows unconditional S4 all day.
+        $precool=$heatwave && $hour!==null && ($hour>=19 || $hour<10);
+        $coolThreshold=$precool?2.2:($quiet?4.0:2.5);
         $humidityThreshold=$quiet?3.5:2.5;
         // During heating season, do not consume heating energy merely because
         // outdoor air is dry; demand must be material and supply comfortable.
-        if ($in>=($quiet?25.0:24.0) && $cool>=$coolThreshold && $gap>=-0.2)
-            $out['type']='THERMAL_COOLING';
+        if ($in>=($precool?23.0:($quiet?25.0:24.0)) && $cool>=$coolThreshold && $gap>=-0.2)
+            $out['type']=$precool?'HEATWAVE_PRECOOL':'THERMAL_COOLING';
         elseif ($inAh>=($quiet?11.5:10.5) && $gap>=$humidityThreshold
             && $supply>=($quiet?20.0:19.0) && $in>=21.5)
             $out['type']='MOISTURE_FLUSH';
