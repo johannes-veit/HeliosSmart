@@ -28,6 +28,10 @@ final class JVHeliosBoostCoordinator
             && (float)$decision['indoor_temperature']-(float)$decision['supply_temperature']>=2) {
             $choices[]=['source'=>'COOLING','rank'=>1,'level'=>max(3,$requested),'minutes'=>20];
         }
+        $flush=JVHeliosWeatherFlush::analyze($decision);
+        if ($highPower && $flush['eligible']) {
+            $choices[]=['source'=>'WEATHER_OPTIMAL','rank'=>1,'level'=>4,'minutes'=>30];
+        }
         usort($choices,static fn($a,$b)=>($b['rank']<=>$a['rank']));
         $pick=$choices[0]??null;
         $level=$pick===null?null:min($highPower?4:3,max(1,(int)$pick['level']));
@@ -39,6 +43,7 @@ final class JVHeliosBoostCoordinator
             'suggested_level'=>$useful?$level:null,
             'suggested_minutes'=>$useful?$minutes:0,
             'candidate_sources'=>array_column($choices,'source'),
+            'weather_flush'=>$flush,
             'multiple_demands'=>count($choices)>1,
             'fan_actual'=>$fan,'never_reduce_weekly'=>true,
             'weekly_program_change'=>false,
