@@ -40,3 +40,9 @@ Automatische Instanzsuche über Modul-GUID, Wetterqualität MODEL_SUPPORTED, rea
 
 ## v0.2.2
 Originale LCN-Feuchtevariablen der zwoelf Raumbereiche aus SymBox-Backup geprueft. Migration gespeicherter 7-Raum-Konfiguration, Link-Fehlerheilung, EG-Flur-Feuchte ohne erfundene Temperatur und Null-Geraetebefehle. Siehe tests/test_lcn_native_sources.php.
+
+## v0.3.0 – Prognoseberater
+
+- `tests/test_forecast_advisor.php`: Uhrzeitumstellung in Europa/Berlin, Stundenluecken, doppelte Werte, Modellqualitaet, ausbleibende Frischfeuchte, nasse Aussenluft, Sole-EWT nur aktuell, trockene Stunden und Mindestdauer.
+- `tests/test_symcon_guard.php`: weiterhin keine Hardwarebefehle.
+- Offlinedaten/Simulationen, keine reale SymBox- oder Helios-Hardwareabnahme.

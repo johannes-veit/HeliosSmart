@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../libs/HeliosLogic.php';
 require_once __DIR__ . '/../libs/RoomHistory.php';
 require_once __DIR__ . '/../libs/LCNRoomSources.php';
+require_once __DIR__ . '/../libs/ForecastAdvisor.php';
 /** Vorhersagegestützter Beobachter; Aktor nur nach expliziter Freigabe. */
 class HeliosSmart extends IPSModule
 {
@@ -43,7 +44,7 @@ class HeliosSmart extends IPSModule
     {
         return json_encode([
             'elements'=>[
-                ['type'=>'Label','caption'=>'v0.2.2: Zwölf native LCN-Feuchtequellen; Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
+                ['type'=>'Label','caption'=>'v0.3.0: Vorhersagefenster und zwölf native LCN-Feuchtequellen; Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
                 ['type'=>'NumberSpinner','name'=>'HeliosInstance','caption'=>'Helios-Instanz'],
                 ['type'=>'NumberSpinner','name'=>'WeatherCenterInstance','caption'=>'WetterZentrale-Instanz (0 = automatisch erkennen)'],
                 ['type'=>'NumberSpinner','name'=>'ClimateControlInstance','caption'=>'LCNClimateControl (nur lesend)'],
@@ -175,6 +176,22 @@ class HeliosSmart extends IPSModule
             'baseline_level'=>(int)GetValue($fanID),
             'supply_temperature'=>$supply,'supply_fresh'=>$supplyFresh,
         ]);
+        // Prognoseplanung ist rein lesend: Wettermodell != Zuluft nach Sole-EWT.
+        // Frische Innenraumfeuchte ist Voraussetzung fuer die Feuchtebewertung.
+        $indoorAH = ($decision['fresh_humidity_room_count']??0) >= 2
+            ? ($decision['indoor_absolute_humidity']??null) : null;
+        $forecastAdvice = JVHeliosForecastAdvisor::analyze(
+            (array)($weather['forecast']??[]), $now,
+            isset($decision['indoor_temperature']) ? (float)$decision['indoor_temperature'] : null,
+            $indoorAH,
+            (string)($decision['weather_quality']??'UNAVAILABLE'),
+            $supplyFresh?(float)$supply:null,
+            IPS_VariableExists($intakeID) && $now-(int)IPS_GetVariable($intakeID)['VariableUpdated']<=20*60
+                ? (float)GetValue($intakeID):null,
+            ($decision['weather_usable_for_advice']??false) && isset($weather['current']['temperature'])
+                ? (float)$weather['current']['temperature']:null
+        );
+        $decision['forecast_advice']=$forecastAdvice;
         $decision['ewt_effect_kelvin']=null;
         $ewtFresh=IPS_VariableExists($intakeID) && $now-(int)IPS_GetVariable($intakeID)['VariableUpdated']<=20*60;
         if ($decision['weather_usable_for_advice'] && $ewtFresh && is_array($weather['current']??null)) {
@@ -209,6 +226,7 @@ class HeliosSmart extends IPSModule
         $this->SetValue('Monitoring',true);
         $this->SetValue('Status','BEOBACHTUNG | '.$decision['mode']
             .' | Wetter '.$decision['weather_quality'].' ('.$weatherConnection.') | Vorschlag Stufe '
-            .$decision['requested_level'].' | '.$decision['reason']);
+            .$decision['requested_level'].' | '.$decision['reason']
+            .' | 24h: '.$forecastAdvice['summary']);
     }
 }

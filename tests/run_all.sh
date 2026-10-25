@@ -11,3 +11,5 @@ php tests/test_advisor.php
 php tests/test_wiring_and_sensor_ages.php
 
 php tests/test_lcn_native_sources.php
+
+php tests/test_forecast_advisor.php

@@ -1,4 +1,4 @@
-# HELIOS SMART v0.2.2 – WetterZentrale & Lüftungsbeobachter
+# HELIOS SMART v0.3.0 – WetterZentrale & Lüftungsbeobachter
 
 **Entwicklungsfassung. Keine produktive Steuerungsfreigabe!**
 
@@ -105,3 +105,13 @@ php tests/test_core.php
 ```
 
 Siehe `docs/TECHNISCHE_BASIS.md` für verifizierte IDs, Sicherheitslücken und weitere Phasen.
+
+## v0.3.0 – 24-Stunden-Prognoseberater (25.10.2026)
+
+- Eigene Klasse `JVHeliosForecastAdvisor` berechnet aus der von WetterZentrale bereitgestellten Stundenprognose potentielle zusammenhaengende **Kuehl- und Trocknungsfenster** fuer die naechsten 24 h.
+- Physikalische Schwellen: mindestens 2,5 K Aussenluft-Kuehlpotenzial, Aussentaupunkt maximal 16 Grad, Aussenfeuchte nicht mehr als 0,3 g/m³ ueber frischer Innenfeuchte, mindestens zwei zusammenhaengende sichere Prognosestunden. Die Schwellen sind eine erste konservative Planung, keine garantierte Kuehlwirkung.
+- Die *tatsaechliche* Zuluft wird ausschliesslich aus dem Helios-Fuehler genommen. Vorkonditionierung durch den Sole-EWT wird nur fuer das aktuelle Messfenster ermittelt, **niemals pauschal in Zukunftsprognosen fortgeschrieben**.
+- Ausfall von Wetterdiensten, fehlende frische Innenfeuchte oder unzureichende Prognosedichte werden eindeutig ausgewiesen und erzeugen keine scheinbar sicheren Zeitfenster.
+- DateTime/UTC-Fensterbildung bleibt bei Sommer-/Winterzeitwechsel korrekt.
+- Komplette Prognosediagnose in vorhandener `Letzte Empfehlung JSON` und kompakte 24h-Zusammenfassung in bestehender `Entscheidung / Status`. **Keine neue Symcon-Variable**.
+- Beobachtung unveraendert: **KEINE HELIOS-Geraetebefehle**, keine automatische Umschaltung der Wochenprogramme.

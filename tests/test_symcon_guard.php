@@ -90,4 +90,30 @@ $GLOBALS['weatherForTest']=['quality'=>'VERIFIED',
  'current'=>JVWeatherMath::readPair(6,95)+['observed_at'=>time()-120,'source'=>'DWD_SYNOP'], 'forecast'=>[]];
 $hs->Evaluate();
 a(count($GLOBALS['calls'])===0,'Null Helios-Befehle selbst mit VERIFIED und aktiven Alt-Freigaben');
+
+// v0.3.0: forecasting only enriches status and JSON; it cannot actuate the Helios.
+$GLOBALS['weatherForTest']=['quality'=>'VERIFIED',
+ 'current'=>JVWeatherMath::readPair(15,60)+['observed_at'=>time()-120,'source'=>'DWD_SYNOP'],
+ 'forecast'=>[]];
+for ($j=1;$j<=20;$j++) {
+    $GLOBALS['weatherForTest']['forecast'][]=[
+      'observed_at'=>time()+$j*3600,
+      'temperature'=>16.0,'rh'=>55.0,'confidence'=>'OK','source'=>'ICON'];
+}
+$GLOBALS['values'][12812]=25.0;$GLOBALS['values'][53361]=46;
+$GLOBALS['values'][36518]=25.0;$GLOBALS['values'][28802]=45;
+foreach ([12812,36518,21585,29782,25557,30970,25330] as $roomTempID) $GLOBALS['values'][$roomTempID]=25.0;
+$GLOBALS['values'][41272]=20.0;
+$hs->Evaluate();
+$withForecast=json_decode($hs->value('DecisionJSON'),true);
+a(isset($withForecast['forecast_advice']) && is_array($withForecast['forecast_advice']),
+ '24h-Prognose im vorhandenen Entscheidungs-JSON enthalten');
+a(($withForecast['forecast_advice']['status']??null)==='READY',
+ 'Gueltige Prognosen und frische LCN-Sensoren ergeben Planungsfenster');
+a(count($withForecast['forecast_advice']['cooling_windows']??[])>=1,
+ 'Kuehlfenster in Beobachtungsdiagnose vorhanden');
+a(str_contains($hs->value('Status'),'24h:'),
+ 'Status enthaelt kurze 24h-Zusammenfassung');
+a(count($GLOBALS['calls'])===0,'Prognose erzeugt auch bei alten Freigaben null Helios-Befehle');
+
 echo "ALLE SYMCON-SCHUTZTESTS BESTANDEN\n";
