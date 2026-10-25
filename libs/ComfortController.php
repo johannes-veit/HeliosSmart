@@ -16,7 +16,9 @@ final class JVHeliosComfortController
             'comfort_index'=>null,'comfort_index_kind'=>'HEURISTIC_NOT_PMV',
             'rooms_usable'=>0,'rooms'=>[],
             'living_average_temperature_c'=>null,'living_average_absolute_humidity_gm3'=>null,
-            'hottest_room'=>null,'most_humid_room'=>null,
+            'hottest_room'=>null,'most_humid_room'=>null,'coolest_room'=>null,
+            'cooling_floor_c'=>21.0,'rooms_below_cooling_floor'=>[],
+            'night_precooling_safe'=>null,
             'temperature_target_summer_c'=>'23-26 (orientation, measured air only)',
             'humidity_target_rh_pct'=>'40-55 (operator preference, not a standard)',
             'heat_discomfort_rooms'=>0,'humidity_discomfort_rooms'=>0,'dry_rooms'=>0,
@@ -77,6 +79,13 @@ final class JVHeliosComfortController
         usort($sortedWet,static fn($a,$b)=>$b['dewpoint_c']<=>$a['dewpoint_c']);
         $base['hottest_room']=$sortedHot[0];
         $base['most_humid_room']=$sortedWet[0];
+        $sortedCool=$items;
+        usort($sortedCool,static fn($a,$b)=>$a['temperature_c']<=>$b['temperature_c']);
+        $base['coolest_room']=$sortedCool[0];
+        $belowFloor=array_values(array_map(static fn($r)=>$r['room'],
+            array_filter($items,static fn($r)=>$r['temperature_c']<21.0)));
+        $base['rooms_below_cooling_floor']=$belowFloor;
+        $base['night_precooling_safe']=count($belowFloor)===0;
 
         // Bath and kitchen spikes must not make comfortable living rooms
         // appear humidity-loaded merely through the global mean.
@@ -100,6 +109,10 @@ final class JVHeliosComfortController
         $supply=$decision['supply_temperature']??null;
         $realCooling=is_numeric($supply) && $temperature-(float)$supply>=2.2;
         $summer=($decision['season_signal']??null)!=='HEATING_SEASON';
+        // Whole-house S4 cools EVERY supplied room. A comfortable house
+        // average can conceal an already-cold bedroom: never request extra
+        // *weather-only* cooling when a measured living room is below 21 C.
+        $safeToCool=count($belowFloor)===0;
 
         if ($needsDry && !$compatible) {
             $base['classification']=$needsCool?'WARM_UND_SCHWUEL':'ZU_FEUCHT';
@@ -119,7 +132,8 @@ final class JVHeliosComfortController
         } elseif ($needsCool || ($summer && $heatwave && $temperature>=23)) {
             $base['classification']=$needsDry?'WARM_UND_FEUCHT':($needsCool?'ZU_WARM':'HITZEVORSORGE');
             $base['requested_improvement']=$compatible?'COOL_WITH_MOISTURE_GUARD':'PROTECT_FROM_HUMID_AIR';
-            $base['weather_boost_compatible']=$compatible && $realCooling && $summer && !$dryConcern;
+            $base['weather_boost_compatible']=$compatible && $realCooling && $summer && !$dryConcern
+                && $safeToCool;
             $base['recommendations']=$compatible
                 ?['Nur bei tatsaechlich kuehler Zuluft und geeignetem Aussen-Taupunkt vorkuehlen.',
                   'Wetter-Partybetrieb zeitlich begrenzen und Grundlueftung erhalten.']
@@ -128,7 +142,8 @@ final class JVHeliosComfortController
         } elseif ($needsDry) {
             $base['classification']='ZU_FEUCHT';
             $base['requested_improvement']=$compatible?'DRY_IF_OUTSIDE_DRIER':'MOISTURE_PROTECTION_NO_WEATHER_BOOST';
-            $base['weather_boost_compatible']=$compatible && $summer && !$dryConcern;
+            $base['weather_boost_compatible']=$compatible && $summer && !$dryConcern
+                && $safeToCool;
             $base['recommendations']=$compatible
                 ?['Bei nachweisbar trockenerer Aussenluft kontrolliert Feuchtigkeit abfuehren.']
                 :['Feuchteimport vermeiden; KWL hat keine aktive Entfeuchtung.'];
@@ -140,10 +155,17 @@ final class JVHeliosComfortController
             $base['classification']='ANGENEHM';
             $base['requested_improvement']='MAINTAIN_COMFORT';
             $base['weather_boost_compatible']=$compatible && $realCooling && $summer
-                && $heatwave && $temperature>=23;
+                && $heatwave && $temperature>=23 && $safeToCool;
             $base['recommendations']=$base['weather_boost_compatible']
                 ?['Bei bevorstehender Hitzewelle kurze Vorabkuehlung zulassen, nur bei trockenem Aussenklima.']
                 :['Keine zusaetzliche Luefterstufe aus Behaglichkeit ableiten.'];
+        }
+        if (!$safeToCool && $summer) {
+            $base['recommendations'][]='Mindestens ein Wohn-/Schlafraum unter 21 Grad: keine zusaetzliche wetterbedingte Ganzhaus-Kuehllueftung.';
+            $base['weather_boost_compatible']=false;
+            if (in_array($base['requested_improvement'],['COOL_WITH_MOISTURE_GUARD','DRY_IF_OUTSIDE_DRIER'],true)) {
+                $base['requested_improvement']='PROTECT_COOL_ROOMS_WHILE_MAINTAINING_WEEKLY';
+            }
         }
         $base['summary']=$base['classification'].' | Wohnraeume '.$base['rooms_usable'].
             ' | Hitze '.$hot.' | Feuchte '.$humid.' | Trocken '.$dry.
