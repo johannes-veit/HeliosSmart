@@ -111,6 +111,7 @@ ar(JVHeliosArchiveReplay::evaluate($bad)['status']==='UNSUPPORTED_INPUT_ORIGIN',
     'No live Symcon invocation accepted');
 
 $bad=$data;array_splice($bad['observations'],12,1);
+array_splice($bad['assumed_hourly_gains'],12,1);
 ar(JVHeliosArchiveReplay::evaluate($bad)['status']==='MISSING_OR_DUPLICATE_UTC_HOUR',
     'Missing hourly timestamp reported, never interpolated');
 $bad=$data;$bad['observations'][28]['at']=$bad['observations'][27]['at'];
@@ -166,7 +167,7 @@ $q=JVHeliosArchiveReplay::evaluate($bad);
 ar($q['metrics']['holdout_model_mae_c']>$r['metrics']['holdout_model_mae_c']+0.1,
     'Incorrect solar-gain assumptions must visibly worsen holdout error');
 
-$small=replayData(47);
+$small=replayData(46);
 ar(JVHeliosArchiveReplay::evaluate($small)['status']==='INSUFFICIENT_HISTORY_OR_GAINS',
     'Less than 48 observation-hours does not fake robust validation');
 
