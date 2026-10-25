@@ -114,6 +114,10 @@ final class JVHeliosCookingAdvisor
             // source updates while a kitchen event is still underway.
             if (!$kitchenMotion || $lastHigh<=0 || $now-$lastHigh>12*60) {
                 $since=0; $samples=0;
+            } else {
+                // Preserve the original source-backed high event across the
+                // trough between induction hob cycles.
+                $newHighSampleAt=$lastHigh;
             }
         }
         $powerSustained=$highPower && $samples>=2 && $now-$since>=60;
