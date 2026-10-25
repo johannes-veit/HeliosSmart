@@ -12,7 +12,7 @@ final class JVHeliosCookingSignalHealth
         $powerStatus=!$present?'SOURCE_NOT_FOUND':(
             !is_numeric($raw)?'VALUE_NON_NUMERIC':(
             $age===null || $age<0?'TIMESTAMP_UNAVAILABLE':(
-            $age>120?'VALUE_NOT_UPDATED_2_MIN':(
+            $age>360?'VALUE_NOT_UPDATED_6_MIN':(
             ($p['usable']??false)?'FRESH':'VALUE_OUT_OF_RANGE'))));
         return [
             'power_id'=>(int)($p['id']??0),
