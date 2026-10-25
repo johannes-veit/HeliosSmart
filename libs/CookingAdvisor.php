@@ -76,6 +76,7 @@ final class JVHeliosCookingAdvisor
                 $motion=true; $motions[]=$n;
             }
         }
+        $kitchenMotion=in_array('Wohnkueche',$motions,true);
         $powerUsable=($signals['power']['usable']??false)===true;
         $watts=$powerUsable && is_numeric($signals['power']['watts']??null)
             ?(float)$signals['power']['watts']:null;
@@ -165,7 +166,6 @@ final class JVHeliosCookingAdvisor
         $mealTime=($hour>=10 && $hour<15) || ($hour>=17 && $hour<22);
         $homeHint=count($home)>0;
         // Presence and clock time only corroborate physical kitchen evidence.
-        $kitchenMotion=in_array('Wohnkueche',$motions,true);
         $hallMotion=in_array('EG Flur',$motions,true);
         $score=($light?2:0)+($kitchenMotion?3:0)+($hallMotion?1:0)
             +($powerSustained?3:($highPower?1:0))+($mealTime?1:0)+($homeHint?1:0);
