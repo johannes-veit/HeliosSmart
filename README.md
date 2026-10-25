@@ -1,6 +1,17 @@
-# HELIOS SMART v0.2.0 – WetterZentrale & Lüftungsbeobachter
+# HELIOS SMART v0.2.1 – WetterZentrale & Lüftungsbeobachter
 
 **Entwicklungsfassung. Keine produktive Steuerungsfreigabe!**
+
+## v0.2.1 – Wetter-Zuordnung und LCN-Datenalter korrigiert (25.10.2026)
+
+- **Wetter UNAVAILABLE trotz funktionierender WetterZentrale:** `WeatherCenterInstance=0` sucht jetzt die genau eine WetterZentrale über ihre Modul-GUID. Eine fremde Instanz wird nicht akzeptiert; bei mehreren WetterZentralen ist eine explizite Konfiguration erforderlich. Auf dem bekannten System wird `#40477` gefunden. Vorhandene Instanzkonfiguration bleibt unangetastet.
+- Wetterdiagnose im Entscheidungs-JSON: erkannte WetterZentrale-ID, Herkunft der Verknüpfung und Wetterquelle bzw. Snapshot-Fehler.
+- **LCN-Feuchtewerte:** Aus dem SymBox-Backup geht hervor, dass einzelne GUS-Feuchtevariablen nur bei Wertänderung Meldungen erhalten. Zu alte Feuchtewerte dürfen nicht automatisch als Sensordefekt gelten.
+- Frische Temperatur- und Feuchtezeitstempel werden **getrennt** ausgewertet: Temperatur bis zwei Stunden für reine Beobachtung; Feuchte unter 45 Minuten für Feuchte-/Kühlvorschläge. Ältere Feuchte wird dokumentiert, jedoch niemals als aktuelle Messung zur Boost-Freigabe genutzt.
+- Jeder Raum erhält im Entscheidungs-JSON `sensor_audit` mit Sensoralter und Verwertbarkeit. Keine neuen Symcon-Variablen.
+- **Sämtliche Helios-Gerätebefehle bleiben aus dem Beobachtungsmodul entfernt.** Kein Produktivmodus in v0.2.1.
+
+Nach Update: `Kern-Instanzen → Modules → HeliosSmart aktualisieren`, Instanz `#52187` öffnen und **Nur lesen: Empfehlung berechnen** ausführen. `WetterZentrale-Instanz` kann `0` bleiben, wenn genau eine WetterZentrale vorhanden ist. Die bestehende `#40477` braucht kein Update.
 
 ## v0.2.0 – Intelligente Empfehlungen im unveränderlichen Beobachtungsmodus (25.10.2026)
 

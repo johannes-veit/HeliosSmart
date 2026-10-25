@@ -50,9 +50,9 @@ class HeliosSmart extends IPSModule
     {
         return json_encode([
             'elements'=>[
-                ['type'=>'Label','caption'=>'v0.2: Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
+                ['type'=>'Label','caption'=>'v0.2.1: Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
                 ['type'=>'NumberSpinner','name'=>'HeliosInstance','caption'=>'Helios-Instanz'],
-                ['type'=>'NumberSpinner','name'=>'WeatherCenterInstance','caption'=>'WetterZentrale-Instanz'],
+                ['type'=>'NumberSpinner','name'=>'WeatherCenterInstance','caption'=>'WetterZentrale-Instanz (0 = automatisch erkennen)'],
                 ['type'=>'NumberSpinner','name'=>'ClimateControlInstance','caption'=>'LCNClimateControl (nur lesend)'],
                 ['type'=>'NumberSpinner','name'=>'HeliosFanVariable','caption'=>'Helios Lüfterstufe'],
                 ['type'=>'NumberSpinner','name'=>'HeliosModeVariable','caption'=>'Helios Betriebsart'],
@@ -65,17 +65,78 @@ class HeliosSmart extends IPSModule
         ],JSON_UNESCAPED_UNICODE);
     }
 
+    /** WeatherCenterInstance=0 wird bewusst als automatische Suche behandelt.
+     *  Niemals eine fremde Modulinstanz anhand des Anzeigenamens verwenden. */
+    private function FindWeatherCenter(): array
+    {
+        $configured = $this->ReadPropertyInteger('WeatherCenterInstance');
+        $guid = '{685106B4-47EC-43C9-9CA9-9BAE53E4B304}';
+        $reason = '';
+        if ($configured > 0 && IPS_InstanceExists($configured)) {
+            if (!function_exists('IPS_GetInstance') ||
+                strcasecmp((string)(IPS_GetInstance($configured)['ModuleInfo']['ModuleID'] ?? ''), $guid) === 0) {
+                return [$configured, 'konfiguriert'];
+            }
+            $reason = 'Konfigurierte Wetter-ID gehört nicht zur WetterZentrale';
+        } elseif ($configured > 0) {
+            $reason = 'Konfigurierte Wetter-ID existiert nicht';
+        }
+        if (function_exists('IPS_GetInstanceListByModuleID')) {
+            $found = array_values(array_filter((array)IPS_GetInstanceListByModuleID($guid),
+                static fn($x): bool => IPS_InstanceExists((int)$x)));
+            if (count($found) === 1) return [(int)$found[0], 'automatisch erkannt'];
+            if (count($found) > 1) return [0, 'Mehrere WetterZentralen gefunden, Instanz explizit auswählen'];
+        }
+        return [0, $reason !== '' ? $reason : 'Keine WetterZentrale gefunden – WetterZentrale-Instanz eintragen'];
+    }
+
+    /** NUR LESEN. Datengüte der Sensoren bleibt in der Diagnose sichtbar. */
+    private function ReadRooms(int $now): array
+    {
+        $rooms=[];
+        $missing=[];
+        $config=json_decode($this->ReadPropertyString('Rooms'),true);
+        foreach (is_array($config)?$config:[] as $r) {
+            $name=(string)($r['name']??'Raum');
+            $t=(int)($r['temperature']??0);$h=(int)($r['humidity']??0);
+            // Beide IDs gehören zur gleichen Raumzuordnung; Temperatur bleibt
+            // trotz selten übertragener LCN-Feuchtewerte auswertbar.
+            if (!IPS_VariableExists($t) || !IPS_VariableExists($h)) {
+                $missing[]=$name.' (ID nicht vorhanden)';
+                continue;
+            }
+            $tTime=(int)(IPS_GetVariable($t)['VariableUpdated']??0);
+            $hTime=(int)(IPS_GetVariable($h)['VariableUpdated']??0);
+            $rooms[]=[
+                'name'=>$name, 'temperature'=>GetValue($t), 'rh'=>GetValue($h),
+                'temperature_observed_at'=>$tTime, 'humidity_observed_at'=>$hTime,
+                // Für alte Simulations-Harnesses und andere Konsumenten.
+                'observed_at'=>min($tTime,$hTime),
+                'wetroom'=>(bool)($r['wetroom']??false),
+            ];
+        }
+        return [$rooms,$missing];
+    }
+
     public function Evaluate(): void
     {
         $now=time();
         $weather=['quality'=>'UNAVAILABLE','current'=>null,'forecast'=>[]];
-        $id=$this->ReadPropertyInteger('WeatherCenterInstance');
-        if ($id>0 && IPS_InstanceExists($id)) {
+        [$id, $weatherConnection] = $this->FindWeatherCenter();
+        if ($id > 0) {
             try {
                 $payload=JVWC_Snapshot($id);
                 $w=json_decode((string)$payload,true);
-                if (is_array($w)) $weather=$w;
-            } catch (Throwable $e) { $this->SendDebug('Weather',$e->getMessage(),0); }
+                if (is_array($w)) {
+                    $weather=$w;
+                    $weatherConnection.=' (#'.$id.')';
+                } else {
+                    $weatherConnection='Wetter-Snapshot nicht als JSON lesbar';
+                }
+            } catch (Throwable $e) {
+                $weatherConnection='Wetter-Snapshot Fehler: '.substr($e->getMessage(),0,120);
+                $this->SendDebug('Weather',$e->getMessage(),0);
+            }
         }
         $fanID=$this->ReadPropertyInteger('HeliosFanVariable');
         $modeID=$this->ReadPropertyInteger('HeliosModeVariable');
@@ -88,18 +149,7 @@ class HeliosSmart extends IPSModule
         $mode=(int)GetValue($modeID);$program=(int)GetValue($progID);
         $supplyFresh=IPS_VariableExists($supplyID) && $now-(int)IPS_GetVariable($supplyID)['VariableUpdated']<=20*60;
         $supply=$supplyFresh?GetValue($supplyID):null;
-        $rooms=[];
-        $config=json_decode($this->ReadPropertyString('Rooms'),true);
-        foreach (is_array($config)?$config:[] as $r) {
-            $t=(int)($r['temperature']??0);$h=(int)($r['humidity']??0);
-            if (!IPS_VariableExists($t)||!IPS_VariableExists($h)) continue;
-            $rooms[]=[
-                'name'=>(string)($r['name']??'Raum'),
-                'temperature'=>GetValue($t),'rh'=>GetValue($h),
-                'observed_at'=>min((int)IPS_GetVariable($t)['VariableUpdated'],(int)IPS_GetVariable($h)['VariableUpdated']),
-                'wetroom'=>(bool)($r['wetroom']??false)
-            ];
-        }
+        [$rooms, $missingRooms] = $this->ReadRooms($now);
         // Humidity history is an attribute, not seven more user-facing variables.
         $prev=json_decode($this->ReadAttributeString('RoomHistory'),true);
         $tracking=JVHeliosRoomHistory::update(is_array($prev)?$prev:[],$rooms,$now);
@@ -126,6 +176,10 @@ class HeliosSmart extends IPSModule
                 }
             }
         }
+        $decision['weather_center_id']=$id;
+        $decision['weather_connection']=$weatherConnection;
+        $decision['weather_provider_reason']=(string)($weather['reason']??'');
+        $decision['missing_room_mappings']=$missingRooms;
         $decision['program_actual']=$program;
         $decision['program_recommended']=JVHeliosLogic::recommendProgram($weather,$decision,$now);
         $decision['helios_mode']=$mode;
@@ -136,7 +190,7 @@ class HeliosSmart extends IPSModule
         // but cannot authorize any HELIOS_* function from this version.
         $this->SetValue('Monitoring',true);
         $this->SetValue('Status','BEOBACHTUNG | '.$decision['mode']
-            .' | Wetter '.$decision['weather_quality'].' | Vorschlag Stufe '
+            .' | Wetter '.$decision['weather_quality'].' ('.$weatherConnection.') | Vorschlag Stufe '
             .$decision['requested_level'].' | '.$decision['reason']);
     }
 }

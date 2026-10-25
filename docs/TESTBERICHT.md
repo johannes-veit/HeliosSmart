@@ -33,3 +33,7 @@ Die Optionen EnableControl, MinimumVentilationValidated, CombustionSafetyValidat
 - Unabhängiger Test der Feuchte-Grundlinie (langsame Anpassung, keine zusätzlichen Symcon-Variablen).
 - Schutztest erzwingt NULL Gerätebefehle auch bei sämtlichen alten Freigabe-Eigenschaften auf TRUE.
 - Alle Tests laufen offline mit PHP 8; kein realer SymBox-, Helios- oder DWD-Steuerungstest.
+
+## v0.2.1 – Integrationsfehler aus produktivem Beobachtungsstatus
+
+Automatische Instanzsuche über Modul-GUID, Wetterqualität MODEL_SUPPORTED, reale LCN-Bedingung: aktuelle Temperatur, längere Zeit unveränderte Feuchte (keine unbelegten Feuchteboosts), fehlerhafte oder doppelte WetterZentralen und garantiert null Helios-Befehle. Tests: tests/test_wiring_and_sensor_ages.php.

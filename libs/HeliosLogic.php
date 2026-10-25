@@ -17,25 +17,44 @@ final class JVHeliosLogic
         $usable=$measured || $modeled;
         $base=max(1,min(4,(int)($input['baseline_level']??2)));
         $rooms=[];$wetrooms=[];$dewpoints=[];
+        $temperatures=[];$humidities=[];
+        $roomAudit=[];
         foreach ((array)($input['rooms']??[]) as $r) {
-            if (!is_array($r) || !isset($r['temperature'],$r['rh'],$r['observed_at'])) continue;
-            $age=$now-(int)$r['observed_at'];
-            if ($age< -120 || $age>self::MAX_SENSOR_AGE) continue;
-            $p=JVWeatherMath::readPair($r['temperature'],$r['rh']);
-            if ($p===null) continue;
+            if (!is_array($r) || !isset($r['temperature'],$r['rh'])) continue;
             $name=(string)($r['name']??'Raum');
-            $r=$p+['name'=>$name,'wetroom'=>(bool)($r['wetroom']??false),
-                'observed_at'=>(int)$r['observed_at'],
+            // LCN-Temperatur aktualisiert sich oft zyklisch, LCN-Feuchte
+            // teilweise erst bei Wertaenderung. Zeiten getrennt behandeln.
+            $tempTime=(int)($r['temperature_observed_at']??$r['observed_at']??0);
+            $humidityTime=(int)($r['humidity_observed_at']??$r['observed_at']??0);
+            $tempAge=$now-$tempTime;
+            $humidityAge=$now-$humidityTime;
+            $tempValid=$tempTime>0 && $tempAge>=-120 && $tempAge<=2*3600
+                && is_numeric($r['temperature']) && (float)$r['temperature']>=5 && (float)$r['temperature']<=40;
+            $humValid=$humidityTime>0 && $humidityAge>=-120 && $humidityAge<=self::MAX_SENSOR_AGE;
+            $pair=$tempValid && $humValid ? JVWeatherMath::readPair($r['temperature'],$r['rh']) : null;
+            $roomAudit[]=[
+                'name'=>$name,
+                'temperature_age_min'=>$tempTime>0?max(0,(int)ceil($tempAge/60)):null,
+                'humidity_age_min'=>$humidityTime>0?max(0,(int)ceil($humidityAge/60)):null,
+                'temperature_usable'=>$tempValid,
+                'humidity_usable'=>$pair!==null,
+                'humidity_status'=>!$humValid ? 'STALE' : ($pair===null?'INVALID':'CURRENT')
+            ];
+            if (!$tempValid) continue;
+            $temperatures[]=(float)$r['temperature'];
+            if ($pair===null) continue;
+            $r=$pair+['name'=>$name,'wetroom'=>(bool)($r['wetroom']??false),
+                'observed_at'=>$humidityTime,
                 'humidity_rise_gm3'=>max(0.,(float)($r['humidity_rise_gm3']??0.0))];
             $rooms[]=$r;
-            $dewpoints[]=$p['dewpoint'];
+            $dewpoints[]=$pair['dewpoint'];
+            $humidities[]=$pair['absolute_humidity'];
             if ($r['wetroom']) $wetrooms[]=$r;
         }
-        $roomCount=count($rooms);
-        $temps=array_column($rooms,'temperature');
-        $humidity=array_column($rooms,'absolute_humidity');
-        $avgT=$roomCount?array_sum($temps)/$roomCount:null;
-        $avgAH=$roomCount?array_sum($humidity)/$roomCount:null;
+        $roomCount=count($temperatures);
+        $freshHumidityCount=count($humidities);
+        $avgT=$roomCount?array_sum($temperatures)/$roomCount:null;
+        $avgAH=$freshHumidityCount?array_sum($humidities)/$freshHumidityCount:null;
         $supply=is_numeric($input['supply_temperature']??null)?(float)$input['supply_temperature']:null;
         $supplyFresh=($input['supply_fresh']??false)===true && $supply!==null && $supply>=-20 && $supply<=50;
         $reasons=['Wochenplan ist die Untergrenze; tatsaechliche Luftmengen noch nicht abgenommen'];
@@ -64,7 +83,10 @@ final class JVHeliosLogic
         } elseif ($usable && $roomCount>=2 && $supplyFresh) {
             $gap=$avgT-$supply;
             // Excessive outdoor moisture is not an acceptable price for a small thermal benefit.
-            $acceptableMoisture=(float)$out['absolute_humidity'] <= $avgAH+0.4;
+            // Ohne zwei frische Feuchtesensoren nie eine zusaetzliche
+            // thermische Lueftung anhand fraglicher Feuchtedaten empfehlen.
+            $acceptableMoisture=$freshHumidityCount>=2 && $avgAH!==null
+                && (float)$out['absolute_humidity'] <= $avgAH+0.4;
             $highOutdoorDew=(float)$out['dewpoint'] > 16.0;
             if ($avgT>=24.0 && $gap>=2.0 && $acceptableMoisture && !$highOutdoorDew) {
                 $mode='PASSIVE_COOLING';$level=max($base,3);$minutes=20;
@@ -73,12 +95,13 @@ final class JVHeliosLogic
             } elseif ($avgT<=21.0 && (float)$out['temperature']<=12.0) {
                 $mode='HEAT_PRESERVATION';
                 $reasons[]='Winterliche Waermeerhaltung; kein Boost ohne konkreten Luftbedarf';
-            } elseif ($avgT>=24.0 && (!$acceptableMoisture || $highOutdoorDew)) {
+            } elseif ($avgT>=24.0 && $freshHumidityCount>=2 && (!$acceptableMoisture || $highOutdoorDew)) {
                 $mode='SUMMER_HUMIDITY_PROTECTION';
                 $reasons[]='Thermischen Boost wegen zusaetzlicher Feuchtelast vermeiden';
             }
         }
-        if ($roomCount<2) $reasons[]='Zu wenige aktuelle Raumsensoren fuer Temperaturstrategie';
+        if ($roomCount<2) $reasons[]='Zu wenige aktuelle Raumtemperaturwerte fuer Temperaturstrategie';
+        if ($freshHumidityCount<2) $reasons[]='Zu wenige aktuelle Feuchtewerte: alte LCN-Werte nicht als frische Messung gewertet';
         if ($mode==='WEEKLY_BASE') $reasons[]='Kein zusaetzlicher Lueftungsvorteil belegt';
         return [
             'mode'=>$mode,'requested_level'=>$level,'duration_minutes'=>$minutes,
@@ -87,6 +110,8 @@ final class JVHeliosLogic
             'advice_confidence'=>$measured?'MEASUREMENT_SUPPORTED':($modeled?'MODEL_SUPPORTED':'UNAVAILABLE'),
             'safe_to_execute'=>false,'observation_only'=>true,
             'fresh_room_count'=>$roomCount,
+            'fresh_humidity_room_count'=>$freshHumidityCount,
+            'sensor_audit'=>$roomAudit,
             'indoor_temperature'=>$avgT===null?null:round($avgT,2),
             'indoor_absolute_humidity'=>$avgAH===null?null:round($avgAH,2),
             'outside_temperature'=>$usable?(float)$out['temperature']:null,

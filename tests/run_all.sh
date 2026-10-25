@@ -8,3 +8,4 @@ php tests/test_symcon_guard.php
 php tests/test_resilient_weather.php
 
 php tests/test_advisor.php
+php tests/test_wiring_and_sensor_ages.php
