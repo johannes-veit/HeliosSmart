@@ -31,3 +31,7 @@ php tests/test_cooking_events.php
 
 php tests/test_away_presence.php
 php tests/test_party_commissioning.php
+
+php tests/test_party_live_executor.php
+php tests/test_live_symcon_integration.php
+php tests/test_party_monitor.php

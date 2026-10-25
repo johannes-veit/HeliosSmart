@@ -1,4 +1,20 @@
-# HELIOS SMART v0.11.0 – WetterZentrale & Lüftungsbeobachter
+# HELIOS SMART v0.12.0 – WetterZentrale & begrenzte Party-Automatik
+
+## v0.12.0 Build 18 – Installierbare, begrenzte Zusatzlüftung (25.10.2026)
+
+**Neu:** Die bisherige harte Ausgabesperre ist durch einen vollstaendigen, absichtlich standardmaessig AUS geschalteten Produktivpfad ersetzt worden. Nach ausdruecklicher Entscheidung am Geraet darf HELIOS SMART bei bestaetigtem Koch-/Badfeuchtebedarf **eine einzige Party auf Stufe 3 fuer hoechstens 15 Minuten** starten. Die Kuehl-/Saison-Automatik und Stufe 4 bleiben in dieser Erstfreigabe gesperrt. Der Helios-Herstellerwochenplan bleibt unveraendert. Niemals automatische Absenkung, nie fremde Party/manuelle Betriebsart abbrechen.
+
+**Luftmengen fachlich ehrlich:** S1 2.8/3.0 V, S2 5.7/6.0 V, S3 7.1/7.5 V, S4 8.5/9.0 V (je Abluft/Zuluft) sind bestaetigte, aus der Helios-Konfiguration abgelesene *Steuerspannungen*. Daraus sind ohne die realen Kanaldruckverluste **keine gemessenen m3/h** ableitbar. `airflow_model.measured_volumes_m3h=null`. Ein **vom Betreiber bewusst zugelassener eingeschraenkter Betrieb mit Schaetzwerten** ist als separate, standardmaessig ausgeschaltete Option `AllowEstimatedAirflowLimitedParty` implementiert – ohne eine erfolgte Messung zu behaupten. Die sachliche Pruefung von Feuerstaette, Abzug und Lueftung bleibt separat.
+
+**Hersteller-Interface verifiziert:** `HELIOS_OperatingMode_Get`, `HELIOS_FanLevel_Get`, `HELIOS_WeekProgram_Get` lesen live; `HELIOS_OperatingMode_Party_Set(19285,true,3,15)` schreibt nur nach allen Gates. Geraeteeigene Party-Laufzeit statt IPS-Timer als Rueckfall. Fehlende Netzwerkantwort, manuell/fremde Party, laufender Wochenprogrammwechsel, kaputte Rueckmeldung, aktive Sperrfrist oder Quellenausfall verhindern die Ausfuehrung. Eine Reservierung in bestehenden Modul-Attributen wird vor dem Netzwerk-Schreibzugriff gespeichert; keine automatische Wiederholung nach unklarem Ergebnis. 30 Minuten Mindestabstand zwischen Party-Starts. `party_execution`, `party_monitor`, `device_live_readback` und `airflow_model` dokumentieren ohne neue sichtbare Variablen jeden Schritt.
+
+**Freigabe in `#52187` bewusst manuell:** Nach Installation sind alle neuen Ausgabeeinstellungen AUS; `EnableControl`, die bewusste Schaetzwertoption ODER das nur bei echter Messung zulässige `MinimumVentilationValidated`, `CombustionSafetyValidated` und `DevicePartyReturnValidated` muessen vor einer moeglichen Schaltung explizit gesetzt werden. **Nicht** einfach `MinimumVentilationValidated` markieren, wenn kein Messprotokoll existiert. Ausserdem muss das Geraet live Programm 3/4, Automatik und eine aktuell niedrigere Stufe bestaetigen. Der erste Test mit realer Helios ist mangels Hardwarezugriff noch nicht erfolgt.
+
+**Begrenzung:** CO2/VOC-Luftqualitaet und realer m3/h-Volumenstrom werden nicht zugesichert. Kochen erfordert zwei unterschiedliche hochlastige Zaehlermeldungen und echte Bewegung. Bei fehlender aktueller Hausleistung #27700 wird auch kein Koch-Party-Auftrag gesendet. Feuchtesignale verlangen echte frische Sensordaten sowie einen nachgewiesenen Entfeuchtungsgradienten.
+
+**Offline-Integration:** komplette `tests/run_all.sh` mit 673 bestandenen Fachpruefungen und PHP-Lint fuer 42 PHP-Dateien. Darin u.a. ein realistisch nachgebildeter Hersteller-Schreib-/Readback-Ablauf, Ausfall-/Wiederholsperren, manuelle Prioritaet, Fremdparty, Wochenprogrammschutz und Monitoring. Die Tests ersetzen keine Abnahme am echten Geraet.
+
+**Aktuelle Schrittfolge:** [`docs/INBETRIEBNAHME_STUFE1.md`](docs/INBETRIEBNAHME_STUFE1.md).
 
 ## v0.11.0 – Große schaltvorbereitende Entwicklung (25.10.2026)
 

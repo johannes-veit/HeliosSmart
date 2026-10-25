@@ -1,6 +1,6 @@
 <?php
 /**
- * Read-only actuator plan and commissioning interlocks. Never issue device calls.
+ * Pure actuator planner. Its output is inert until the independent safety gates pass.
  * Priorities: actual wetroom humidity > plausible cooking > actual supply cooling.
  * A weather forecast / home-away status alone cannot order ventilation.
  */
@@ -30,8 +30,8 @@ final class JVHeliosBoostCoordinator
         }
         usort($choices,static fn($a,$b)=>($b['rank']<=>$a['rank']));
         $pick=$choices[0]??null;
-        $level=$pick===null?null:min(4,max(1,(int)$pick['level']));
-        $minutes=$pick===null?0:min(30,max(5,(int)$pick['minutes']));
+        $level=$pick===null?null:min(3,max(1,(int)$pick['level']));
+        $minutes=$pick===null?0:min(15,max(5,(int)$pick['minutes']));
         $useful=$pick!==null && $level>$fan;
         return [
             'kind'=>$useful?'PARTY_CANDIDATE':'KEEP_WEEKLY',
@@ -44,7 +44,7 @@ final class JVHeliosBoostCoordinator
             'weekly_program_change'=>false,
             'hardware_authorized'=>false,
             'reason'=>$pick===null?'Kein ausreichend belegter Zusatzbedarf'
-                :($useful?'Zeitbegrenzte Party nur als Kandidat; keine Steuerfreigabe'
+                :($useful?'Zeitbegrenzte Party als Kandidat; separater Sicherheitsentscheid erforderlich'
                     :'Aktuelle Lüfterstufe erreicht oder uebertrifft die Zusatzempfehlung'),
         ];
     }

@@ -1,6 +1,6 @@
 <?php
 /**
- * Dry-run description of vendor method. No callable executor in this release.
+ * Manufacturer API plan and auditing: live execution is isolated in PartyExecutor.
  * Verifies safe values before presenting a potential commissioning command.
  */
 final class JVHeliosPartyProtocol

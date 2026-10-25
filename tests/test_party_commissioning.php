@@ -22,7 +22,7 @@ $p=JVHeliosBoostCoordinator::propose($weekly,$cook,2);
 pc($p['kind']==='PARTY_CANDIDATE','Geruchs-Party als Kandidat');
 pc($p['source']==='COOKING','Kochquelle identifiziert');
 pc($p['suggested_level']===3,'Stufe 2 auf 3');
-pc($p['suggested_minutes']===20,'Zeitbegrenzung exakt 20 min');
+pc($p['suggested_minutes']===15,'Erstes Produktivrelease beschraenkt Party auf 15 min');
 pc(JVHeliosBoostCoordinator::propose($weekly,$cook,3)['kind']==='KEEP_WEEKLY',
     'Kein zusätzlicher Boost wenn aktuelle Stufe ausreichend');
 pc(JVHeliosBoostCoordinator::propose($weekly,$cook,4)['kind']==='KEEP_WEEKLY',
@@ -48,7 +48,7 @@ pc(JVHeliosBoostCoordinator::propose($cool,$none,2)['kind']==='KEEP_WEEKLY',
     'Wetterausfall verhindert Kühl-Party');
 $device=['instance_exists'=>true,'module_verified'=>true,'mode'=>0,'fan'=>2,'program'=>3,
     'mode_fresh'=>true,'fan_fresh'=>true,'program_fresh'=>true];
-$flags=['enable_control'=>true,'minimum_airflow'=>true,'combustion_safety'=>true,'party_return'=>true];
+$flags=['enable_control'=>true,'minimum_airflow'=>true,'combustion_safety'=>true,'party_return'=>true,'estimated_flow_trial'=>false];
 $history=['last_command_at'=>0,'expires_at'=>0];
 $lock=JVHeliosPartySafety::inspect($p,$device,$flags,$history,$now,false);
 pc(!$lock['command_allowed'],'Compile-lock trotz aller Freigabe-Haken');
@@ -60,7 +60,7 @@ pc($lock['no_party_extension']===true,'Bestehenden Partybetrieb nicht verlänger
 // explicitly commissioned release ever enables its output constant.
 $future=JVHeliosPartySafety::inspect($p,$device,$flags,$history,$now,true);
 pc($future['command_allowed']===true,'Reine Entscheidungslogik bei hypothetischer freigegebener Hardware');
-foreach (['enable_control'=>'CONTROL_OPT_IN_MISSING','minimum_airflow'=>'AIRFLOWS_NOT_COMMISSIONED',
+foreach (['enable_control'=>'CONTROL_OPT_IN_MISSING','minimum_airflow'=>'NO_AIRFLOW_BASIS_ACCEPTED',
   'combustion_safety'=>'FIREPLACE_APPROVAL_NOT_DOCUMENTED',
   'party_return'=>'DEVICE_PARTY_RETURN_UNVERIFIED'] as $flag=>$reason) {
     $f=$flags;$f[$flag]=false;
@@ -112,7 +112,7 @@ pc(blocked(JVHeliosPartySafety::inspect($p,$device,$flags,$futureOwned,$now,true
 $protocol=JVHeliosPartyProtocol::draft($p,$lock,19285);
 pc($protocol['method']==='HELIOS_OperatingMode_Party_Set','Exakte Helios-API vorgemerkt');
 pc($protocol['transmitted']===false,'Geplanter Befehl nicht übertragen');
-pc($protocol['proposed_parameters']['duration_min']===20,'Helios-Geräte-Minuten korrekt');
+pc($protocol['proposed_parameters']['duration_min']===15,'Helios-Geräte-Minuten korrekt');
 pc($protocol['device_expected_mode_during_party']===2,'Party-Betriebsart 2');
 pc($protocol['device_expected_mode_after_duration']===0,'Erwartete Rueckkehr zu Automatik');
 pc($protocol['return_behavior_real_device_verified']===false,'Kein erfundener Geräte-Abnahmenachweis');

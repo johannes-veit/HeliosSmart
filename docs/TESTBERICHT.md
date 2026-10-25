@@ -1,3 +1,13 @@
+# HELIOS SMART v0.12.0 Build 18 – Regression und aktiver Party-Pfad
+
+- 673 fachliche Offline-Checks, einschliesslich schreibendem Mock-Helios, 42 PHP-Syntaxchecks: **PASS**.
+- Hersteller-Modul-GUID und Aufrufsignaturen anhand offiziellem Helios-GitHub-Modul verifiziert.
+- Sicherer Modus standardmaessig AUS; getrennte explizite Freigaben, keine Qualifizierung aus Schaetzwerten vorgetaeuscht.
+- Positive Tests: Zwei unabhängige Leistungsproben + reale Bewegung + Licht -> Kochhinweis -> einmalige Party S3/15 min, Readback Modus 2/Level 3/Restminuten, persistente Cooldown-Sperre.
+- Negative Tests: ohne Haken, falsche Modul-GUID, Netzwerkfehler, ausbleibende Hersteller-Live-Antwort, manuell/Urlaub/fremde Party, Wochenprogrammwechsel, Stufe bereits >=3, Abwesenheit, fehlender realer Feuchtebedarf, Temperatur-only Sommerchance, fehlende Leistungsmeldung, Schreib-Timeout, wiederholte Updates.
+- Fremde Party wird nie abgebrochen, geschätzter Luftstrom wird nie als Messwert ausgegeben, niemals automatischer Wochenprogramm- oder LCN-Befehl.
+- Originaltests aus v0.11.0 weiter im CI enthalten. Reale Luftmengen und ein erfolgreich durchgelaufener produktiver Party-Start sind mangels SymBox-Zugriff nicht nachgewiesen.
+
 # Automatischer Offline-Prüfbericht – v0.1.0
 
 Stand: 24.10.2026. Alle Tests ohne Zugriff auf SymBox, LCN-Bus oder Helios-Gerät.

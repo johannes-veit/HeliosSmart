@@ -1,46 +1,42 @@
-# HELIOS SMART v0.11.0 – Stufe 1: produktive Intensivlüftung vorbereiten
+# HELIOS SMART v0.12.0 Build 18 – Erstinbetriebnahme: nur Kochen und Badfeuchte
 
-**Gerät:** KWL EC 500 W ET R, easyControls 2.27, Helios Symcon #19285.  
-**HELIOS SMART:** #52187, WetterZentrale #40477, vorhandene Helios-Programme 3/4.
+**Gerät:** Helios KWL EC 500 W ET R, easyControls v2.27, IP-Symcon Hersteller-Modul `#19285`. **HELIOS SMART:** `#52187`.
 
-## Fertiger Entwicklungsstand
+## Aus dem Nutzerbericht bestaetigt
 
-- Priorisierter Zusatzbedarf: bestätigte Badfeuchte **vor** Kochgerüchen **vor** optionaler Sommerkühlung. Gleichzeitig auftretende Bedarfe lösen **nicht** mehrere Party-Aufrufe oder addierte Laufzeiten aus.
-- Party-Kandidat nur **oberhalb** der aktuell abgelesenen Stufe, Stufe 1–4, für 5–30 Minuten. Im ersten Inbetriebnahmeschritt **ausschließlich** zeitlich begrenzte Intensivlüftung; keine Änderung oder Abschaltung des Helios-Wochenprogrammes.
-- Prüfungen: Herstellerinstanz-ID, automatische Betriebsart 0, Wochenprogramm 3 oder 4, aktuell lesbare Stufe/Modus/Programm, gültige Party-Laufzeit, maximal eine laufende/noch reservierte Party, 30-Minuten-Abstand nach eigenem Befehl, alle expliziten Sachfreigaben.
-- Kein Übernehmen, Verlängern oder automatisches Abbrechen fremder Party-, Hand-, Ferien- oder Ruheprogramme.
-- Geplanter Herstelleraufruf: `HELIOS_OperatingMode_Party_Set($instance, true, $fan, $minutes)`; für die Abnahme Messung von Modus 2 und der Restlaufzeit über `HELIOS_OperatingMode_Get()` und `HELIOS_OperatingMode_RemainingMinutes_Get()`. **In v0.11.0 wird dieser Aufruf nicht ausgeführt.**
-- Fehlende Wetter-, Feuchte- und Leistungssignale werden nicht in erfundene Werte oder einen vermeintlich leeren Haushalt umgedeutet.
-- Die Lastregel verlangt zwei unterschiedliche Hichi/Tasmota-Variablenaktualisierungen mit mindestens 60 s Abstand und Küchenbewegung. Das bloße Wiedereinlesen desselben 2-Minuten-Werts ist kein erneuter Messwert.
-- Keine neuen sichtbaren Variablen und keine Änderungen an WetterZentrale, Anwesenheitsmodul oder LCN-Modulen.
+- Feuerstätte ist laut Betreiber komplett raumluftunabhaengig. **Nicht gleichzusetzen mit dem Nachweis der Zulassung/Abnahme der Gesamtkonstellation samt Dunstabzug**.
+- Helios-Party geht laut Betreiber nach Ablauf wieder selbststaendig zu Automatik/Wochenprogramm zurueck.
+- Native Wochenprogramme 3/4 bleiben erhalten; Winterprogramm 3 war bei letzten JSON-Diagnosen aktiv.
+- Helios Ventilatorsteuerspannungen Abluft/Zuluft: S1 2,8/3,0 V; S2 5,7/6,0 V; S3 7,1/7,5 V; S4 8,5/9,0 V.
+- **Kein Luftmengen-Einmessprotokoll vorhanden.** Die aufgefuehrten Spannungen sowie exemplarisch aus der Kennlinie errechnete m³/h sind **keine gemessenen Luftmengen** und erlauben keine Freigabe als `MinimumVentilationValidated`.
 
-## Harter Stand dieses Releases
+## Einmalige Freigabe in IP-Symcon
 
-**AUSGANG UNBEDINGT GESPERRT** durch `private const DEVICE_OUTPUT_COMPILED=false` in `HeliosSmart/module.php`.
+1. `Kern-Instanzen > Modules > HeliosSmart` aktualisieren und Instanz `#52187` oeffnen, `Uebernehmen`.
+2. In der Konfiguration die vier getrennten Checkboxes beachten. **Standardmaessig bleibt `EnableControl=false` und daher alles nur Beobachtung.**
+3. Nur wenn die Gesamtanlage in ihrer derzeitigen Ausfuehrung sicher betrieben werden darf, kann der Betreiber `CombustionSafetyValidated` bestaetigen (Feuerstaette **und** Abzugshaube/Unterdruck-/Herstellerauflagen beachten). Ohne solche Klaerung nicht freigeben.
+4. Wenn der Geraetetimer bereits geprueft wurde und die Rueckkehr ins Wochenprogramm zuverlaessig ist, `DevicePartyReturnValidated` bestaetigen.
+5. **Geschätzte Luftmengen:** Optional `AllowEstimatedAirflowLimitedParty` bewusst aktivieren, wenn der Betreiber die Unsicherheit eines nur eingeschraenkten Probebetriebs akzeptiert. Damit ist keinerlei gemessene Luftmenge bestaetigt. `MinimumVentilationValidated` **aus lassen**, solange es keinen Einmessnachweis gibt.
+6. Erst abschliessend `EnableControl` setzen und `Uebernehmen`. Danach kann eine echte Koch- oder Badfeuchtesituation **automatisch** genau einen Auftrag `Party S3 / 15 Minuten` ausloesen. Keine kuenstlichen Tests noetig; der Lauf muss aber vor Ort begleitet und bestaetigt werden. Keine Schaltung bei unsicheren Daten.
 
-Kein `HELIOS_OperatingMode_Party_Set` oder `HELIOS_WeekProgram_Set` ist in HELIOS SMART v0.11.0 aufrufbar. Selbst alle alten Freigabe-Häkchen auf TRUE können keine Schaltung bewirken. `party_protocol_draft`, `party_candidate`, `party_safety`, `device_status_check` und `cooking_signal_health` stehen in `DecisionJSON`.
+## Unveraenderbare Erstfreigabe-Grenzen
 
-## Externe Voraussetzungen für eine echte Schaltfreigabe
+- Nur bestaetigter aktueller Koch- oder Badfeuchtebedarf, keine alleinige Anwesenheit/Wetterchance; kein Kuehl-Boost.
+- Nie Stufe 4, keine Absenkung, kein Stoppen, kein Wochenprogrammwechsel.
+- Nur wenn LIVE `OperatingMode_Get()==0`, `FanLevel_Get()<3`, `WeekProgram_Get()`=3 oder 4. Anderer Modus = blockiert.
+- Maximal 15 Minuten echte **Herstellerparty**; Stufe 3. Vorrang fuer manuelle/andere Party-/Ruhe-/Urlaubmodi.
+- 30 Minuten Sperre nach einem Partei-Sendeversuch; Sendereservierung vor Netzwerkansteuerung; keine blinde Wiederholung bei Timeout.
+- Der Helios-Timer beendet die Party. HELIOS SMART sendet niemals einen Abbruch- oder Auto-Rueckschaltbefehl.
 
-1. **Luftmengen dokumentieren:** Vorhandenes Einmessprotokoll der Anlage für die benötigten Helios-Stufen und die geforderte Mindestlüftung gegenprüfen. Keine Sollmengen aus Nennleistung schätzen.
-2. **Feuerstätte/Abzug:** Bewohner bestätigt die Feuerstätte als vollständig raumluftunabhängig. Prüfen, ob die gerätespezifische Zulassung sowie die Abnahme der konkreten Kombination aus Feuerstätte, Zuluft/Abluft und eventueller Küchenabzugshaube vorliegen; kein pauschaler Zwang zu einem zusätzlichen Unterdruckwächter ohne Prüfung.
-3. **Eine Hersteller-Party-Rückkehr prüfen:** An der bestehenden Helios selbst einmal manuell `Automatik → Party Stufe 3 für 5 Minuten → Automatik` durchlaufen lassen und kontrollieren, dass **das vorhandene Benutzerprogramm 1/2 exakt erhalten bleibt**. Betriebseigene Kurzzeitprogramme dürfen nicht von einem Symcon-Abschalttimer abhängen.
-4. **Leistungsquelle #27700:** `cooking_signal_health.power_status`, `power_raw_value` und `power_age_seconds` prüfen. Bei `VALUE_NOT_UPDATED_2_MIN` müssen Hichi/Tasmota/Modulintervalle untersucht werden; die Staleness-Sperre NICHT pauschal auf mehrere Stunden aufweichen. Ohne aktuelle Messung ist der Koch-Boost nicht freigebbar.
-5. **Gerätestatus prüfen:** Zum Zeitpunkt einer spätere Freigabe müssen Automatikmodus, Lüfterstufe und Wochenprogramm zweifelsfrei aktuell sein. Wertänderungsarme Helios-Variablen benötigen gegebenenfalls eine dafür geeignete read-only Herstellerabfrage; auch hier keine Frische vortäuschen.
+## Diagnose ohne neue Variablen
 
-Erst nach diesen Punkten ist eine **separate, ausdrücklich freigegebene Aktorversion** sinnvoll. Die reale Rückkehr bei SymBox-Ausfall ist vor Ort nachzuweisen; Offline-Tests können den Herstellertimer nicht bestätigen.
+Vorhandenes Ergebnis-JSON `#52866`: `party_candidate`, `party_safety`, `party_execution`, `party_monitor`, `device_live_readback`, `airflow_model`, `cooking_signal_health`. Insbesondere `airflow_model.measured_volumes_m3h = null` ist korrekt und darf nicht kuenstlich gefuellt werden.
 
-## Sicherheitsverhalten der nächsten aktiven Version
+Wenn `party_safety.command_allowed=false`, in `blocking_reasons` den Grund lesen. Wenn `party_execution.status=PARTY_CONFIRMED`, wurde ein echter Party-Auftrag durch Hersteller-Livelesung bestaetigt. Bei `READBACK_PENDING_OR_MISMATCH`/`IO_UNCERTAIN` **nicht erneut klicken oder ausloesen**, sondern wegen des moeglicherweise bereits gestarteten Geraetetimers nur beobachten.
 
-- Nur automatisch begrenzte Party-Laufzeit, höchstens 30 Minuten pro Aktivierung.
-- Vor jedem Senden Live-Gerätezustand ermitteln; bei fremder Party, Hand-, Ruhe- oder Urlaubmodus nichts schreiben.
-- Nach Senden Status-/Restzeitbestätigung verlangen; Fehler nicht durch blindes Wiederholen kompensieren.
-- Keine Befehle zum Abbruch fremder Kurzprogramme; manuelle Bedienung bleibt vorrangig.
-- Kein direktes Programm-Setzen, keine Absenkung unter den Werkswochenplan, keine Abschaltung.
-- Wenn Symcon ausfällt, muss **allein die Geräte-Party-Laufzeit** den Rückfall gewährleisten; kein IP-Symcon-Timer als einziger Rückfallweg.
+## Test- und Quellenlage
 
-### Quellen
-
-- Offizielles Helios-IP-Symcon-Modul: https://github.com/helios-ventilatoren/symcon-kwl-easycontrols/blob/master/docs/README_DE.md
-- Helios easyControls lokaler Webserver: https://www.easycontrols.net/de/service/hilfe/hilfe-lokaler-ws
-- Geräteanleitung KWL EC 500 W ET R/L: https://www.manualslib.de/manual/1302771/Helios-Kwl-Ec-500-W-Et-R-L.html?page=4
+- 673 Fachpruefungen + PHP-Lint aller 42 PHP-Dateien bestanden (offline).
+- Echte SymBox-Schaltfunktion und Kanal-Luftmengen sind **nicht** offline messbar. Der erste automatische Lauf ist daher eine reale Inbetriebnahme und muss beobachtet werden.
+- Offizielle Helios-IP-Symcon-Funktionen: https://github.com/helios-ventilatoren/symcon-kwl-easycontrols/blob/master/docs/README_DE.md
+- Symcon-Semaphore (exklusiver Hardwareauftrag): https://www.symcon.de/de/service/dokumentation/befehlsreferenz/ablaufsteuerung/ips-semaphoreenter/

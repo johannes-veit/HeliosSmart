@@ -10,6 +10,9 @@ require_once __DIR__ . '/../libs/VentilationNeed.php';
 require_once __DIR__ . '/../libs/WetroomEvents.php';
 require_once __DIR__ . '/../libs/CookingAdvisor.php';
 require_once __DIR__ . '/../libs/CookingEvents.php';
+require_once __DIR__ . '/../libs/PartyExecutor.php';
+require_once __DIR__ . '/../libs/AirflowModel.php';
+require_once __DIR__ . '/../libs/PartyMonitor.php';
 require_once __DIR__ . '/../libs/BoostCoordinator.php';
 require_once __DIR__ . '/../libs/PartySafety.php';
 require_once __DIR__ . '/../libs/PartyProtocol.php';
@@ -18,7 +21,7 @@ require_once __DIR__ . '/../libs/CookingSignalHealth.php';
 class HeliosSmart extends IPSModule
 {
     // v0.11: cannot be toggled through Symcon GUI. Never issue an actuator command.
-    private const DEVICE_OUTPUT_COMPILED=false;
+    private const DEVICE_OUTPUT_COMPILED=true;
     public function Create(): void
     {
         parent::Create();
@@ -40,6 +43,7 @@ class HeliosSmart extends IPSModule
         $this->RegisterPropertyString('Rooms',json_encode(JVHeliosLCNRoomSources::SOURCES, JSON_UNESCAPED_UNICODE));
         $this->RegisterPropertyBoolean('EnableControl',false);
         $this->RegisterPropertyBoolean('MinimumVentilationValidated',false);
+        $this->RegisterPropertyBoolean('AllowEstimatedAirflowLimitedParty',false);
         $this->RegisterPropertyBoolean('CombustionSafetyValidated',false);
         $this->RegisterPropertyBoolean('DevicePartyReturnValidated',false);
         $this->RegisterPropertyBoolean('EnableProgramSwitch',false);
@@ -51,6 +55,8 @@ class HeliosSmart extends IPSModule
         $this->RegisterAttributeInteger('LastCommandAt',0);
         $this->RegisterAttributeInteger('LastProgramAt',0);
         $this->RegisterAttributeInteger('OwnedPartyExpiresAt',0);
+        $this->RegisterAttributeInteger('OwnedPartyLevel',0);
+        $this->RegisterAttributeInteger('OwnedPartyProgram',0);
         $this->RegisterTimer('SmartTick',0,'JVHS_Evaluate($_IPS[\'TARGET\']);');
         $this->RegisterVariableString('Status','Entscheidung / Status','',10);
         $this->RegisterVariableString('DecisionJSON','Letzte Empfehlung JSON','',20);
@@ -126,7 +132,7 @@ class HeliosSmart extends IPSModule
     {
         return json_encode([
             'elements'=>[
-                ['type'=>'Label','caption'=>'v0.11.0: schaltvorbereitete, aber hart gesperrte Party-Sicherheitslogik, Leistungssignaldiagnose, priorisierte Feuchte/Koch/Kuehlbedarfe; Verbesserte ereignisbasierte Koch- und Bewohneranalyse, mehrstufige ereignisbasierte Badfeuchte-Trends, 24h-Echtzeitfenster, Bedarfsbeurteilung, Tagesstrategie, Vorhersagefenster und zwölf native LCN-Feuchtequellen; Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
+                ['type'=>'Label','caption'=>'v0.12.0: Party-Steuerung technisch implementiert. Standard AUS. Modell-Luftmengen sind KEINE Messungen! Nur S3, maximal 15 Minuten, Kochen/Badfeuchte; Wochenprogramm bleibt erhalten. Betrieb nur nach ausdruecklicher Freigabe in diesen Haken.'],
                 ['type'=>'NumberSpinner','name'=>'HeliosInstance','caption'=>'Helios-Instanz'],
                 ['type'=>'NumberSpinner','name'=>'WeatherCenterInstance','caption'=>'WetterZentrale-Instanz (0 = automatisch erkennen)'],
                 ['type'=>'NumberSpinner','name'=>'ClimateControlInstance','caption'=>'LCNClimateControl (nur lesend)'],
@@ -142,8 +148,13 @@ class HeliosSmart extends IPSModule
                 ['type'=>'NumberSpinner','name'=>'ResidentShadowInstance','caption'=>'Anwesenheit SHADOW (#32969)'],
                 ['type'=>'NumberSpinner','name'=>'CookingPowerThresholdW','caption'=>'Leistungsschwelle W (Standard 2000)'],
                 ['type'=>'ValidationTextBox','name'=>'Rooms','caption'=>'Raumsensoren JSON'],
+                ['type'=>'CheckBox','name'=>'EnableControl','caption'=>'Automatische Zusatzlueftung AKTIVIEREN (zuvor alle Sicherheitsbedingungen pruefen)'],
+                ['type'=>'CheckBox','name'=>'AllowEstimatedAirflowLimitedParty','caption'=>'Modellbetrieb bewusst akzeptieren: Luftmengen NICHT gemessen; NUR Stufe 3 / max. 15 min'],
+                ['type'=>'CheckBox','name'=>'MinimumVentilationValidated','caption'=>'Alternativ: reale Luftmengen fachlich eingemessen (nur bei vorhandenem Nachweis)'],
+                ['type'=>'CheckBox','name'=>'CombustionSafetyValidated','caption'=>'Feuerstaette / Dunstabzug / Lueftung gemeinsam sicher betrieben und entsprechend freigegeben'],
+                ['type'=>'CheckBox','name'=>'DevicePartyReturnValidated','caption'=>'Party endet am Geraet eigenstaendig und Wochenprogramm laeuft wieder'],
             ],
-            'actions'=>[['type'=>'Button','caption'=>'Nur lesen: Empfehlung berechnen','onClick'=>'JVHS_Evaluate($id);']]
+            'actions'=>[['type'=>'Button','caption'=>'Jetzt bewerten (bei Freigabe ggf. Party starten)','onClick'=>'JVHS_Evaluate($id);']]
         ],JSON_UNESCAPED_UNICODE);
     }
 
@@ -308,6 +319,86 @@ class HeliosSmart extends IPSModule
         return ['light'=>$light,'motions'=>$motions,'power'=>$power,'residents'=>$residents,
             'shadow_instance_verified'=>$trusted,
             'power_threshold_w'=>$this->ReadPropertyInteger('CookingPowerThresholdW')];
+    }
+
+    private function OptionalAttributeInt(string $name):int
+    {
+        return method_exists($this,'ReadAttributeInteger')?(int)$this->ReadAttributeInteger($name):0;
+    }
+
+    /** Fresh live requests to the manufacturer HELIOS module, never guessed timestamps. */
+    private function ReadHeliosLive(): ?array
+    {
+        $instance=$this->ReadPropertyInteger('HeliosInstance');
+        if ($instance<=0 || !IPS_InstanceExists($instance)) return null;
+        foreach (['HELIOS_OperatingMode_Get','HELIOS_FanLevel_Get','HELIOS_WeekProgram_Get'] as $name) {
+            if (!function_exists($name)) return null;
+        }
+        try {
+            $mode=HELIOS_OperatingMode_Get($instance);
+            $fan=HELIOS_FanLevel_Get($instance);
+            $program=HELIOS_WeekProgram_Get($instance);
+            $values=['mode'=>$mode,'fan'=>$fan,'program'=>$program];
+            if (!JVHeliosPartyExecutor::validLive($values)) return null;
+            return $values;
+        } catch (Throwable $e) {
+            $this->SendDebug('PartyLiveRead',substr($e->getMessage(),0,160),0);
+            return null;
+        }
+    }
+
+    /** Only one event at a time, durable reservation before hardware RPC. */
+    private function TryOwnParty(array $proposal,array $device,array $approvals,int $now):array
+    {
+        $result=['status'=>'BLOCKED','attempted'=>false,'sent'=>false,'verified'=>false];
+        if (!$this->ReadPropertyBoolean('EnableControl') || !self::DEVICE_OUTPUT_COMPILED) return $result;
+        if (!function_exists('IPS_SemaphoreEnter') || !function_exists('IPS_SemaphoreLeave')) {
+            $result['status']='SEMAPHORE_UNAVAILABLE';return $result;
+        }
+        $lock='JVHeliosParty_'.$this->InstanceID;
+        if (!IPS_SemaphoreEnter($lock,1000)) { $result['status']='ALREADY_PROCESSING';return $result; }
+        try {
+            // Recheck all persistent timing gates AFTER taking the semaphore.
+            $owned=['last_command_at'=>$this->OptionalAttributeInt('LastCommandAt'),
+                'expires_at'=>$this->OptionalAttributeInt('OwnedPartyExpiresAt')];
+            $guard=JVHeliosPartySafety::inspect($proposal,$device,$approvals,$owned,$now,self::DEVICE_OUTPUT_COMPILED);
+            if (!$guard['command_allowed']) { $result['status']='GATE_BLOCKED';return $result; }
+            $instance=$this->ReadPropertyInteger('HeliosInstance');
+            if (!function_exists('HELIOS_OperatingMode_Party_Set')) {
+                $result['status']='VENDOR_PARTY_FUNCTION_MISSING';return $result;
+            }
+            $expected=$proposal;
+            $expected['expected_weekly_program']=$device['program'];
+            $first=JVHeliosPartyExecutor::execute($expected,$guard,$now,
+                fn()=>$this->ReadHeliosLive(),
+                static fn($level,$minutes)=>false,
+                static fn()=>null);
+            if (($first['status']??null)!=='RESERVED') return $first;
+            $this->WriteAttributeInteger('LastCommandAt',(int)$first['last_attempt_at']);
+            $this->WriteAttributeInteger('OwnedPartyExpiresAt',(int)$first['reserved_until']);
+            $this->WriteAttributeInteger('OwnedPartyLevel',(int)$proposal['suggested_level']);
+            $this->WriteAttributeInteger('OwnedPartyProgram',(int)$device['program']);
+            $response=JVHeliosPartyExecutor::dispatch($first,
+                (int)$proposal['suggested_level'],(int)$proposal['suggested_minutes'],
+                static fn(int $level,int $minutes)=>HELIOS_OperatingMode_Party_Set($instance,true,$level,$minutes),
+                fn()=>$this->ReadHeliosLiveWithRemaining());
+            $this->SendDebug('PartyExecution',json_encode($response,JSON_UNESCAPED_UNICODE),0);
+            return $response;
+        } finally { IPS_SemaphoreLeave($lock); }
+    }
+
+    /** Readback is informational; unknown result NEVER leads to a retry/cancel. */
+    private function ReadHeliosLiveWithRemaining(): ?array
+    {
+        $v=$this->ReadHeliosLive();
+        if ($v===null) return null;
+        if ($v['mode']===2 && function_exists('HELIOS_OperatingMode_RemainingMinutes_Get')) {
+            try {
+                $n=HELIOS_OperatingMode_RemainingMinutes_Get($this->ReadPropertyInteger('HeliosInstance'));
+                $v['remaining_minutes']=is_int($n)?$n:null;
+            } catch (Throwable $e) { $v['remaining_minutes']=null; }
+        }
+        return $v;
     }
 
     public function Evaluate(): void
@@ -475,7 +566,23 @@ class HeliosSmart extends IPSModule
             'program_fresh'=>($now-(int)(IPS_GetVariable($progID)['VariableUpdated']??0))>=-120
                 && ($now-(int)(IPS_GetVariable($progID)['VariableUpdated']??0))<=600,
         ];
+        // Live device communication is attempted ONLY when explicitly enabled.
+        // VariableUpdated is not a heartbeat: the native module updates on change.
+        $live=$this->ReadPropertyBoolean('EnableControl') ? $this->ReadHeliosLive() : null;
+        if ($live!==null) {
+            $deviceStatus['mode']=$live['mode'];
+            $deviceStatus['fan']=$live['fan'];
+            $deviceStatus['program']=$live['program'];
+            $deviceStatus['mode_fresh']=true;
+            $deviceStatus['fan_fresh']=true;
+            $deviceStatus['program_fresh']=true;
+        } elseif ($this->ReadPropertyBoolean('EnableControl')) {
+            $deviceStatus['mode_fresh']=false;
+            $deviceStatus['fan_fresh']=false;
+            $deviceStatus['program_fresh']=false;
+        }
         $approvals=[
+            'estimated_flow_trial'=>$this->ReadPropertyBoolean('AllowEstimatedAirflowLimitedParty'),
             'enable_control'=>$this->ReadPropertyBoolean('EnableControl'),
             'minimum_airflow'=>$this->ReadPropertyBoolean('MinimumVentilationValidated'),
             'combustion_safety'=>$this->ReadPropertyBoolean('CombustionSafetyValidated'),
@@ -483,26 +590,46 @@ class HeliosSmart extends IPSModule
         ];
         $ownership=[
             'last_command_at'=>method_exists($this,'ReadAttributeInteger')
-                ? $this->ReadAttributeInteger('LastCommandAt'):0,
+                ? $this->OptionalAttributeInt('LastCommandAt'):0,
             'expires_at'=>method_exists($this,'ReadAttributeInteger')
-                ? $this->ReadAttributeInteger('OwnedPartyExpiresAt'):0,
+                ? $this->OptionalAttributeInt('OwnedPartyExpiresAt'):0,
         ];
         $guard=JVHeliosPartySafety::inspect(
             $candidate,$deviceStatus,$approvals,$ownership,$now,self::DEVICE_OUTPUT_COMPILED);
+        $decision['airflow_model']=JVHeliosAirflowModel::report();
+        $decision['device_live_readback']=$live;
+        $decision['party_monitor']=JVHeliosPartyMonitor::inspect([
+            'last_command_at'=>$this->OptionalAttributeInt('LastCommandAt'),
+            'expires_at'=>$this->OptionalAttributeInt('OwnedPartyExpiresAt'),
+            'level'=>$this->OptionalAttributeInt('OwnedPartyLevel'),
+            'original_program'=>$this->OptionalAttributeInt('OwnedPartyProgram'),
+        ],$live,$now);
         $decision['party_candidate']=$candidate;
         $decision['party_safety']=$guard;
         $decision['party_protocol_draft']=JVHeliosPartyProtocol::draft(
             $candidate,$guard,$this->ReadPropertyInteger('HeliosInstance'));
         $decision['device_status_check']=$deviceStatus;
-        $decision['hardware_command_attempts']=0;
-        $decision['execution_status']='HARD_LOCK_READ_ONLY';
+        $execution=$this->TryOwnParty($candidate,$deviceStatus,$approvals,$now);
+        $decision['party_execution']=$execution;
+        // After a successful/uncertain write this diagnostic is based on new
+        // durable ownership; subsequent ticks only observe its state.
+        if (($execution['attempted']??false)===true) {
+            $decision['party_monitor']=JVHeliosPartyMonitor::inspect([
+                'last_command_at'=>$this->OptionalAttributeInt('LastCommandAt'),
+                'expires_at'=>$this->OptionalAttributeInt('OwnedPartyExpiresAt'),
+                'level'=>$this->OptionalAttributeInt('OwnedPartyLevel'),
+                'original_program'=>$this->OptionalAttributeInt('OwnedPartyProgram'),
+            ],$this->ReadHeliosLive(),$now);
+        }
+        $decision['hardware_command_attempts']=($execution['attempted']??false)?1:0;
+        $decision['execution_status']=(string)($execution['status']??'BLOCKED');
         $decision['helios_mode']=$mode;
-        $decision['observation_only']=true;
+        $decision['observation_only']=!$this->ReadPropertyBoolean('EnableControl');
+        $decision['safe_to_execute']=($guard['command_allowed']??false)===true;
+        $decision['party_protocol_draft']['transmitted']=($execution['sent']??false)===true;
+        $decision['party_protocol_draft']['note']='v0.12: echte Hersteller-Partyfunktion nur nach Einzel-Freigaben; keine automatische Rueckschaltung durch Symcon';
         $this->SetValue('DecisionJSON',json_encode($decision,JSON_UNESCAPED_UNICODE));
-        // v0.9.0 is intentionally and unconditionally read-only.
-        // Legacy approval properties remain registered to avoid migration issues,
-        // but cannot authorize any HELIOS_* function from this version.
-        $this->SetValue('Monitoring',true);
+        $this->SetValue('Monitoring',!$this->ReadPropertyBoolean('EnableControl'));
         $seasonLabel=match ($season['advice']['status']) {
             'ALREADY_MATCHES'=>'Wochenprofil passt',
             'PENDING_STABILITY'=>'Profiltrend wird bestaetigt',
@@ -511,7 +638,7 @@ class HeliosSmart extends IPSModule
             'NONCUSTOM'=>'bestehendes Sonderprofil respektieren',
             default=>'noch keine sichere Profilentscheidung',
         };
-        $this->SetValue('Status','BEOBACHTUNG | '.$decision['mode']
+        $this->SetValue('Status',($this->ReadPropertyBoolean('EnableControl')?'AUTO-ANGEFORDERT':'BEOBACHTUNG').' | '.$decision['mode']
             .' | Wetter '.$decision['weather_quality'].' ('.$weatherConnection.') | '
             .($decision['mode']==='WEEKLY_BASE'
                 ? 'Aktuelle Stufe '.$decision['requested_level'].' (kein zusaetzlicher Boost)'
@@ -522,7 +649,7 @@ class HeliosSmart extends IPSModule
             .' | Profil: '.$seasonLabel
             .' | Bedarf: '.$decision['ventilation_need']['summary']
             .' | Kochen: '.$decision['cooking_advice']['summary']
-            .' | Schaltfreigabe: gesperrt (Hardwareabnahme offen)'
+            .' | Party: '.$decision['execution_status'].' / '.($guard['command_allowed']?'FREIGABE':'GESPERRT'). ' ('.($guard['airflow_basis']??'NO_AIRFLOW').')'
             .(!empty($decision['occupancy_advice']['away_status_reports'])
                 ? ' | Bewohner: '.$decision['occupancy_advice']['description'] : ''));
     }

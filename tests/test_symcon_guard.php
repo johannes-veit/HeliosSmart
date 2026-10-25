@@ -10,6 +10,8 @@ $GLOBALS['values']=[
 ];
 $GLOBALS['variableTime']=time()-100;
 $GLOBALS['calls']=[];
+function IPS_SemaphoreEnter($name,$timeout){return true;}
+function IPS_SemaphoreLeave($name){return true;}
 function IPS_InstanceExists($id){return in_array($id,[11842,16987,19285,17597,42,32969],true);}
 function IPS_GetInstance($id){return ['ModuleInfo'=>['ModuleID'=>$id===32969?'{D94700DB-96B0-490C-9F23-E6AE39677384}':($id===42?'{685106B4-47EC-43C9-9CA9-9BAE53E4B304}':'{OTHER-INSTANCE}')]];}
 function IPS_GetObjectIDByIdent($ident,$instance){return $instance===32969?(['JohannesPresence'=>60001,'CarinaPresence'=>60002,'EvidenceJSON'=>60003][$ident]??0):0;}
@@ -21,6 +23,7 @@ function JVWC_Snapshot($id){return json_encode($GLOBALS['weatherForTest']??['qua
 function HELIOS_WeekProgram_Set(...$args){$GLOBALS['calls'][]=['week',$args];return true;}
 function HELIOS_OperatingMode_Party_Set(...$args){$GLOBALS['calls'][]=['party',$args];return true;}
 class IPSModule {
+    public int $InstanceID=52187;
     private array $props=[],$attributes=[],$values=[],$timers=[];
     public function Create():void{} public function ApplyChanges():void{}
     public function RegisterPropertyInteger($key,$value){$this->props[$key]=$value;}
@@ -100,8 +103,8 @@ $hs->setProperty('EnableProgramSwitch',true);
 $hs->Evaluate();
 $decision=json_decode($hs->value('DecisionJSON'),true);
 a($decision['mode']==='HUMIDITY_BOOST','MODEL_SUPPORTED berechnet Bad-Boost im Beobachtungsmodus');
-a($decision['safe_to_execute']===false && $decision['observation_only']===true,'Keine Ausfuehrungsfreigabe im Ergebnis');
-a($hs->value('Monitoring')===true,'Beobachtungsvariable bleibt trotz aller Alt-Freigaben aktiv');
+a($decision['safe_to_execute']===false && $decision['observation_only']===false,'Keine Ausfuehrungsfreigabe im Ergebnis');
+a($hs->value('Monitoring')===false,'Steuerungswunsch erkennbar; ohne live Hersteller-Lesewerte kein Versand');
 a(count($GLOBALS['calls'])===0,'Null Helios-Befehle trotz aller Freigaben und erkannter Feuchtespitze');
 $GLOBALS['weatherForTest']=['quality'=>'VERIFIED',
  'current'=>JVWeatherMath::readPair(6,95)+['observed_at'=>time()-120,'source'=>'DWD_SYNOP'], 'forecast'=>[]];
@@ -326,12 +329,12 @@ $hs->setProperty('DevicePartyReturnValidated',true);
 $hs->setProperty('EnableProgramSwitch',true);
 $hs->Evaluate();
 $pre=json_decode($hs->value('DecisionJSON'),true);
-a(($pre['execution_status']??'')==='HARD_LOCK_READ_ONLY',
-  'Produktionsnahe Kommandologik ist per Code hart gesperrt');
+a(($pre['execution_status']??'')==='GATE_BLOCKED',
+  'Ohne reale Hersteller-Ruecklesedaten bleibt die Schaltlogik blockiert');
 a(($pre['hardware_command_attempts']??-1)===0,
   'Nicht einmal ein Helios-Befehlsversuch');
-a(in_array('OUTPUT_NOT_COMPILED',(array)($pre['party_safety']['blocking_reasons']??[]),true),
-  'Schaltgate nennt ausdruecklich die Build-Sperre');
+a(in_array('HELIOS_DEVICE_STATUS_NOT_FRESH',(array)($pre['party_safety']['blocking_reasons']??[]),true),
+  'Kein fiktiver Livestatus aus alten Variablen');
 a(($pre['party_protocol_draft']['transmitted']??null)===false,
   'Hersteller-Party-Protokoll wird nur simuliert');
 a(($pre['party_candidate']['weekly_program_change']??null)===false,
@@ -341,6 +344,6 @@ a(($pre['device_status_check']['program']??null)===(int)$GLOBALS['values'][12877
 a(isset($pre['cooking_signal_health']['power_status']),
   'Diagnose der Leistungsquelle #27700 sichtbar');
 a(($pre['party_safety']['command_allowed']??null)===false,
-  'Selbst mit allen Freigabe-Haekchen kann kein Aktor starten');
+  'Trotz Haken ohne echte Hersteller-Rueckmeldung kein Aktor');
 a(count($GLOBALS['calls'])===0,
   'Auch nach gesamten Inbetriebnahme-Gates keinerlei Helios-Schaltaufrufe');

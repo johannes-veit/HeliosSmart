@@ -1,7 +1,7 @@
 <?php
 /**
- * Safe commissioning gate. All methods are pure. Production command output
- * remains DISABLED BY CODE in HeliosSmart v0.11.0; ticked legacy flags do nothing.
+ * Safe commissioning gate. All methods are pure. Real output requires independent explicit opt-in plus fresh manufacturer readbacks.
+ * An estimated-flow operation is never treated as a real airflow measurement.
  */
 final class JVHeliosPartySafety
 {
@@ -11,11 +11,20 @@ final class JVHeliosPartySafety
         $issues=[];
         if (!$compiledOutput) $issues[]='OUTPUT_NOT_COMPILED';
         foreach (['enable_control'=>'CONTROL_OPT_IN_MISSING',
-                  'minimum_airflow'=>'AIRFLOWS_NOT_COMMISSIONED',
-                  'combustion_safety'=>'FIREPLACE_APPROVAL_NOT_DOCUMENTED',
+                                    'combustion_safety'=>'FIREPLACE_APPROVAL_NOT_DOCUMENTED',
                   'party_return'=>'DEVICE_PARTY_RETURN_UNVERIFIED'] as $flag=>$reason) {
             if (($approvals[$flag]??false)!==true) $issues[]=$reason;
         }
+        $measured=($approvals['minimum_airflow']??false)===true;
+        $limited=($approvals['estimated_flow_trial']??false)===true;
+        if (!$measured && !$limited) $issues[]='NO_AIRFLOW_BASIS_ACCEPTED';
+        if ($limited && !$measured && (($proposal['source']??'')==='COOLING'
+            || (int)($proposal['suggested_level']??0)>3
+            || (int)($proposal['suggested_minutes']??0)>15)) $issues[]='ESTIMATED_FLOW_LIMIT_EXCEEDED';
+        // Independently enforce stage-3/15-min limit for this first production release.
+        if ((int)($proposal['suggested_level']??0)>3
+            || (int)($proposal['suggested_minutes']??0)>15
+            || ($proposal['source']??'')==='COOLING') $issues[]='FIRST_STAGE_SCOPE_LIMIT';
         if (($proposal['kind']??'')!=='PARTY_CANDIDATE') $issues[]='NO_ACTUAL_DEMAND';
         if (($device['instance_exists']??false)!==true) $issues[]='HELIOS_INSTANCE_MISSING';
         if (($device['module_verified']??false)!==true) $issues[]='HELIOS_MODULE_ID_NOT_VERIFIED';
@@ -38,8 +47,11 @@ final class JVHeliosPartySafety
         if ($last>0 && $now-$last<30*60) $issues[]='COOLDOWN_30_MIN';
         return [
             'command_allowed'=>count($issues)===0,
+            'airflow_basis'=>$measured?'MEASURED_CONFIRMED_BY_OPERATOR':($limited?'ESTIMATED_ONLY_OPERATOR_OPT_IN':'NOT_ACCEPTED'),
+            'airflow_estimate_is_measurement'=>false,
+            'limited_operation'=>$limited && !$measured,
             'blocking_reasons'=>array_values(array_unique($issues)),
-            'action'=>'KEEP_DEVICE_AUTONOMOUS_WEEKLY_PLAN',
+            'action'=>count($issues)===0?'PARTY_ELIGIBLE_ONCE':'KEEP_DEVICE_AUTONOMOUS_WEEKLY_PLAN',
             'requires_device_return_confirmation'=>true,
             'no_symcon_timer_as_only_recovery'=>true,
             'no_automatic_week_program_changes'=>true,
