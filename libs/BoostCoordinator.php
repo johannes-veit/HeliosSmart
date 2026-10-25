@@ -42,12 +42,9 @@ final class JVHeliosBoostCoordinator
             && is_int($cooking['suggested_fan_level']??null)) {
             $choices[]=['source'=>'COOKING','rank'=>2,'level'=>$highPower?4:(int)$cooking['suggested_fan_level'],'minutes'=>$highPower?30:20];
         }
-        if ($mode==='PASSIVE_COOLING' && ($decision['weather_usable_for_advice']??false)
-            && ($decision['supply_temperature']??null)!==null
-            && ($decision['indoor_temperature']??null)!==null
-            && (float)$decision['indoor_temperature']-(float)$decision['supply_temperature']>=2) {
-            $choices[]=['source'=>'COOLING','rank'=>1,'level'=>max(3,$requested),'minutes'=>20];
-        }
+        // The legacy COOLING proposal was intrinsically rejected by PartySafety.
+        // Keep passive-cooling interpretation in the decision diagnostics, but
+        // use WEATHER_OPTIMAL only after independent live air and humidity checks.
         $flush=JVHeliosWeatherFlush::analyze($decision);
         if ($highPower && $flush['eligible']) {
             $choices[]=['source'=>'WEATHER_OPTIMAL','rank'=>1.5,'level'=>4,'minutes'=>30];
