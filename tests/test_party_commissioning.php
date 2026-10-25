@@ -96,6 +96,17 @@ pc(JVHeliosBoostCoordinator::propose($morning,$none,2,true)['weather_flush']['ty
 $morning['morning_activity_evidence']=false;
 pc(JVHeliosBoostCoordinator::propose($morning,$none,2,true)['kind']==='KEEP_WEEKLY',
  'Clock alone must not provoke ventilation');
+$winter=$weatherGood;
+$winter['mode']='WEEKLY_BASE';
+$winter['season_signal']='HEATING_SEASON';
+$winter['indoor_temperature']=22.5;$winter['supply_temperature']=20;
+$winter['outside_temperature']=9;
+$winter['indoor_absolute_humidity']=10.9;$winter['outside_absolute_humidity']=7.1;
+pc(JVHeliosBoostCoordinator::propose($winter,$none,2,true)['kind']==='KEEP_WEEKLY',
+ 'Heating season blocks wasteful moderate moisture S4 when outside cold');
+$winter['indoor_absolute_humidity']=12.5;
+pc(JVHeliosBoostCoordinator::propose($winter,$none,2,true)['source']==='WEATHER_OPTIMAL',
+ 'Strong genuine winter moisture excess still allows drying');
 $weatherDamp=$weatherGood;$weatherDamp['outside_absolute_humidity']=13;
 pc(JVHeliosBoostCoordinator::propose($weatherDamp,$none,2,true)['source']!=='WEATHER_OPTIMAL',
  'Damp outside air cannot trigger S4 flush');
