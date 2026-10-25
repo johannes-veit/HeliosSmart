@@ -59,6 +59,16 @@ final class JVHeliosWeatherFlush {
         if ($out['type']===null) {
             $out['reason']='NO_MATERIAL_COMFORT_GAIN';return $out;
         }
+        // Realistic winter policy: at low outdoor temperatures even warm
+        // heat-recovered supply carries a sensible heat penalty. Ordinary
+        // moderate indoor moisture is not enough to justify an S4 flush.
+        $heating=($d['season_signal']??'')==='HEATING_SEASON';
+        if ($heating && $out['type']!=='THERMAL_COOLING'
+            && $outside<12 && ($inAh<12.0 || $gap<3.5)) {
+            $out['type']=null;
+            $out['reason']='WINTER_HEAT_PRESERVATION';
+            return $out;
+        }
         $out['eligible']=true;$out['level']=4;$out['duration_minutes']=30;
         $out['reason']='LIVE_INDOOR_OUTDOOR_SUPPLY_ADVANTAGE';
         return $out;
