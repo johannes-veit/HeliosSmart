@@ -16,6 +16,7 @@ require_once __DIR__ . '/../libs/PartyMonitor.php';
 require_once __DIR__ . '/../libs/WeatherFlush.php';
 require_once __DIR__ . '/../libs/BoostCoordinator.php';
 require_once __DIR__ . '/../libs/SummerAirflow.php';
+require_once __DIR__ . '/../libs/ComfortController.php';
 require_once __DIR__ . '/../libs/PartySafety.php';
 require_once __DIR__ . '/../libs/PartyProtocol.php';
 require_once __DIR__ . '/../libs/CookingSignalHealth.php';
@@ -597,6 +598,11 @@ class HeliosSmart extends IPSModule
         $decision['morning_activity_evidence']=$hourLocal>=6 && $hourLocal<10
             && ($cooking['advice']['recent_ground_floor_motion']??false)===true
             && ($cooking['advice']['occupancy']['home_presence_hint']??false)===true;
+        // Raumbezogene Behaglichkeit: echte Innenwerte, Taupunkt und das
+        // tatsaechliche Aussenfeuchte-Risiko gemeinsam beurteilen. Die
+        // Komfortentscheidung wird auch im produktiven Boost-Gate verwendet.
+        $decision['comfort_control']=JVHeliosComfortController::analyze(
+            $decision,(array)($tracking['rooms']??[]),$now);
         $decision['summer_airflow']=JVHeliosSummerAirflow::advise($decision);
         $candidate=JVHeliosBoostCoordinator::propose(
             $decision,$cooking['advice'],(int)GetValue($fanID),
