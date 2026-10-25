@@ -13,6 +13,7 @@ require_once __DIR__ . '/../libs/CookingEvents.php';
 require_once __DIR__ . '/../libs/PartyExecutor.php';
 require_once __DIR__ . '/../libs/AirflowModel.php';
 require_once __DIR__ . '/../libs/PartyMonitor.php';
+require_once __DIR__ . '/../libs/WeatherFlush.php';
 require_once __DIR__ . '/../libs/BoostCoordinator.php';
 require_once __DIR__ . '/../libs/PartySafety.php';
 require_once __DIR__ . '/../libs/PartyProtocol.php';
