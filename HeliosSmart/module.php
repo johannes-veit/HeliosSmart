@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../libs/HeliosLogic.php';
+require_once __DIR__ . '/../libs/RoomHistory.php';
 /** Vorhersagegestützter Beobachter; Aktor nur nach expliziter Freigabe. */
 class HeliosSmart extends IPSModule
 {
@@ -28,6 +29,7 @@ class HeliosSmart extends IPSModule
         $this->RegisterPropertyBoolean('CombustionSafetyValidated',false);
         $this->RegisterPropertyBoolean('DevicePartyReturnValidated',false);
         $this->RegisterPropertyBoolean('EnableProgramSwitch',false);
+        $this->RegisterAttributeString('RoomHistory', '{}');
         $this->RegisterAttributeInteger('LastCommandAt',0);
         $this->RegisterAttributeInteger('LastProgramAt',0);
         $this->RegisterAttributeInteger('OwnedPartyExpiresAt',0);
@@ -48,7 +50,7 @@ class HeliosSmart extends IPSModule
     {
         return json_encode([
             'elements'=>[
-                ['type'=>'Label','caption'=>'V0.1: Beobachtungsmodus. Aktivsteuerung wird erst nach expliziter Sicherheitsfreigabe möglich.'],
+                ['type'=>'Label','caption'=>'v0.2: Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
                 ['type'=>'NumberSpinner','name'=>'HeliosInstance','caption'=>'Helios-Instanz'],
                 ['type'=>'NumberSpinner','name'=>'WeatherCenterInstance','caption'=>'WetterZentrale-Instanz'],
                 ['type'=>'NumberSpinner','name'=>'ClimateControlInstance','caption'=>'LCNClimateControl (nur lesend)'],
@@ -58,11 +60,6 @@ class HeliosSmart extends IPSModule
                 ['type'=>'NumberSpinner','name'=>'HeliosSupplyTemperature','caption'=>'Helios Zulufttemperatur nach EWT und WRG'],
                 ['type'=>'NumberSpinner','name'=>'HeliosIntakeAfterEWT','caption'=>'Helios-Geräteeintritt NACH Sole-EWT'],
                 ['type'=>'ValidationTextBox','name'=>'Rooms','caption'=>'Raumsensoren JSON'],
-                ['type'=>'CheckBox','name'=>'EnableControl','caption'=>'Aktive Helios-Befehle erlauben'],
-                ['type'=>'CheckBox','name'=>'MinimumVentilationValidated','caption'=>'Luftmengen/Mindestlüftung fachlich bestätigt'],
-                ['type'=>'CheckBox','name'=>'CombustionSafetyValidated','caption'=>'Ofen-/Unterdrucksicherheit geklärt'],
-                ['type'=>'CheckBox','name'=>'DevicePartyReturnValidated','caption'=>'Geräteinternen Party-Rücksprung nachgewiesen'],
-                ['type'=>'CheckBox','name'=>'EnableProgramSwitch','caption'=>'Automatische Wochenplanwahl erlauben'],
             ],
             'actions'=>[['type'=>'Button','caption'=>'Nur lesen: Empfehlung berechnen','onClick'=>'JVHS_Evaluate($id);']]
         ],JSON_UNESCAPED_UNICODE);
@@ -103,16 +100,21 @@ class HeliosSmart extends IPSModule
                 'wetroom'=>(bool)($r['wetroom']??false)
             ];
         }
+        // Humidity history is an attribute, not seven more user-facing variables.
+        $prev=json_decode($this->ReadAttributeString('RoomHistory'),true);
+        $tracking=JVHeliosRoomHistory::update(is_array($prev)?$prev:[],$rooms,$now);
+        $this->WriteAttributeString('RoomHistory',json_encode($tracking['state'],JSON_UNESCAPED_UNICODE));
         $decision=JVHeliosLogic::decide([
-            'now'=>$now,'weather'=>$weather,'rooms'=>$rooms,
+            'now'=>$now,'weather'=>$weather,'rooms'=>$tracking['rooms'],
             'baseline_level'=>(int)GetValue($fanID),
             'supply_temperature'=>$supply,'supply_fresh'=>$supplyFresh,
         ]);
         $decision['ewt_effect_kelvin']=null;
         $ewtFresh=IPS_VariableExists($intakeID) && $now-(int)IPS_GetVariable($intakeID)['VariableUpdated']<=20*60;
-        if ($decision['trusted_weather'] && $ewtFresh && is_array($weather['current']??null)) {
+        if ($decision['weather_usable_for_advice'] && $ewtFresh && is_array($weather['current']??null)) {
             // Positiv: Sole-EWT wärmt, negativ: Sole-EWT kühlt gegenüber realer Außenluft.
             $decision['ewt_effect_kelvin']=round((float)GetValue($intakeID)-(float)$weather['current']['temperature'],2);
+            $decision['ewt_reference_quality']=$decision['weather_quality'];
         }
         $decision['climate_mode']=null; // Lesend, keine Änderung an LCNClimateControl.
         $climateID=$this->ReadPropertyInteger('ClimateControlInstance');
@@ -129,52 +131,12 @@ class HeliosSmart extends IPSModule
         $decision['helios_mode']=$mode;
         $decision['observation_only']=true;
         $this->SetValue('DecisionJSON',json_encode($decision,JSON_UNESCAPED_UNICODE));
-        $canWrite=$this->ReadPropertyBoolean('EnableControl')
-            && $this->ReadPropertyBoolean('MinimumVentilationValidated')
-            && $this->ReadPropertyBoolean('CombustionSafetyValidated')
-            && $this->ReadPropertyBoolean('DevicePartyReturnValidated');
-        $this->SetValue('Monitoring',!$canWrite);
-        if (!$canWrite) {
-            $this->SetValue('Status','BEOBACHTUNG | '.$decision['mode'].' | Stufe '.$decision['requested_level'].' | '.$decision['reason']);
-            return;
-        }
-        $helios=$this->ReadPropertyInteger('HeliosInstance');
-        if (!IPS_InstanceExists($helios)) {
-            $this->SetValue('Status','FEHLER: Helios-Instanz nicht vorhanden; nur Wochenplan');return;
-        }
-        // Niemals manuelle Eingriffe des Benutzers überschreiben. Party darf nur von uns stammen.
-        $ownedExpires=$this->ReadAttributeInteger('OwnedPartyExpiresAt');
-        if ($mode!==0 && !($mode===2 && $now<$ownedExpires)) {
-            $this->SetValue('Status','Manueller/Gerätebetrieb hat Vorrang; keine Automatikbefehle');return;
-        }
-        if (!$decision['trusted_weather']) {
-            // Nur eigene Party beenden; keine fremde Party/Urlaubsteuerung ändern.
-            if ($mode===2 && $now<$ownedExpires) {
-                HELIOS_OperatingMode_Party_Set($helios,false,0,5);
-                $this->WriteAttributeInteger('OwnedPartyExpiresAt',0);
-            }
-            $this->SetValue('Status','Wetter gestört: Rückkehr zum vorhandenen Helios-Wochenplan; keine Zusatzlüftung');return;
-        }
-        // Normalprogramm-Switch ist optional und höchstens alle 24 Stunden zulässig.
-        // Der Sommerplan ist im Backup nachweislich 4, der andere Plan 3.
-        if ($mode===0 && $this->ReadPropertyBoolean('EnableProgramSwitch')
-            && $decision['program_recommended']!==null
-            && $decision['program_recommended']!==$program
-            && $now-$this->ReadAttributeInteger('LastProgramAt')>86400) {
-            if (HELIOS_WeekProgram_Set($helios,$decision['program_recommended'])===true) {
-                $this->WriteAttributeInteger('LastProgramAt',$now);
-            }
-        }
-        // Zeitbegrenzte Boosts nur bei ausfallsicherem, zuvor bestätigtem Geräte-Rücksprung.
-        if ($mode===0 && $decision['duration_minutes']>=5 && $decision['requested_level']>(int)GetValue($fanID)
-            && $now-$this->ReadAttributeInteger('LastCommandAt')>=30*60) {
-            if (HELIOS_OperatingMode_Party_Set($helios,true,(int)$decision['requested_level'],(int)$decision['duration_minutes'])===true) {
-                $this->WriteAttributeInteger('LastCommandAt',$now);
-                $this->WriteAttributeInteger('OwnedPartyExpiresAt',$now+$decision['duration_minutes']*60+60);
-                $this->SetValue('Status','GERÄTE-PARTY AKTIV | '.$decision['mode'].' | '.$decision['duration_minutes'].' min');return;
-            }
-            $this->SetValue('Status','Befehl nicht bestätigt; Woche bleibt Fallback');return;
-        }
-        $this->SetValue('Status','Wochenprogramm aktiv | '.$decision['mode'].' | keine zusätzliche Umschaltung erforderlich');
+        // v0.2.0 is intentionally and unconditionally read-only.
+        // Legacy approval properties remain registered to avoid migration issues,
+        // but cannot authorize any HELIOS_* function from this version.
+        $this->SetValue('Monitoring',true);
+        $this->SetValue('Status','BEOBACHTUNG | '.$decision['mode']
+            .' | Wetter '.$decision['weather_quality'].' | Vorschlag Stufe '
+            .$decision['requested_level'].' | '.$decision['reason']);
     }
 }

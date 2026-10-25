@@ -6,3 +6,5 @@ php tests/test_core.php
 php tests/test_symcon_guard.php
 
 php tests/test_resilient_weather.php
+
+php tests/test_advisor.php

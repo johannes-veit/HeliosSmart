@@ -1,6 +1,16 @@
-# HELIOS SMART v0.1.2 – WetterZentrale & Lüftungsbeobachter
+# HELIOS SMART v0.2.0 – WetterZentrale & Lüftungsbeobachter
 
 **Entwicklungsfassung. Keine produktive Steuerungsfreigabe!**
+
+## v0.2.0 – Intelligente Empfehlungen im unveränderlichen Beobachtungsmodus (25.10.2026)
+
+- `MODEL_SUPPORTED` wird für **unverbindliche Empfehlungen** genutzt; die aktuelle lokale Außentemperatur ist weiterhin nur modellgestützt und keine zweite unabhängige Messung.
+- Bei ausreichenden LCN-Raumdaten: `HUMIDITY_BOOST`, `PASSIVE_COOLING`, `SUMMER_HUMIDITY_PROTECTION`, `HEAT_PRESERVATION` oder `WEEKLY_BASE` als Diagnose.
+- Die Bäder erhalten intern eine langsame Basislinie der absoluten Feuchte. Auffällige schnelle Anstiege werden von dauerhaft hoher Raumfeuchte unterschieden. Speicherung als Instanz-Attribut statt zusätzlicher sichtbarer Variablen.
+- Wetterprognosen dienen der unverbindlichen saisonalen Profilempfehlung. Die vorhandenen Profile 3 und 4 werden nicht geschaltet.
+- **Sicherheit:** Sämtliche HELIOS-Geräte-Schaltaufrufe wurden aus `HeliosSmart/module.php` entfernt. Auch früher aktivierte Freigabeeigenschaften können in v0.2.0 **keine Schaltbefehle** auslösen. Die manuelle Helios-Bedienung und der bestehende Wochenplan bleiben unverändert.
+- Feuchtegrenzen sind noch vorläufige Regelparameter. Ohne fachlich bestimmte Mindest-Luftmengen und geprüfte Kamin-/Unterdrucksicherheit wird kein Produktivbetrieb freigeschaltet.
+- Nur die `HeliosSmart`-Instanz erweitert ihre Berechnung. **WetterZentrale v0.1.2** und vorhandene Fremdmodule bleiben unverändert.
 
 ## 0.1.1 – DWD-Messdaten korrigiert
 

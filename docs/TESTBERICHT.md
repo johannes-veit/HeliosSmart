@@ -26,3 +26,10 @@ Die Optionen EnableControl, MinimumVentilationValidated, CombustionSafetyValidat
 - Modellprüfungen sind keine echten Ortsmessungen; expliziter Qualitätsstatus
 - Sicherheitsgrenzen: Beobachtungsmodus, Helios-Freigaben unverändert
 - HTTPS API-Antworten selbst sind in der lokalen Testumgebung nicht live auf der SymBox geprüft.
+
+## v0.2.0
+
+- Neue Szenarien für `MODEL_SUPPORTED` mit Bad-Boost, Kühlung, Feuchteschutz und kaltem Winter.
+- Unabhängiger Test der Feuchte-Grundlinie (langsame Anpassung, keine zusätzlichen Symcon-Variablen).
+- Schutztest erzwingt NULL Gerätebefehle auch bei sämtlichen alten Freigabe-Eigenschaften auf TRUE.
+- Alle Tests laufen offline mit PHP 8; kein realer SymBox-, Helios- oder DWD-Steuerungstest.

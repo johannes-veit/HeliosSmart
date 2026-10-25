@@ -72,5 +72,22 @@ a(is_array(json_decode($hs->value('DecisionJSON'),true)),'Gültige Entscheidungs
 $GLOBALS['weatherForTest']=['quality'=>'UNAVAILABLE','current'=>null,'forecast'=>[]];
 $hs->Evaluate();
 a(count($GLOBALS['calls'])===0,'Wetterausfall lässt Geräte-Wochenplan unverändert');
-a(str_contains($hs->value('Status'),'Wetter gestört'),'Expliziter Wetter-Störungsstatus');
+a(str_contains($hs->value('Status'),'UNAVAILABLE'),'Expliziter Wetter-Störungsstatus im Beobachtungsmodus');
+// Critical regression: even legacy TRUE approval flags cannot cause a hardware write.
+$GLOBALS['weatherForTest']=['quality'=>'MODEL_SUPPORTED',
+ 'current'=>JVWeatherMath::readPair(6,95)+['observed_at'=>time()-120,'source'=>'PWS'], 'forecast'=>[]];
+$GLOBALS['values'][12812]=24.0;$GLOBALS['values'][53361]=74;
+$GLOBALS['values'][36518]=23.0;$GLOBALS['values'][28802]=52;
+$GLOBALS['values'][41272]=18.0;
+$hs->setProperty('EnableProgramSwitch',true);
+$hs->Evaluate();
+$decision=json_decode($hs->value('DecisionJSON'),true);
+a($decision['mode']==='HUMIDITY_BOOST','MODEL_SUPPORTED berechnet Bad-Boost im Beobachtungsmodus');
+a($decision['safe_to_execute']===false && $decision['observation_only']===true,'Keine Ausfuehrungsfreigabe im Ergebnis');
+a($hs->value('Monitoring')===true,'Beobachtungsvariable bleibt trotz aller Alt-Freigaben aktiv');
+a(count($GLOBALS['calls'])===0,'Null Helios-Befehle trotz aller Freigaben und erkannter Feuchtespitze');
+$GLOBALS['weatherForTest']=['quality'=>'VERIFIED',
+ 'current'=>JVWeatherMath::readPair(6,95)+['observed_at'=>time()-120,'source'=>'DWD_SYNOP'], 'forecast'=>[]];
+$hs->Evaluate();
+a(count($GLOBALS['calls'])===0,'Null Helios-Befehle selbst mit VERIFIED und aktiven Alt-Freigaben');
 echo "ALLE SYMCON-SCHUTZTESTS BESTANDEN\n";

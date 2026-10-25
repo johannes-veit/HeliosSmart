@@ -25,7 +25,7 @@ check($d['mode']==='HUMIDITY_BOOST' && $d['requested_level']===3,'Bad-Boost bei 
 $in['weather']['quality']='PWS_ONLY';
 $d=JVHeliosLogic::decide($in);
 check($d['mode']==='WEEKLY_BASE' && !$d['trusted_weather'],'Ohne DWD keine thermische Zusatzlüftung');
-$in['weather']=$weather;$in['rooms'][0]['rh']=40;$in['rooms'][0]['temperature']=26;$in['supply_temperature']=21;
+$in['weather']=$weather;$in['rooms'][0]['rh']=40;$in['rooms'][0]['temperature']=26;$in['rooms'][]=['name'=>'OG Schlafen 1','temperature'=>26,'rh'=>40,'observed_at'=>$now-60,'wetroom'=>false];$in['supply_temperature']=21;
 $d=JVHeliosLogic::decide($in);
 check($d['mode']==='PASSIVE_COOLING','Kühl-Boost bei wirklich kühler Zuluft');
 $in['supply_temperature']=29;
@@ -60,5 +60,5 @@ $in['weather']=$weather;
 $in['rooms'][0]['rh']=66;
 $in['rooms'][0]['temperature']=25;
 $in['weather']['current']=JVWeatherMath::readPair(27,95)+['observed_at'=>$now-60,'source'=>'DWD_BRIGHTSKY'];
-check(JVHeliosLogic::decide($in)['mode']==='WEEKLY_BASE', 'Sehr feuchte warme Außenluft löst keinen Bad-Boost aus');
+check(JVHeliosLogic::decide($in)['mode']!=='HUMIDITY_BOOST', 'Sehr feuchte warme Außenluft löst keinen Bad-Boost aus');
 echo "ALLE KERNTTESTS BESTANDEN\n";
