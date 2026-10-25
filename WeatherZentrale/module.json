@@ -1,0 +1,5 @@
+{
+ "id":"{685106B4-47EC-43C9-9CA9-9BAE53E4B304}", "name":"WetterZentrale", "type":3,
+ "vendor":"JV Home Automation", "aliases":["Wetter Zentrale DWD ICON ECMWF"], "url":"",
+ "parentRequirements":[], "childRequirements":[], "implemented":[], "prefix":"JVWC"
+}

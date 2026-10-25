@@ -1,0 +1,5 @@
+{
+ "id":"{74936C1B-D12D-4BC8-A247-70CE166EE567}", "name":"HELIOS SMART", "type":3,
+ "vendor":"JV Home Automation", "aliases":["Helios KWL intelligente Lueftung"], "url":"",
+ "parentRequirements":[], "childRequirements":[], "implemented":[], "prefix":"JVHS"
+}
