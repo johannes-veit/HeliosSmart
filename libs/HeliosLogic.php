@@ -115,6 +115,7 @@ final class JVHeliosLogic
             'indoor_temperature'=>$avgT===null?null:round($avgT,2),
             'indoor_absolute_humidity'=>$avgAH===null?null:round($avgAH,2),
             'outside_temperature'=>$usable?(float)$out['temperature']:null,
+            'outside_absolute_humidity'=>$usable && isset($out['absolute_humidity'])?(float)$out['absolute_humidity']:null,
             'outside_dewpoint'=>$usable?(float)$out['dewpoint']:null,
             'supply_temperature'=>$supplyFresh?$supply:null,
             'wetrooms'=>$wetResults,
