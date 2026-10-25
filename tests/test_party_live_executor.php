@@ -28,6 +28,19 @@ foreach([['suggested_level'=>4],['suggested_minutes'=>16],['source'=>'COOLING']]
  liveCheck(!JVHeliosPartySafety::inspect(array_replace($p,$change),$d,$f,$owned,$now,true)['command_allowed'],
   'Strikte Modellgrenze '.json_encode($change));
 }
+foreach (['COOLING','FORECAST','PRESENCE',null,''] as $source) {
+ $bad=$p;$bad['source']=$source;
+ liveCheck(!JVHeliosPartySafety::inspect($bad,$d,$f,$owned,$now,true)['command_allowed'],
+  'Nicht autorisierte Quelle blockiert '.json_encode($source));
+}
+foreach ([1,2,4] as $stage) {
+ $bad=$p;$bad['suggested_level']=$stage;
+ liveCheck(!JVHeliosPartySafety::inspect($bad,$d,$f,$owned,$now,true)['command_allowed'],
+  'Erststufen-Freigabe nur S3, nicht S'.$stage);
+}
+$bath=$p;$bath['source']='BATH_HUMIDITY';
+liveCheck(JVHeliosPartySafety::inspect($bath,$d,$f,$owned,$now,true)['command_allowed'],
+ 'Bestaetigter Badfeuchte-Bedarf bleibt zulaessig');
 foreach([0,1,2,3,4] as $mode){
  $v=$d;$v['mode']=$mode;
  liveCheck(JVHeliosPartySafety::inspect($p,$v,$f,$owned,$now,true)['command_allowed']===($mode===0),
