@@ -108,7 +108,7 @@ $winter['indoor_absolute_humidity']=12.5;
 pc(JVHeliosBoostCoordinator::propose($winter,$none,2,true)['source']==='WEATHER_OPTIMAL',
  'Strong genuine winter moisture excess still allows drying');
 // Verified 30C+ forecast advances pre-cooling but never overrides live sensors.
-$heat=$weatherGood;$heat['now']=strtotime('2026-07-14 21:00:00 UTC');
+$heat=$weatherGood;$heat['mode']='WEEKLY_BASE';$heat['now']=strtotime('2026-07-14 21:00:00 UTC');
 $heat['indoor_temperature']=23.5;$heat['supply_temperature']=20.9;
 $heat['outside_temperature']=19;$heat['outside_dewpoint']=10;
 $heat['outside_absolute_humidity']=8;$heat['indoor_absolute_humidity']=10;
