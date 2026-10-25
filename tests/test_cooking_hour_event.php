@@ -6,15 +6,15 @@ $start=strtotime('2026-10-25T17:00:00Z'); // 18:00 Europe/Berlin (winter time)
 $fixture=[
  'light'=>['usable'=>true,'on'=>false,'on_minutes'=>0],
  'motions'=>['Wohnkueche'=>['recent'=>false],'EG Flur'=>['recent'=>false]],
- 'power'=>['usable'=>true,'watts'=>1200,'sample_updated_at'=>$start-360],
+ 'power'=>['usable'=>true,'watts'=>1375,'sample_updated_at'=>$start-360],
  'power_threshold_w'=>2000,'current_fan_level'=>2,'helios_automatic_mode'=>true,
  'residents'=>['Carina'=>['status'=>'ZUHAUSE','source_recent'=>true]]
 ];
 $idle=JVHeliosCookingAdvisor::analyze($fixture,$start-300);
-ev($idle['state']['baseline_power_w']===1200.0,'Idle baseline learned away from kitchen');
+ev($idle['state']['baseline_power_w']===1375.0,'Idle baseline learned away from kitchen');
 $busy=$fixture;$busy['light']=['usable'=>true,'on'=>true,'on_minutes'=>9];
 $busy['motions']['Wohnkueche']['recent']=true;
-$busy['power']=['usable'=>true,'watts'=>1670,'sample_updated_at'=>$start+8*60];
+$busy['power']=['usable'=>true,'watts'=>1650,'sample_updated_at'=>$start+8*60];
 $one=JVHeliosCookingAdvisor::analyze($busy,$start+9*60,$idle['state']);
 ev($one['advice']['classification']!=='COOKING_ACTIVITY_LIKELY',
  'One moderate source sample not sufficient');
@@ -27,7 +27,7 @@ $two=JVHeliosCookingAdvisor::analyze($busy,$start+17*60,$repeat['state']);
 ev($two['advice']['classification']==='COOKING_ACTIVITY_LIKELY',
  'One-hour real cooking with moderate cyclic stove load is detected within 17 min');
 ev($two['advice']['power_moderate_samples']>=2,'Two genuine moderate input messages');
-ev($two['advice']['power_baseline_w']===1200.,'Cooking did not train baseline upward');
+ev($two['advice']['power_baseline_w']===1375.,'Cooking did not train baseline upward');
 $proposal=JVHeliosBoostCoordinator::propose(
  ['mode'=>'WEEKLY_BASE','wetrooms'=>[]],$two['advice'],2,true);
 ev($proposal['source']==='COOKING' && $proposal['suggested_level']===3
@@ -39,6 +39,13 @@ ev($oneAlone['advice']['classification']!=='COOKING_ACTIVITY_LIKELY',
 $old=$busy;$old['power']['usable']=false;
 ev(JVHeliosCookingAdvisor::analyze($old,$start+17*60,$one['state'])['advice']['potential_odor_boost']===false,
  'Stale power update cannot trigger moderate cooking');
+$noCook=$fixture;
+$noCook['light']=['usable'=>true,'on'=>false,'on_minutes'=>0];
+$noCook['motions']['Wohnkueche']['recent']=true;
+$noCook['power']=['usable'=>true,'watts'=>1406,'sample_updated_at'=>$start+4*60];
+ev(JVHeliosCookingAdvisor::analyze($noCook,$start+5*60,$idle['state'])
+    ['advice']['potential_odor_boost']===false,
+ 'Actual 1406W and motion without light cannot justify forced ventilation');
 $cycle=$fixture;$cycle['power']['watts']=850;
 $baseline=JVHeliosCookingAdvisor::analyze($cycle,$start-300)['state'];
 $cycle['light']=['usable'=>true,'on'=>true,'on_minutes'=>3];
