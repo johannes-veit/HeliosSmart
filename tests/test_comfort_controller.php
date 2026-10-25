@@ -40,6 +40,18 @@ cc(!$wetComfort['weather_boost_compatible'],'Muggy air cannot authorize weather 
 $wet['comfort_control']=$wetComfort;
 cc(JVHeliosBoostCoordinator::propose($wet,[],2,true)['kind']==='KEEP_WEEKLY',
  'Closed loop: even very cool supply does not trigger humid summer S4');
+$unevenRooms=$rooms;
+$unevenRooms[2]['temperature']=20.4;
+$unevenRooms[2]['rh']=48;
+$uneven=JVHeliosComfortController::analyze($decision,$unevenRooms,$now);
+cc($uneven['coolest_room']['room']==='OG Schlafen 2'
+    && $uneven['night_precooling_safe']===false,
+ 'Coolest bedroom is retained even when the rest of the house is hot');
+cc(in_array('OG Schlafen 2',$uneven['rooms_below_cooling_floor'],true),
+ 'Room-based cooling lower comfort bound is diagnostic');
+$unevenDecision=$decision;$unevenDecision['comfort_control']=$uneven;
+cc(JVHeliosBoostCoordinator::propose($unevenDecision,[],2,true)['kind']==='KEEP_WEEKLY',
+ 'No whole-house S4 when an occupied-room sensor is already below 21 C');
 $normalRooms=$rooms;
 foreach ($normalRooms as &$room) {$room['temperature']=24;$room['rh']=48;}
 unset($room);
