@@ -63,7 +63,7 @@ final class JVHeliosArchiveChangeExport
             try {
                 // The immediately preceding archive CHANGE is context only.
                 // It is never marked as current or propagated as a heartbeat.
-                $preceding=$readValues($archiveId,$id,0,$start-1,1);
+                $preceding=$readValues($archiveId,$id,max(1,$start-7*86400),$start-1,1);
                 if(!is_array($preceding)) throw new RuntimeException('PREVIOUS_RESULT_INVALID');
                 if(isset($preceding[0]['TimeStamp'])
                     &&is_numeric($preceding[0]['TimeStamp'])
