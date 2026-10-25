@@ -62,6 +62,11 @@ final class JVHeliosSummerAirflow
         } elseif (($moisture['weather_cooling_boost_allowed']??false)!==true) {
             $result['regime']='HUMIDITY_EVIDENCE_MISSING';
             $result['reason']='Cannot recommend a cooling boost without verified indoor and outdoor moisture';
+        } elseif (($d['comfort_control']['status']??'')==='READY'
+            && ($d['comfort_control']['weather_boost_compatible']??false)!==true) {
+            $result['regime']='NO_COMFORT_GAIN_FROM_EXTRA_AIRFLOW';
+            $result['recommended_stage']=null;
+            $result['reason']='Occupied rooms comfort assessment does not support additional summer cooling ventilation';
         } elseif ($gap>=2.2 && $heatwave && ($hour>=19 || $hour<10)) {
             $result['regime']='HEATWAVE_PRECOOL_WINDOW';
             $result['recommended_stage']=4;
