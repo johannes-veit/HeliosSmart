@@ -1,6 +1,14 @@
-# HELIOS SMART v0.10.0 – WetterZentrale & Lüftungsbeobachter
+# HELIOS SMART v0.10.1 – WetterZentrale & Lüftungsbeobachter
 
 **Entwicklungsfassung. Keine produktive Steuerungsfreigabe!**
+
+## v0.10.1 – ABWESEND als eigener Bewohnerstatus (25.10.2026)
+
+- Direkte Lesung der bestehenden SHADOW-Idents `JohannesPresence` und `CarinaPresence` in Instanz #32969 unveraendert. **ABWESEND_GEMELDET (`AWAY_REPORTED`)** wird nicht mehr als UNKNOWN klassifiziert. Weitere Status: zuhause, in Firma, unklar.
+- `occupancy_advice` zeigt pro Person `state`/`display`, `away_status_reports`, `known_away_status_count`, `both_residents_away_reported`, `both_residents_nonhome_reported`, `home_presence_hint`, und einen lesbaren Kurzstatus. Ein nicht mehr aktueller Bewohnerstatus wird UNKNOWN.
+- Kombinationen: eine Person zuhause/andere abwesend, beide abwesend, Firma/abwesend, unbekannt/abwesend; Arbeit ist nicht gleich Abwesenheit, unbestätigt nicht gleich abwesend.
+- Sind beide Bewohner als abwesend bzw. in Firma gemeldet und echte Kochindizien bestehen, erscheint ein Widerspruchshinweis (z.B. Besucher, stale Status), die realen Kuechensignale werden nicht ignoriert. Ohne Kochindizien kein Geruchsboost.
+- **Kein Hausleerstandsbeweis**, keine Absenkung unter Wochenplan, keine automatischen Helios- oder LCN-Schaltbefehle, keine sichtbaren Symcon-Variablen, kein Eingriff in SHADOW.
 
 ## v0.10.0 – Echte Kochereignisse statt einmaliger Leistungsspitzen (25.10.2026)
 

@@ -28,3 +28,5 @@ php tests/test_wetroom_trends.php
 php tests/test_cooking_presence.php
 
 php tests/test_cooking_events.php
+
+php tests/test_away_presence.php

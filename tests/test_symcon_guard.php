@@ -285,3 +285,34 @@ a(!isset($hs->getWatches()[51040]),'Alte Kuechenbewegung bei Sensorumzug abgemel
 a(!isset(json_decode($hs->ReadAttributeString('CookingEventState'),true)['motion_positive_at']['Wohnkueche']),
  'Alter Kuechen-Bewegungsimpuls nach Sensorumzug geloescht');
 a(count($GLOBALS['calls'])===0,'Koch-Sensorumzug ohne Schaltbefehle');
+
+// v0.10.1: SHADOW-Bewohnerstatus ABWESEND explizit im Produktionsmodul lesen.
+$hs->setProperty('KitchenMotionVariable',51040);
+$hs->ApplyChanges();
+$GLOBALS['values'][60001]='ABWESEND';
+$GLOBALS['values'][60002]='ANWESEND (Handyhinweis)';
+$GLOBALS['values'][51009]=false;
+$GLOBALS['values'][51040]=false;
+$GLOBALS['values'][27700]=720;
+$GLOBALS['changedAt'][51040]=time()-3600;
+$hs->WriteAttributeString('CookingAdviceState','{}');
+$hs->Evaluate();
+$awayResult=json_decode($hs->value('DecisionJSON'),true);
+a(($awayResult['occupancy_advice']['away_status_reports']??[])===['Johannes'],
+  'Echte SHADOW-Idents: Johannes abwesend explizit erfasst');
+a(($awayResult['occupancy_advice']['home_phone_hints']??[])===['Carina'],
+  'Echte SHADOW-Idents: Carina weiterhin anwesend');
+a(str_contains($hs->value('Status'),'Bewohner: Johannes abwesend'),
+  'ABWESEND erscheint im normalen kompakten Beobachtungsstatus');
+a(($awayResult['cooking_advice']['potential_odor_boost']??null)===false,
+  'Bei keiner Kuechenaktivitaet keine Kochanhebung');
+$GLOBALS['values'][60002]='ABWESEND';
+$hs->Evaluate();
+$bothAwayResult=json_decode($hs->value('DecisionJSON'),true);
+a(($bothAwayResult['occupancy_advice']['both_residents_away_reported']??null)===true,
+  'Beide Bewohner abwesend separat diagnostiziert');
+a(($bothAwayResult['occupancy_advice']['house_empty_proven']??null)===false,
+  'Beide Bewohner abwesend bedeutet keinen gesicherten Hausleerstand');
+a(($bothAwayResult['occupancy_advice']['weekly_minimum_may_be_reduced']??null)===false,
+  'Auch bei beide abwesend Wochenplan niemals unterbieten');
+a(count($GLOBALS['calls'])===0,'Keine Helios-Befehle nach neuer ABWESEND-Integration');

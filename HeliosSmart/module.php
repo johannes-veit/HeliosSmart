@@ -120,7 +120,7 @@ class HeliosSmart extends IPSModule
     {
         return json_encode([
             'elements'=>[
-                ['type'=>'Label','caption'=>'v0.10.0: Verbesserte ereignisbasierte Koch- und Bewohneranalyse, mehrstufige ereignisbasierte Badfeuchte-Trends, 24h-Echtzeitfenster, Bedarfsbeurteilung, Tagesstrategie, Vorhersagefenster und zwölf native LCN-Feuchtequellen; Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
+                ['type'=>'Label','caption'=>'v0.10.1: Verbesserte ereignisbasierte Koch- und Bewohneranalyse, mehrstufige ereignisbasierte Badfeuchte-Trends, 24h-Echtzeitfenster, Bedarfsbeurteilung, Tagesstrategie, Vorhersagefenster und zwölf native LCN-Feuchtequellen; Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
                 ['type'=>'NumberSpinner','name'=>'HeliosInstance','caption'=>'Helios-Instanz'],
                 ['type'=>'NumberSpinner','name'=>'WeatherCenterInstance','caption'=>'WetterZentrale-Instanz (0 = automatisch erkennen)'],
                 ['type'=>'NumberSpinner','name'=>'ClimateControlInstance','caption'=>'LCNClimateControl (nur lesend)'],
@@ -470,6 +470,8 @@ class HeliosSmart extends IPSModule
             .' | 24h: '.$forecastAdvice['summary']
             .' | Profil: '.$seasonLabel
             .' | Bedarf: '.$decision['ventilation_need']['summary']
-            .' | Kochen: '.$decision['cooking_advice']['summary']);
+            .' | Kochen: '.$decision['cooking_advice']['summary']
+            .(!empty($decision['occupancy_advice']['away_status_reports'])
+                ? ' | Bewohner: '.$decision['occupancy_advice']['description'] : ''));
     }
 }

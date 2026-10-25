@@ -11,10 +11,13 @@ final class JVHeliosCookingAdvisor
         // WLAN-home still locates a handset; an unconfirmed geofence is not a veto.
         if (str_starts_with($status,'WLAN ZUHAUSE')) return 'HOME_PHONE_HINT';
         if (str_contains($status,'WIDERSPRUCH') || str_contains($status,'UNKLAR')
-            || str_contains($status,'NICHT BEST') || str_contains($status,'UNBEST')
-            || str_contains($status,'ABWESEND') || str_contains($status,'ABWESENHEIT')
-            || str_contains($status,'NICHT ANWESEND')) return 'UNKNOWN';
+            || str_contains($status,'NICHT BEST') || str_contains($status,'UNBEST')) return 'UNKNOWN';
+        // 'Abwesend' ist ein eigener angezeigter SHADOW-Zustand, nicht UNKNOWN.
+        // Ein solcher Meldestatus ist KEIN physischer Nachweis eines leeren Hauses.
         if (str_contains($status,'FIRMA') || str_contains($status,'WORK')) return 'WORK_PHONE_HINT';
+        if (str_contains($status,'ABWESEND') || str_contains($status,'ABWESENHEIT')
+            || str_contains($status,'NICHT ANWESEND') || str_contains($status,'NICHT ZUHAUSE')
+            || str_contains($status,'AUSSER HAUS') || $status==='AWAY') return 'AWAY_REPORTED';
         if (str_contains($status,'ZUHAUSE') || str_contains($status,'ZU HAUSE')
             || str_contains($status,'ANWESEND') || str_contains($status,'HOME')) return 'HOME_PHONE_HINT';
         return 'UNKNOWN';
@@ -22,26 +25,49 @@ final class JVHeliosCookingAdvisor
 
     public static function analyze(array $signals, int $now, array $previous=[]): array
     {
-        $residents=[];$home=[];$work=[];
+        $residents=[];$home=[];$work=[];$away=[];$unknown=[];
+        $stateLabels=[
+            'HOME_PHONE_HINT'=>'zuhause (Handyhinweis)',
+            'WORK_PHONE_HINT'=>'in Firma (Handyhinweis)',
+            'AWAY_REPORTED'=>'abwesend (gemeldet)',
+            'UNKNOWN'=>'unklar',
+        ];
         foreach (['Johannes','Carina'] as $name) {
             $r=$signals['residents'][$name]??[];
             $status=self::normalizeResident($r['status']??null);
-            // The SHADOW evaluation age, not a non-changing string value, bounds usefulness.
+            // Never trust a previously reported state if source is no longer recent.
             if (!($r['source_recent']??false)) $status='UNKNOWN';
-            $residents[$name]=['phone_hint'=>$status,'raw_status'=>is_string($r['status']??null)
-                ?substr($r['status'],0,85):null,'source_recent'=>(bool)($r['source_recent']??false)];
+            $residents[$name]=['phone_hint'=>$status,'state'=>$status,
+                'display'=>$stateLabels[$status],
+                'raw_status'=>is_string($r['status']??null)
+                ?substr($r['status'],0,85):null,
+                'source_recent'=>(bool)($r['source_recent']??false)];
             if ($status==='HOME_PHONE_HINT') $home[]=$name;
-            if ($status==='WORK_PHONE_HINT') $work[]=$name;
+            elseif ($status==='WORK_PHONE_HINT') $work[]=$name;
+            elseif ($status==='AWAY_REPORTED') $away[]=$name;
+            else $unknown[]=$name;
         }
+        $bothAway=count($away)===2;
+        $bothNotHome=count($away)+count($work)===2;
+        $short='Johannes '.$stateLabels[$residents['Johannes']['state']]
+            .' / Carina '.$stateLabels[$residents['Carina']['state']];
         $occupancy=[
-            'residents'=>$residents, 'home_phone_hints'=>$home,'work_phone_hints'=>$work,
+            'residents'=>$residents, 'home_phone_hints'=>$home,
+            'work_phone_hints'=>$work, 'away_status_reports'=>$away,
+            'unknown_residents'=>$unknown,
             'known_home_phone_count'=>count($home),
+            'known_away_status_count'=>count($away),
+            'both_residents_away_reported'=>$bothAway,
+            'both_residents_nonhome_reported'=>$bothNotHome,
+            'home_presence_hint'=>count($home)>0,
+            // 'ABWESEND' differs from UNKNOWN, but does not prove no other person is home.
             'house_empty_proven'=>false,'away_person_certified'=>false,
             'weekly_minimum_may_be_reduced'=>false,
-            'description'=>count($home)===2?'Beide Handyhinweise zuhause':
-                (count($home)===1?$home[0].': Handyhinweis zuhause':
-                (count($work)===2?'Beide Handyhinweise in Firma; Hausleerstand NICHT bewiesen':
-                'Anwesenheit der Bewohner nicht gesichert')),
+            'description'=>$short,
+            'status'=>$bothAway?'BOTH_AWAY_REPORTED':
+                (count($home)===2?'BOTH_HOME_HINT':
+                (count($home)===1?'ONE_HOME_HINT':
+                ($bothNotHome?'BOTH_NONHOME_REPORTED':'MIXED_OR_UNKNOWN'))),
         ];
         $light=($signals['light']['usable']??false)===true && ($signals['light']['on']??false)===true;
         $motion=false;$motions=[];
@@ -111,12 +137,16 @@ final class JVHeliosCookingAdvisor
             ($possible?'COOKING_POSSIBLE':'NO_CONFIRMED_COOKING'));
         $fan=max(1,min(4,(int)($signals['current_fan_level']??2)));
         $automatic=($signals['helios_automatic_mode']??true)===true;
+        $residentMismatch=$bothNotHome && $likely;
+        $occupancy['kitchen_activity_conflicts_with_nonhome_reports']=$residentMismatch;
+        $occupancy['independent_kitchen_motion_can_indicate_guests']=true;
         $boost=($likely || $held) && $automatic && $fan<4;
         $level=$boost ? min(4,max(3,$fan+1)) : null;
         $summary=$kind==='COOKING_LIKELY'?'Kochen wahrscheinlich (mehrere unabhaengige Indizien)':
             ($held?'Kochen vor kurzem wahrscheinlich; Geruchs-Nachlauf nur als Vorschlag':
             ($possible?'Kochen moeglich, aber noch nicht ausreichend bestaetigt':
             'Kochen derzeit nicht ausreichend belegt'));
+        if ($residentMismatch) $summary.='; Bewohner abwesend/in Firma gemeldet, dennoch Kuechenaktivitaet erkannt';
         if (($likely || $held) && !$automatic) $summary.='; manueller Helios-Modus hat Vorrang';
         elseif (($likely || $held) && $fan>=4) $summary.='; Stufe 4 bereits aktiv';
         return [
