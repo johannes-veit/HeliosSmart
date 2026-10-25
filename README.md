@@ -1,4 +1,4 @@
-# HELIOS SMART v0.1.1 – WetterZentrale & Lüftungsbeobachter
+# HELIOS SMART v0.1.2 – WetterZentrale & Lüftungsbeobachter
 
 **Entwicklungsfassung. Keine produktive Steuerungsfreigabe!**
 
@@ -6,6 +6,28 @@
 
 Die WetterZentrale nutzt zusaetzlich `Bright Sky /current_weather` mit expliziter DWD-SYNOP-Quellenvalidierung. Die bisherigen `/weather`-Messwerte bleiben als Fallback. Die Wetterdiagnose nennt nun DWD-Frische und Anzahl nutzbarer MOSMIX/ICON/ECMWF-Prognosen; ein technisch erfolgreicher Abruf gilt niemals automatisch als unabhaengige aktuelle Messung. Keine neuen Symcon-Variablen und keinerlei Helios-Schaltfreigabe.
 
+
+
+## v0.1.2 – Wetterversorgung mit redundanten APIs (25.10.2026)
+
+- **MET Norway Locationforecast 2.0** als zweiter API-Betreiber zusätzlich zu Open-Meteo und Bright Sky. Identifizierender User-Agent, If-Modified-Since / HTTP-304 / Expires werden für MET respektiert.
+- Open-Meteo `v1/forecast` **Best-Match** als Fallback zu ICON-D2/ECMWF Einzelmodellen.
+- DWD-SYNOP bleibt eine von mehreren **Messquellen**. Entfernte bzw. höhenbedingt unpassende DWD-Stationen dürfen nicht als lokale Referenz fehlinterpretiert werden. Optionale Haus-Höhenlage (0 = unbekannt).
+- Status **`MODEL_SUPPORTED`** bedeutet: lokale PWS-Messung stimmt mit Prognosen **zweier API-Betreiber** überein. Das ist ausdrücklich **KEINE zweite unabhängige Ortsmessung** und führt im HELIOS SMART v0.1.x **nicht zur automatischen Lüftersteuerung**.
+- `PWS_ONLY`, `DWD_REMOTE`, `CONFLICT`, `UNAVAILABLE` bleiben diagnostisch unterscheidbar. Wetterdaten ohne ausreichend frische Quellen berechtigen nicht zu Zusatzlüftung.
+- DWD-MOSMIX via Bright Sky ist **optional**. `MOSMIX 0` ist kein Totalausfall; ICON, ECMWF, BestMatch und MET.no arbeiten separat.
+- Zum Schutz der SymBox maximal **zwei externe HTTP-Abrufe je Zyklus**; Timer 5 min. Nach dem Update werden neue Datenanbieter über mehrere Zyklen aufgebaut, ohne die bisherigen Wetterdaten zu löschen.
+- Keine neuen Symcon-Variablen. Nur eine optionale Modul-Eigenschaft `SiteElevation`.
+- Original Helios, WeekProgram und das Fremdmodul bleiben **unverändert**. HELIOS SMART bleibt im Beobachtungsmodus.
+
+**Quellen und API-Dokumentation:**
+- https://api.met.no/weatherapi/locationforecast/2.0/documentation
+- https://docs.api.met.no/doc/locationforecast/HowTO.html
+- https://open-meteo.com/en/docs
+- https://open-meteo.com/en/docs/dwd-api
+- https://brightsky.dev/
+
+**Betrieb nach Update:** WetterZentrale `#40477` aktualisieren, `Wetter jetzt aktualisieren` einmal drücken. Nach 1–3 Zyklen `Wetterdiagnose` prüfen. Die Fremdsteuerung bleibt gesperrt.
 
 ## Bestand
 

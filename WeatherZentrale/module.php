@@ -11,6 +11,8 @@ class WetterZentrale extends IPSModule
         $this->RegisterPropertyFloat('Longitude', 0.0);
         $this->RegisterPropertyInteger('PWSTemperature', 31433);
         $this->RegisterPropertyInteger('PWSHumidity', 12304);
+        // Optional real ground altitude; 0 = unknown (never assume altitude).
+        $this->RegisterPropertyFloat('SiteElevation', 0.0);
         $this->RegisterPropertyBoolean('EnableExternal', false); // Opt-in, keine HTTP-Requests bei Installation
         $this->RegisterAttributeString('Cache', '{}');
         $this->RegisterTimer('WeatherTick', 0, 'JVWC_Refresh($_IPS[\'TARGET\']);');
@@ -27,7 +29,7 @@ class WetterZentrale extends IPSModule
     public function ApplyChanges(): void
     {
         parent::ApplyChanges();
-        $this->SetTimerInterval('WeatherTick', 15 * 60 * 1000);
+        $this->SetTimerInterval('WeatherTick', 5 * 60 * 1000);
         // ApplyChanges führt bewusst keine HTTP-Abfragen aus.
     }
 
@@ -41,6 +43,7 @@ class WetterZentrale extends IPSModule
                 ['type'=>'NumberSpinner','name'=>'Longitude','caption'=>'Längengrad (0 = aus Location Control)'],
                 ['type'=>'NumberSpinner','name'=>'PWSTemperature','caption'=>'Eigene Wetterstation Temperatur-ID'],
                 ['type'=>'NumberSpinner','name'=>'PWSHumidity','caption'=>'Eigene Wetterstation Feuchte-ID'],
+                ['type'=>'NumberSpinner','name'=>'SiteElevation','caption'=>'Haus-Hoehenlage m ue.NN (0 = nicht bekannt)'],
                 ['type'=>'CheckBox','name'=>'EnableExternal','caption'=>'HTTPS-Abrufe extern aktivieren'],
             ],
             'actions' => [['type'=>'Button','caption'=>'Wetter jetzt aktualisieren','onClick'=>'JVWC_Refresh($id);']]
@@ -61,23 +64,29 @@ class WetterZentrale extends IPSModule
             $diag[] = 'Externe HTTP-Abrufe noch deaktiviert';
         } else {
             [$lat,$lon] = $location;
-            // DWD SYNOP ist der verifizierbare Echtzeit-Messdatenkanal.
-            // /weather enthaelt zum Teil Prognose-Zeilen, die hier nicht als Messung gelten.
-            $this->refreshProvider($cache, 'dwd_synop', 15 * 60,
-                'https://api.brightsky.dev/current_weather?'.http_build_query(['lat'=>$lat,'lon'=>$lon]), $now, $diag);
-            $this->refreshProvider($cache, 'dwd_observation', 15 * 60,
-                $this->brightSkyURL($lat,$lon,$now-3*3600,$now), $now, $diag);
-            $this->refreshProvider($cache, 'mosmix', 60 * 60,
-                $this->brightSkyURL($lat,$lon,$now,$now+48*3600), $now, $diag);
+            // Maximal 2 HTTP-Aufrufe je Durchlauf: SymBox wird nicht durch
+            // 7 serielle Timeouts blockiert. Alle Quellen werden zyklisch aktualisiert.
             $query = [
                 'latitude'=>$lat, 'longitude'=>$lon,
                 'hourly'=>'temperature_2m,relative_humidity_2m,dew_point_2m',
                 'timezone'=>'UTC', 'timeformat'=>'unixtime', 'forecast_days'=>3,
             ];
-            $this->refreshProvider($cache, 'icon', 3*3600,
-                'https://api.open-meteo.com/v1/dwd-icon?'.http_build_query($query+['models'=>'icon_d2']), $now, $diag);
-            $this->refreshProvider($cache, 'ecmwf', 6*3600,
-                'https://api.open-meteo.com/v1/ecmwf?'.http_build_query($query+['models'=>'ecmwf_ifs']), $now, $diag);
+            $requests = [
+                'met_no'=>[2*3600,'https://api.met.no/weatherapi/locationforecast/2.0/compact?'
+                    .http_build_query(['lat'=>round($lat,4),'lon'=>round($lon,4)])],
+                'best_match'=>[60*60,'https://api.open-meteo.com/v1/forecast?'.http_build_query($query)],
+                'dwd_synop'=>[15*60,'https://api.brightsky.dev/current_weather?'.http_build_query(['lat'=>$lat,'lon'=>$lon])],
+                'icon'=>[3*3600,'https://api.open-meteo.com/v1/dwd-icon?'.http_build_query($query+['models'=>'icon_d2'])],
+                'ecmwf'=>[6*3600,'https://api.open-meteo.com/v1/ecmwf?'.http_build_query($query+['models'=>'ecmwf_ifs'])],
+                'dwd_observation'=>[60*60,$this->brightSkyURL($lat,$lon,$now-3*3600,$now)],
+                // MOSMIX ist optional: unvollstaendige Bright-Sky-Daten blockieren niemals die WetterZentrale.
+                'mosmix'=>[6*3600,$this->brightSkyURL($lat,$lon,$now,$now+48*3600)],
+            ];
+            $done=0;
+            foreach ($requests as $provider => $request) {
+                if ($done>=2) break;
+                if ($this->refreshProvider($cache,$provider,$request[0],$request[1],$now,$diag)) $done++;
+            }
         }
         $externalActive=$this->ReadPropertyBoolean('EnableExternal') && $location!==null;
         $dwdLive = JVWeatherLogic::parseBrightSkyCurrent($externalActive?($cache['dwd_synop']['body'] ?? null):null, $now);
@@ -85,14 +94,28 @@ class WetterZentrale extends IPSModule
         $dwdHistory = $dwdRows ? end($dwdRows) : null;
         // Kein Forecast als unabhaengige Messung: SYNOP vor echter /weather-Historie.
         $dwd = JVWeatherLogic::isFresh($dwdLive, $now, 2700) ? $dwdLive : $dwdHistory;
-        $chosen = JVWeatherLogic::chooseObservation($pws, $dwd, $now);
+        // Nur ausreichend aktuelle Abrufe zulassen; alte Cache-Daten niemals als aktuelle Prognose ausgeben.
+        $validBody = static function (string $key, int $maxAge) use ($cache, $externalActive, $now): ?array {
+            if (!$externalActive || $now-(int)($cache[$key]['fetched_at']??0)>$maxAge) return null;
+            return is_array($cache[$key]['body']??null) ? $cache[$key]['body'] : null;
+        };
+        $bySource = [
+            'MOSMIX'=>JVWeatherLogic::parseBrightSky($validBody('mosmix',6*3600),$now,true),
+            'ICON'=>JVWeatherLogic::parseOpenMeteo($validBody('icon',8*3600),$now,'ICON'),
+            'ECMWF'=>JVWeatherLogic::parseOpenMeteo($validBody('ecmwf',12*3600),$now,'ECMWF'),
+            'BEST_MATCH'=>JVWeatherLogic::parseOpenMeteo($validBody('best_match',4*3600),$now,'BEST_MATCH'),
+            'MET_NO'=>JVWeatherLogic::parseMetNo($validBody('met_no',6*3600),$now),
+        ];
+        $chosen=JVWeatherLogic::assessSources($pws,$dwd,$bySource,$now,$this->ReadPropertyFloat('SiteElevation'));
         if ($externalActive) {
             if (!JVWeatherLogic::isFresh($dwd, $now, 2700)) {
                 $diag[] = 'DWD: kein verwendbarer Messwert unter 45 Minuten ('
                     . ($dwdLive ? 'SYNOP zu alt' : 'SYNOP fehlt/ungueltig') . ')';
             } else {
                 $diag[] = 'DWD Messquelle: '.($dwd === $dwdLive ? 'SYNOP' : 'historische Station')
-                    .' | Zeitstempel '.gmdate('H:i', (int)$dwd['observed_at']).' UTC';
+                    .' | Zeitstempel '.gmdate('H:i', (int)$dwd['observed_at']).' UTC'
+                    .' | Distanz '.(isset($dwd['distance_m'])?round((float)$dwd['distance_m']/1000,1).' km':'unbekannt')
+                    .' | Stationshoehe '.(isset($dwd['station_height_m'])?round((float)$dwd['station_height_m']).' m':'unbekannt');
             }
         }
         $this->SetValue('Quality', $chosen['quality']);
@@ -103,17 +126,13 @@ class WetterZentrale extends IPSModule
             $this->SetValue('OutdoorDewPoint', $c['dewpoint']);
             $this->SetValue('OutdoorAbsHumidity', $c['absolute_humidity']);
         }
-        $bySource = [
-            'MOSMIX' => JVWeatherLogic::parseBrightSky($externalActive?($cache['mosmix']['body'] ?? null):null,$now,true),
-            'ICON' => JVWeatherLogic::parseOpenMeteo($externalActive?($cache['icon']['body'] ?? null):null,$now,'ICON'),
-            'ECMWF' => JVWeatherLogic::parseOpenMeteo($externalActive?($cache['ecmwf']['body'] ?? null):null,$now,'ECMWF'),
-        ];
         $forecast = JVWeatherLogic::combineForecasts($bySource, $now);
         $this->SetValue('ForecastJSON', json_encode($forecast, JSON_UNESCAPED_UNICODE));
         if ($externalActive) {
             $diag[] = 'Prognosen MOSMIX '.count($bySource['MOSMIX'])
-                .'/ICON '.count($bySource['ICON']).'/ECMWF '.count($bySource['ECMWF']);
-            foreach (['dwd_synop','dwd_observation','mosmix','icon','ecmwf'] as $provider) {
+                .'/ICON '.count($bySource['ICON']).'/ECMWF '.count($bySource['ECMWF'])
+                .'/BestMatch '.count($bySource['BEST_MATCH']).'/MET.no '.count($bySource['MET_NO']);
+            foreach (['dwd_synop','dwd_observation','mosmix','icon','ecmwf','best_match','met_no'] as $provider) {
                 if (($cache[$provider]['error'] ?? '') !== '') $diag[] = $provider.': '.$cache[$provider]['error'];
             }
         }
@@ -123,7 +142,7 @@ class WetterZentrale extends IPSModule
             'issued_at'=>$now, 'quality'=>$chosen['quality'], 'current'=>$chosen['current'],
             'forecast'=>$forecast, 'reason'=>$chosen['reason'], 'providers'=>array_map(
                 static function($v){return ['fetched_at'=>$v['fetched_at']??0,'error'=>$v['error']??''];},
-                array_intersect_key($cache,array_flip(['dwd_synop','dwd_observation','mosmix','icon','ecmwf']))
+                array_intersect_key($cache,array_flip(['dwd_synop','dwd_observation','mosmix','icon','ecmwf','best_match','met_no']))
             )
         ];
         $this->WriteAttributeString('Cache', json_encode($cache, JSON_UNESCAPED_UNICODE));
@@ -181,35 +200,67 @@ class WetterZentrale extends IPSModule
         ]);
     }
 
-    private function refreshProvider(array &$cache,string $key,int $period,string $url,int $now,array &$diag): void
+    private function refreshProvider(array &$cache,string $key,int $period,string $url,int $now,array &$diag): bool
     {
         $last=(int)($cache[$key]['fetched_at']??0);
         $failed=(int)($cache[$key]['failed_at']??0);
-        // Backoff bei Störung, nicht bei jedem WetterTick vier fehlschlagende Requests.
-        if ($now-$last<$period || ($failed && $now-$failed<15*60)) return;
-        $body=$this->httpJSON($url);
-        if ($body === null) {
+        $expires=(int)($cache[$key]['expires_at']??0);
+        if ($now < $expires || $now-$last<$period || ($failed && $now-$failed<15*60)) return false;
+        $conditional=$key==='met_no' ? ($cache[$key]['last_modified']??null) : null;
+        $response=$this->httpJSON($url,is_string($conditional)?$conditional:null);
+        if ($response===null) {
             $cache[$key]['failed_at']=$now;
-            $cache[$key]['error']='HTTP/JSON nicht verfügbar';
+            $cache[$key]['error']='HTTP/JSON nicht verfuegbar';
             $diag[]=$key.' derzeit nicht erreichbar';
-            return;
+            return true;
         }
-        $cache[$key]=['fetched_at'=>$now,'failed_at'=>0,'body'=>$body,'error'=>''];
+        $entry=$cache[$key]??[];
+        if (!empty($response['not_modified'])) {
+            if (!is_array($entry['body']??null)) {
+                $cache[$key]['failed_at']=$now;
+                $cache[$key]['error']='304 aber kein lokaler Cache vorhanden';
+                return true;
+            }
+        } else {
+            $entry['body']=$response['body'];
+        }
+        $entry['fetched_at']=$now;
+        $entry['failed_at']=0;
+        $entry['error']='';
+        if (!empty($response['last_modified'])) $entry['last_modified']=$response['last_modified'];
+        $entry['expires_at']=$key==='met_no' ? max($now,min($now+6*3600,(int)($response['expires_at']??0))) : 0;
+        $cache[$key]=$entry;
+        return true;
     }
 
-    private function httpJSON(string $url): ?array
+    private function httpJSON(string $url,?string $lastModified=null): ?array
     {
         $curl=curl_init($url);
+        if ($curl===false) return null;
+        $headers=[];
+        if ($lastModified!==null && $lastModified!=='') $headers[]='If-Modified-Since: '.$lastModified;
         curl_setopt_array($curl,[
-            CURLOPT_RETURNTRANSFER=>true, CURLOPT_CONNECTTIMEOUT=>4, CURLOPT_TIMEOUT=>9,
+            CURLOPT_RETURNTRANSFER=>true, CURLOPT_HEADER=>true,
+            CURLOPT_CONNECTTIMEOUT=>4, CURLOPT_TIMEOUT=>12,
             CURLOPT_FOLLOWLOCATION=>false, CURLOPT_SSL_VERIFYPEER=>true,
-            CURLOPT_SSL_VERIFYHOST=>2, CURLOPT_USERAGENT=>'Symcon-WetterZentrale/0.1',
+            CURLOPT_SSL_VERIFYHOST=>2,
+            CURLOPT_HTTPHEADER=>$headers,
+            CURLOPT_USERAGENT=>'HeliosSmartWeather/0.1.2 (+https://github.com/johannes-veit/HeliosSmart)',
         ]);
-        $result=curl_exec($curl);
+        $response=curl_exec($curl);
         $status=(int)curl_getinfo($curl,CURLINFO_HTTP_CODE);
+        $headerSize=(int)curl_getinfo($curl,CURLINFO_HEADER_SIZE);
         curl_close($curl);
-        if (!is_string($result)||$status!==200||strlen($result)>2_000_000) return null;
-        $data=json_decode($result,true);
-        return is_array($data)?$data:null;
+        if (!is_string($response) || $headerSize<0 || $headerSize>strlen($response)) return null;
+        $headerText=substr($response,0,$headerSize);
+        $body=substr($response,$headerSize);
+        $modified=null;$expires=0;
+        if (preg_match('/^Last-Modified:\s*(.+)$/mi',$headerText,$matches)) $modified=trim($matches[1]);
+        if (preg_match('/^Expires:\s*(.+)$/mi',$headerText,$matches)) $expires=strtotime(trim($matches[1]))?:0;
+        if ($status===304) return ['not_modified'=>true,'last_modified'=>$modified,'expires_at'=>$expires];
+        if ($status!==200 || strlen($body)>2_000_000) return null;
+        $data=json_decode($body,true);
+        if (!is_array($data)) return null;
+        return ['body'=>$data,'last_modified'=>$modified,'expires_at'=>$expires,'not_modified'=>false];
     }
 }
