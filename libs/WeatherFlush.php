@@ -100,6 +100,14 @@ final class JVHeliosWeatherFlush {
         if ($out['type']===null) {
             $out['reason']='NO_MATERIAL_COMFORT_GAIN';return $out;
         }
+        $comfort=(array)($d['comfort_control']??[]);
+        if (($d['season_signal']??'')!=='HEATING_SEASON'
+            && ($comfort['status']??'')==='READY'
+            && ($comfort['weather_boost_compatible']??false)!==true) {
+            $out['type']=null;
+            $out['reason']='COMFORT_CONTROL_BLOCKED';
+            return $out;
+        }
         // Realistic winter policy: at low outdoor temperatures even warm
         // heat-recovered supply carries a sensible heat penalty. Ordinary
         // moderate indoor moisture is not enough to justify an S4 flush.
