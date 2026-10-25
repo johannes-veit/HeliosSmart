@@ -75,6 +75,7 @@ $GLOBALS['values'][28802]=45;
 $GLOBALS['values'][41272]=23;
 $hs->Evaluate();
 a(count($GLOBALS['calls'])===0,'Keine Zusatzlüftung ohne Bedarf');
+a(str_contains($hs->value('Status'),'Aktuelle Stufe') && !str_contains($hs->value('Status'),'Vorschlag Stufe'), 'Keine ausgelesene Ist-Stufe als optimierten Sollwert ausgeben');
 a(is_array(json_decode($hs->value('DecisionJSON'),true)),'Gültige Entscheidungsdiagnose');
 $GLOBALS['weatherForTest']=['quality'=>'UNAVAILABLE','current'=>null,'forecast'=>[]];
 $hs->Evaluate();

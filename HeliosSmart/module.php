@@ -45,7 +45,7 @@ class HeliosSmart extends IPSModule
     {
         return json_encode([
             'elements'=>[
-                ['type'=>'Label','caption'=>'v0.4.0: Tagesstrategie, Vorhersagefenster und zwölf native LCN-Feuchtequellen; Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
+                ['type'=>'Label','caption'=>'v0.4.1: Tagesstrategie, Vorhersagefenster und zwölf native LCN-Feuchtequellen; Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
                 ['type'=>'NumberSpinner','name'=>'HeliosInstance','caption'=>'Helios-Instanz'],
                 ['type'=>'NumberSpinner','name'=>'WeatherCenterInstance','caption'=>'WetterZentrale-Instanz (0 = automatisch erkennen)'],
                 ['type'=>'NumberSpinner','name'=>'ClimateControlInstance','caption'=>'LCNClimateControl (nur lesend)'],
@@ -190,7 +190,9 @@ class HeliosSmart extends IPSModule
             IPS_VariableExists($intakeID) && $now-(int)IPS_GetVariable($intakeID)['VariableUpdated']<=20*60
                 ? (float)GetValue($intakeID):null,
             ($decision['weather_usable_for_advice']??false) && isset($weather['current']['temperature'])
-                ? (float)$weather['current']['temperature']:null
+                ? (float)$weather['current']['temperature']:null,
+            (int)($decision['fresh_humidity_room_count']??0),
+            ($decision['mode']??'')==='HUMIDITY_BOOST'
         );
         $decision['forecast_advice']=$forecastAdvice;
         $decision['ewt_effect_kelvin']=null;
@@ -229,13 +231,16 @@ class HeliosSmart extends IPSModule
         $decision['helios_mode']=$mode;
         $decision['observation_only']=true;
         $this->SetValue('DecisionJSON',json_encode($decision,JSON_UNESCAPED_UNICODE));
-        // v0.4.0 is intentionally and unconditionally read-only.
+        // v0.4.1 is intentionally and unconditionally read-only.
         // Legacy approval properties remain registered to avoid migration issues,
         // but cannot authorize any HELIOS_* function from this version.
         $this->SetValue('Monitoring',true);
         $this->SetValue('Status','BEOBACHTUNG | '.$decision['mode']
-            .' | Wetter '.$decision['weather_quality'].' ('.$weatherConnection.') | Vorschlag Stufe '
-            .$decision['requested_level'].' | '.$decision['reason']
+            .' | Wetter '.$decision['weather_quality'].' ('.$weatherConnection.') | '
+            .($decision['mode']==='WEEKLY_BASE'
+                ? 'Aktuelle Stufe '.$decision['requested_level'].' (kein zusaetzlicher Boost)'
+                : 'Unverbindlicher Vorschlag Stufe '.$decision['requested_level'])
+            .' | '.$decision['reason']
             .' | Tag: '.$decision['daily_strategy']['summary']
             .' | 24h: '.$forecastAdvice['summary']);
     }

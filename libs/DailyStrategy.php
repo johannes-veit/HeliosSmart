@@ -66,8 +66,24 @@ final class JVHeliosDailyStrategy
         $thermal = $per100===null?'Zuluftwirkung nicht bestimmbar':
             'Zuluftwirkung '.($per100>=0?'+':'').number_format($per100,0,'.','')
             .' W je 100 m3/h';
+        $humidityNote='';
+        if ($readings['current']<3) {
+            $humidityNote=' | Feuchtebeurteilung eingeschraenkt (nur '.$readings['current'].' frische Messungen)';
+        }
+        $bathContext=[];
+        foreach ($humiditySources as $source) {
+            $room=(string)($source['room']??'');
+            if (!in_array($room,['EG Bad','OG Bad'],true)) continue;
+            $age=$source['age_minutes']??null;
+            $bathContext[$room]=!($source['available']??false)?'MISSING':
+                (!is_numeric($age)?'MISSING':((float)$age<=45?'CURRENT':
+                    ((float)$age<=720?'INDICATIVE':'STALE')));
+        }
+        if ($bathContext && !in_array('CURRENT',$bathContext,true)) {
+            $humidityNote.=' | Badfeuchte nicht aktuell: keine Dusch-Ereigniserkennung';
+        }
         $desc=$days.' | '.$thermal.' | Feuchte '.$readings['current'].' frisch/'
-            .$readings['indicative'].' indikativ/'.$readings['old'].' alt';
+            .$readings['indicative'].' indikativ/'.$readings['old'].' alt'.$humidityNote;
         return [
             'season_signal'=>$season,
             'season_signal_basis'=>$forecastReady?'24H_FORECAST':'CURRENT_ONLY_OR_NONE',
@@ -79,6 +95,8 @@ final class JVHeliosDailyStrategy
             'normalized_heat_note'=>'Nur theoretische fuehlbare Raumluftwirkung bei 100 m3/h; keine reale Watt-Leistung ohne gemessenen Volumenstrom',
             'ewt_preconditioning_k'=>$ewtDelta,
             'humidity_counts'=>$readings,
+            'humidity_context'=>'Indicative Werte nur als Hintergrund; kein Nachweis einer aktuellen Feuchtespitze',
+            'bath_humidity_quality'=>$bathContext,
             'temperature_sensor_count'=>(int)($decision['fresh_room_count']??0),
             'safety'=>'ADVISORY_ONLY',
             'summary'=>$desc,

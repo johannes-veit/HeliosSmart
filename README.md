@@ -1,6 +1,16 @@
-# HELIOS SMART v0.4.0 – WetterZentrale & Lüftungsbeobachter
+# HELIOS SMART v0.4.1 – WetterZentrale & Lüftungsbeobachter
 
 **Entwicklungsfassung. Keine produktive Steuerungsfreigabe!**
+
+## v0.4.1 – Zuverlässige Feuchte-Interpretation und ehrliche Vorschläge (25.10.2026)
+
+- `WEEKLY_BASE` bezeichnet die derzeit abgelesene Helios-Stufe als **Bestandszustand** und nicht als eigenständig berechneten Stufenvorschlag.
+- Stündliche Wettermodelle identifizieren lediglich das **physikalische Trocknungspotenzial**, kein 24-stündiges Boost-Kommando. Auch ein ganztägiges Trockenfenster erzeugt keine Intensivlüftung.
+- Beobachtungs-JSON enthaelt `forecast_advice.current_humidity_demand`, `drying_opportunity_only` und die Zahl frischer Vergleichsräume.
+- Die täglich angezeigte Feuchtequalitaet weist auf nur zwei frische Feuchtemessungen und gegebenenfalls fehlende aktuelle Badwerte hin; ältere, unveränderte originale LCN-Feuchtewerte werden nicht als Ausfall interpretiert und niemals für eine aktuelle Duschspitze ausgegeben.
+- Neue sichtbare Variablen: **keine**. Sämtliche Helios-Schaltaufrufe bleiben entfernt.
+
+
 
 ## v0.4.0 – Zentrale Tagesstrategie / Waermebilanz (25.10.2026)
 

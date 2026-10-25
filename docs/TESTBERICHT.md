@@ -52,3 +52,7 @@ Originale LCN-Feuchtevariablen der zwoelf Raumbereiche aus SymBox-Backup gepruef
 - Pure Tagesstrategie mit 24-h-Signal, EWT und normalisierter Waermebilanz.
 - Alte LCN-Feuchtewerte werden fuer Sicherheit getrennt klassifiziert, nicht als aktuelle Werte genutzt.
 - Unbedingte Beobachtungssperre und keine neue sichtbare Variable.
+
+## v0.4.1 – Stufenbezeichnung und Bedarfsabgrenzung
+
+Neuer Regressionstest fuer gemeldeten Status 25.10.2026 mit 11 Temperaturquellen, zwei frischen Feuchtewerten und 24 Stunden guenstigem Trockenpotential. Testet Abgrenzung von Wetter-Gelegenheit und Dusch-Ereignis, verbleibende Wochenautomatik, begrenzte Sensorqualitaet sowie lesende Ist-Stufen-Anzeige.

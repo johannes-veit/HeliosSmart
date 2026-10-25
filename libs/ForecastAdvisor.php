@@ -11,7 +11,8 @@ final class JVHeliosForecastAdvisor
     public static function analyze(array $forecast, int $now, ?float $indoorTemperature,
         ?float $indoorAbsoluteHumidity, string $weatherQuality = 'UNAVAILABLE',
         ?float $supplyTemperature = null, ?float $ewtTemperature = null,
-        ?float $outdoorTemperature = null): array
+        ?float $outdoorTemperature = null, int $freshHumidityRoomCount = 0,
+        bool $currentHumidityDemand = false): array
     {
         $result = [
             'status' => 'INSUFFICIENT',
@@ -23,6 +24,9 @@ final class JVHeliosForecastAdvisor
             'humid_hours' => 0, 'hot_hours' => 0,
             'ewt_cooling_now_k' => null, 'supply_cooling_now_k' => null,
             'next_window' => null,
+            'moisture_reference_rooms' => max(0, $freshHumidityRoomCount),
+            'current_humidity_demand' => $currentHumidityDemand,
+            'drying_opportunity_only' => false,
             'summary' => 'Noch keine ausreichend dichte Stundenprognose',
             'notice' => 'Nur Planung. Reale Zuluft und Feuchte vor einem Eingriff neu pruefen.',
         ];
@@ -94,6 +98,7 @@ final class JVHeliosForecastAdvisor
         }
         $result['cooling_windows']=self::windows($states,'cool',2);
         $result['drying_windows']=self::windows($states,'dry',2);
+        $result['drying_opportunity_only']=(count($result['drying_windows'])>0);
         $result['status']=$hasMoisture?'READY':'NO_FRESH_INDOOR_HUMIDITY';
         $result['next_window']=$result['cooling_windows'][0]??null;
         if (!$hasMoisture) {
@@ -104,8 +109,16 @@ final class JVHeliosForecastAdvisor
                 .' ('.$first['hours'].' h), vor Ort mit Zuluft pruefen';
         } elseif ($result['drying_windows']) {
             $first=$result['drying_windows'][0];
-            $result['summary']='Moegliches Entfeuchtungsfenster ab '.self::localTime($first['start_at'])
-                .' ('.$first['hours'].' h), bei Bedarfsfall nutzen';
+            // Wetterverhaeltnis ist keine Anforderung an einen Ventilator!
+            // Auch bei 24 h trockenerer Aussenluft nicht ganztags boosten.
+            $hours=(int)$first['hours'];
+            $period=$hours>=20
+                ? 'Aussenluft voraussichtlich weitgehend ganztags trockener ('.$hours.' h)'
+                : 'Aussenluft ab '.self::localTime($first['start_at']).' fuer '.$hours.' h voraussichtlich trockener';
+            $need=$currentHumidityDemand
+                ? 'tatsaechlichen Feuchtebedarf mit frischem Badwert pruefen'
+                : 'kein aktueller Feuchte-Boost-Bedarf; keine Zusatzlueftung ableiten';
+            $result['summary']=$period.' | '.$need;
         } else {
             $result['summary']='Kein hinreichend sicheres Zusatzfenster innerhalb der Prognose';
         }
