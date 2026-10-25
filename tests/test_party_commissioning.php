@@ -59,6 +59,15 @@ $weatherDevice=['instance_exists'=>true,'module_verified'=>true,'mode'=>0,'fan'=
 pc(JVHeliosPartySafety::inspect($weatherParty,$weatherDevice,$weatherFlags,
  ['last_command_at'=>0,'expires_at'=>0],$now,true)['command_allowed'],
  'S4 weather requires separate installation approval');
+$weatherGood['now']=strtotime('2026-10-26 14:00:00 UTC');
+$dayWeather=JVHeliosBoostCoordinator::propose($weatherGood,$none,2,true);
+pc($dayWeather['weather_flush']['daypart']==='DAY','Day-time recognized for ventilation optimization');
+$nightWeather=$weatherGood;$nightWeather['now']=strtotime('2026-10-26 22:30:00 UTC');
+pc(JVHeliosBoostCoordinator::propose($nightWeather,$none,2,true)['source']!=='WEATHER_OPTIMAL',
+ 'Moderate weather cooling is not enough for noisy overnight S4');
+$nightStrong=$nightWeather;$nightStrong['indoor_temperature']=27;$nightStrong['supply_temperature']=20;
+pc(JVHeliosBoostCoordinator::propose($nightStrong,$none,2,true)['source']==='WEATHER_OPTIMAL',
+ 'Strong night thermal relief still permits S4');
 $weatherDamp=$weatherGood;$weatherDamp['outside_absolute_humidity']=13;
 pc(JVHeliosBoostCoordinator::propose($weatherDamp,$none,2,true)['source']!=='WEATHER_OPTIMAL',
  'Damp outside air cannot trigger S4 flush');
