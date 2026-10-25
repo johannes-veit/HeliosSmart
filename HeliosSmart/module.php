@@ -592,7 +592,10 @@ class HeliosSmart extends IPSModule
             ?(float)GetValue($intakeID):null;
         $decision['season_signal']=$decision['daily_strategy']['season_signal']??null;
         $decision['now']=$now;
-        $decision['morning_activity_evidence']=($cooking['advice']['recent_ground_floor_motion']??false)===true
+        $hourLocal=(int)(new DateTimeImmutable('@'.$now))
+            ->setTimezone(new DateTimeZone('Europe/Berlin'))->format('G');
+        $decision['morning_activity_evidence']=$hourLocal>=6 && $hourLocal<10
+            && ($cooking['advice']['recent_ground_floor_motion']??false)===true
             && ($cooking['advice']['occupancy']['home_presence_hint']??false)===true;
         $decision['summer_airflow']=JVHeliosSummerAirflow::advise($decision);
         $candidate=JVHeliosBoostCoordinator::propose(
