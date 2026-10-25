@@ -32,6 +32,22 @@ $in['supply_temperature']=29;
 check(JVHeliosLogic::decide($in)['mode']==='WEEKLY_BASE','Keine Kühlung bei zu warmer Zuluft');
 $in['supply_temperature']=21;$in['supply_fresh']=false;
 check(JVHeliosLogic::decide($in)['mode']==='WEEKLY_BASE','Veralteter Helios-Fühler sperrt Kühl-Boost');
+// Bright Sky /current_weather: nur echte DWD-SYNOP-Messungen als Plausibilisierung.
+$live = [
+    'weather'=>['source_id'=>812,'timestamp'=>gmdate('c',$now-540),'temperature'=>5.3,'relative_humidity'=>99],
+    'sources'=>[['id'=>812,'observation_type'=>'synop','station_name'=>'Musterstation','height'=>150.0,'distance'=>12000]],
+];
+$livePoint=JVWeatherLogic::parseBrightSkyCurrent($live,$now);
+check($livePoint!==null && $livePoint['source']==='DWD_SYNOP','DWD SYNOP korrekt eingelesen');
+check(JVWeatherLogic::chooseObservation($outside,$livePoint,$now)['quality']==='VERIFIED','SYNOP bestaetigt lokale Messung');
+$fake=$live;$fake['sources'][0]['observation_type']='forecast';
+check(JVWeatherLogic::parseBrightSkyCurrent($fake,$now)===null,'SYNOP-Schnittstelle lehnt Prognose ab');
+$fake=$live;$fake['sources']=[];
+check(JVWeatherLogic::parseBrightSkyCurrent($fake,$now)===null,'SYNOP ohne Stationsbeleg abgelehnt');
+$fake=$live;$fake['weather']['timestamp']=gmdate('c',$now-5000);
+check(!JVWeatherLogic::isFresh(JVWeatherLogic::parseBrightSkyCurrent($fake,$now),$now,2700),'Veraltete SYNOP-Messung nicht als aktuelle Kontrolle');
+$fake=$live;$fake['weather']['relative_humidity']=null;
+check(JVWeatherLogic::parseBrightSkyCurrent($fake,$now)===null,'SYNOP ohne Luftfeuchte keine Feuchtefreigabe');
 // Versehentliche MOSMIX-Prognose darf nie als DWD-Messung gewertet werden.
 $bs=['sources'=>[['id'=>9,'observation_type'=>'forecast']], 'weather'=>[['timestamp'=>gmdate('c',$now),'source_id'=>9,'temperature'=>19,'relative_humidity'=>70]]];
 check(JVWeatherLogic::parseBrightSky($bs,$now,false)===[],'Prognose ist keine DWD-Messung');

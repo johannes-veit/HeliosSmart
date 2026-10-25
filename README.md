@@ -1,6 +1,11 @@
-# HELIOS SMART v0.1.0 – WetterZentrale & Lüftungsbeobachter
+# HELIOS SMART v0.1.1 – WetterZentrale & Lüftungsbeobachter
 
 **Entwicklungsfassung. Keine produktive Steuerungsfreigabe!**
+
+## 0.1.1 – DWD-Messdaten korrigiert
+
+Die WetterZentrale nutzt zusaetzlich `Bright Sky /current_weather` mit expliziter DWD-SYNOP-Quellenvalidierung. Die bisherigen `/weather`-Messwerte bleiben als Fallback. Die Wetterdiagnose nennt nun DWD-Frische und Anzahl nutzbarer MOSMIX/ICON/ECMWF-Prognosen; ein technisch erfolgreicher Abruf gilt niemals automatisch als unabhaengige aktuelle Messung. Keine neuen Symcon-Variablen und keinerlei Helios-Schaltfreigabe.
+
 
 ## Bestand
 

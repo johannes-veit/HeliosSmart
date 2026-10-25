@@ -33,6 +33,34 @@ final class JVWeatherLogic
             && JVWeatherMath::plausible((float)$v['temperature'], (float)$v['rh']);
     }
 
+    /** /current_weather liefert ein einzelnes DWD-SYNOP-Messobjekt (kein Forecast). */
+    public static function parseBrightSkyCurrent(?array $payload, int $now): ?array
+    {
+        if (!$payload || !is_array($payload['weather'] ?? null)) return null;
+        $row = $payload['weather'];
+        if (!isset($row['source_id'], $row['timestamp'])) return null;
+        $source = null;
+        foreach ((array)($payload['sources'] ?? []) as $s) {
+            if (is_array($s) && isset($s['id']) && (string)$s['id'] === (string)$row['source_id']
+                && ($s['observation_type'] ?? '') === 'synop') {
+                $source = $s; break;
+            }
+        }
+        // Fehlende Stations-Metadaten oder Modelle niemals als Messwerte akzeptieren.
+        if ($source === null) return null;
+        $timestamp = strtotime((string)$row['timestamp']);
+        if ($timestamp === false || $timestamp > $now + 120 || $timestamp < $now - 24 * 3600) return null;
+        $pair = JVWeatherMath::readPair($row['temperature'] ?? null, $row['relative_humidity'] ?? null);
+        if ($pair === null) return null;
+        return $pair + [
+            'observed_at' => $timestamp,
+            'source' => 'DWD_SYNOP',
+            'station' => (string)($source['station_name'] ?? $source['dwd_station_id'] ?? $row['source_id']),
+            'station_height_m' => isset($source['height']) ? (float)$source['height'] : null,
+            'distance_m' => isset($source['distance']) ? (float)$source['distance'] : null,
+        ];
+    }
+
     public static function parseBrightSky(?array $payload, int $now, bool $forecast): array
     {
         if (!$payload) return [];

@@ -61,6 +61,10 @@ class WetterZentrale extends IPSModule
             $diag[] = 'Externe HTTP-Abrufe noch deaktiviert';
         } else {
             [$lat,$lon] = $location;
+            // DWD SYNOP ist der verifizierbare Echtzeit-Messdatenkanal.
+            // /weather enthaelt zum Teil Prognose-Zeilen, die hier nicht als Messung gelten.
+            $this->refreshProvider($cache, 'dwd_synop', 15 * 60,
+                'https://api.brightsky.dev/current_weather?'.http_build_query(['lat'=>$lat,'lon'=>$lon]), $now, $diag);
             $this->refreshProvider($cache, 'dwd_observation', 15 * 60,
                 $this->brightSkyURL($lat,$lon,$now-3*3600,$now), $now, $diag);
             $this->refreshProvider($cache, 'mosmix', 60 * 60,
@@ -76,9 +80,21 @@ class WetterZentrale extends IPSModule
                 'https://api.open-meteo.com/v1/ecmwf?'.http_build_query($query+['models'=>'ecmwf_ifs']), $now, $diag);
         }
         $externalActive=$this->ReadPropertyBoolean('EnableExternal') && $location!==null;
+        $dwdLive = JVWeatherLogic::parseBrightSkyCurrent($externalActive?($cache['dwd_synop']['body'] ?? null):null, $now);
         $dwdRows = JVWeatherLogic::parseBrightSky($externalActive?($cache['dwd_observation']['body'] ?? null):null, $now, false);
-        $dwd = $dwdRows ? end($dwdRows) : null;
+        $dwdHistory = $dwdRows ? end($dwdRows) : null;
+        // Kein Forecast als unabhaengige Messung: SYNOP vor echter /weather-Historie.
+        $dwd = JVWeatherLogic::isFresh($dwdLive, $now, 2700) ? $dwdLive : $dwdHistory;
         $chosen = JVWeatherLogic::chooseObservation($pws, $dwd, $now);
+        if ($externalActive) {
+            if (!JVWeatherLogic::isFresh($dwd, $now, 2700)) {
+                $diag[] = 'DWD: kein verwendbarer Messwert unter 45 Minuten ('
+                    . ($dwdLive ? 'SYNOP zu alt' : 'SYNOP fehlt/ungueltig') . ')';
+            } else {
+                $diag[] = 'DWD Messquelle: '.($dwd === $dwdLive ? 'SYNOP' : 'historische Station')
+                    .' | Zeitstempel '.gmdate('H:i', (int)$dwd['observed_at']).' UTC';
+            }
+        }
         $this->SetValue('Quality', $chosen['quality']);
         if ($chosen['current'] !== null) {
             $c = $chosen['current'];
@@ -94,13 +110,20 @@ class WetterZentrale extends IPSModule
         ];
         $forecast = JVWeatherLogic::combineForecasts($bySource, $now);
         $this->SetValue('ForecastJSON', json_encode($forecast, JSON_UNESCAPED_UNICODE));
+        if ($externalActive) {
+            $diag[] = 'Prognosen MOSMIX '.count($bySource['MOSMIX'])
+                .'/ICON '.count($bySource['ICON']).'/ECMWF '.count($bySource['ECMWF']);
+            foreach (['dwd_synop','dwd_observation','mosmix','icon','ecmwf'] as $provider) {
+                if (($cache[$provider]['error'] ?? '') !== '') $diag[] = $provider.': '.$cache[$provider]['error'];
+            }
+        }
         $this->SetValue('Diagnostic', $chosen['reason'].' | '.implode(' | ',$diag));
         // Nur tatsächlich frische Quellen werden vom Konsumenten als gültig betrachtet.
         $cache['snapshot'] = [
             'issued_at'=>$now, 'quality'=>$chosen['quality'], 'current'=>$chosen['current'],
             'forecast'=>$forecast, 'reason'=>$chosen['reason'], 'providers'=>array_map(
                 static function($v){return ['fetched_at'=>$v['fetched_at']??0,'error'=>$v['error']??''];},
-                array_intersect_key($cache,array_flip(['dwd_observation','mosmix','icon','ecmwf']))
+                array_intersect_key($cache,array_flip(['dwd_synop','dwd_observation','mosmix','icon','ecmwf']))
             )
         ];
         $this->WriteAttributeString('Cache', json_encode($cache, JSON_UNESCAPED_UNICODE));
