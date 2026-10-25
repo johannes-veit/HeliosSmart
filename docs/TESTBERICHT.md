@@ -46,3 +46,9 @@ Originale LCN-Feuchtevariablen der zwoelf Raumbereiche aus SymBox-Backup gepruef
 - `tests/test_forecast_advisor.php`: Uhrzeitumstellung in Europa/Berlin, Stundenluecken, doppelte Werte, Modellqualitaet, ausbleibende Frischfeuchte, nasse Aussenluft, Sole-EWT nur aktuell, trockene Stunden und Mindestdauer.
 - `tests/test_symcon_guard.php`: weiterhin keine Hardwarebefehle.
 - Offlinedaten/Simulationen, keine reale SymBox- oder Helios-Hardwareabnahme.
+
+## v0.4.0 Tagesstrategie
+
+- Pure Tagesstrategie mit 24-h-Signal, EWT und normalisierter Waermebilanz.
+- Alte LCN-Feuchtewerte werden fuer Sicherheit getrennt klassifiziert, nicht als aktuelle Werte genutzt.
+- Unbedingte Beobachtungssperre und keine neue sichtbare Variable.

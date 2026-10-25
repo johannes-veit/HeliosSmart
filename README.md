@@ -1,6 +1,17 @@
-# HELIOS SMART v0.3.0 – WetterZentrale & Lüftungsbeobachter
+# HELIOS SMART v0.4.0 – WetterZentrale & Lüftungsbeobachter
 
 **Entwicklungsfassung. Keine produktive Steuerungsfreigabe!**
+
+## v0.4.0 – Zentrale Tagesstrategie / Waermebilanz (25.10.2026)
+
+- Separate **Tagesstrategie (read-only)** als `daily_strategy` im vorhandenen `DecisionJSON`.
+- Betrachtet die 24-h-Prognose mit Messwertguete, unterscheidet vorlaeufige/gesicherte Saisonsignale; keine Profilumschaltung.
+- Bestimmt die **thermische Raumluftwirkung je 100 m3/h** aus realer Zuluft und gemittelter Raumtemperatur. Keine erfundene reale Heiz-/Kuehlleistung ohne Volumenstrommessung.
+- Prueft den Sole-EWT-Differenzwert nur gegen unabhaengig plausibilisierte **freie** Aussentemperatur, nie als Helios-Aussenmessung.
+- LCN-Feuchtewerte mit Aenderungsuebertragung: frisch (bis 45 Minuten), indikativ (bis 12 Stunden), alt (>12 Stunden), fehlend. Altwerte werden nicht als Defekt ausgegeben, aber nicht fuer Boost oder Kuehlfreigabe genutzt.
+- Bei aktuellen Nutzerdaten: `VERIFIED`, elf frische Raumtemperaturen und drei frische Feuchtewerte sind konsistent; Wochenplan 3 bleibt als Grundstrategie. Beim Stand v0.3.0 zeigt `DecisionJSON` das Feld `forecast_advice`; fehlte es im uebermittelten JSON, war der aktualisierte Code noch nicht ausgefuehrt.
+- **Keine neuen Symcon-Variablen. Keine Helios-Schaltbefehle.** Alle alten Freigaben sind wirkungslos. Kein bestehendes Fremdmodul geaendert.
+
 
 ## v0.2.1 – Wetter-Zuordnung und LCN-Datenalter korrigiert (25.10.2026)
 

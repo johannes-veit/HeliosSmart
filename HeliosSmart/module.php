@@ -3,6 +3,7 @@ require_once __DIR__ . '/../libs/HeliosLogic.php';
 require_once __DIR__ . '/../libs/RoomHistory.php';
 require_once __DIR__ . '/../libs/LCNRoomSources.php';
 require_once __DIR__ . '/../libs/ForecastAdvisor.php';
+require_once __DIR__ . '/../libs/DailyStrategy.php';
 /** Vorhersagegestützter Beobachter; Aktor nur nach expliziter Freigabe. */
 class HeliosSmart extends IPSModule
 {
@@ -44,7 +45,7 @@ class HeliosSmart extends IPSModule
     {
         return json_encode([
             'elements'=>[
-                ['type'=>'Label','caption'=>'v0.3.0: Vorhersagefenster und zwölf native LCN-Feuchtequellen; Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
+                ['type'=>'Label','caption'=>'v0.4.0: Tagesstrategie, Vorhersagefenster und zwölf native LCN-Feuchtequellen; Ausschliesslich Beobachtung. Keine Geraetebefehle, auch nicht bei gesetzten alten Freigabe-Eigenschaften.'],
                 ['type'=>'NumberSpinner','name'=>'HeliosInstance','caption'=>'Helios-Instanz'],
                 ['type'=>'NumberSpinner','name'=>'WeatherCenterInstance','caption'=>'WetterZentrale-Instanz (0 = automatisch erkennen)'],
                 ['type'=>'NumberSpinner','name'=>'ClimateControlInstance','caption'=>'LCNClimateControl (nur lesend)'],
@@ -215,18 +216,27 @@ class HeliosSmart extends IPSModule
         $decision['missing_room_mappings']=$missingRooms;
         $decision['lcn_humidity_sources']=$humiditySources;
         $decision['lcn_humidity_source_count']=count(array_filter($humiditySources,static fn($x)=>$x['available']));
+        // Physikalisch interpretierbare Tagesstrategie, ohne fiktive Luftmengen.
+        // 'forecast_advice' wird bereits oben berechnet und bleibt separat erhalten.
+        $ewtMeasured = $ewtFresh ? (float)GetValue($intakeID) : null;
+        $weatherOutside = $decision['weather_usable_for_advice']
+            && is_array($weather['current']??null) && is_numeric($weather['current']['temperature']??null)
+            ? (float)$weather['current']['temperature'] : null;
+        $decision['daily_strategy']=JVHeliosDailyStrategy::analyze(
+            $decision, $forecastAdvice, $ewtMeasured, $weatherOutside, $humiditySources, $program);
         $decision['program_actual']=$program;
         $decision['program_recommended']=JVHeliosLogic::recommendProgram($weather,$decision,$now);
         $decision['helios_mode']=$mode;
         $decision['observation_only']=true;
         $this->SetValue('DecisionJSON',json_encode($decision,JSON_UNESCAPED_UNICODE));
-        // v0.2.2 is intentionally and unconditionally read-only.
+        // v0.4.0 is intentionally and unconditionally read-only.
         // Legacy approval properties remain registered to avoid migration issues,
         // but cannot authorize any HELIOS_* function from this version.
         $this->SetValue('Monitoring',true);
         $this->SetValue('Status','BEOBACHTUNG | '.$decision['mode']
             .' | Wetter '.$decision['weather_quality'].' ('.$weatherConnection.') | Vorschlag Stufe '
             .$decision['requested_level'].' | '.$decision['reason']
+            .' | Tag: '.$decision['daily_strategy']['summary']
             .' | 24h: '.$forecastAdvice['summary']);
     }
 }

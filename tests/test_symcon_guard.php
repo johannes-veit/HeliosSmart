@@ -53,6 +53,13 @@ $hs=new HeliosSmart();$hs->Create();$hs->ApplyChanges();$hs->setProperty('Weathe
 $hs->Evaluate();
 a(count($GLOBALS['calls'])===0,'Standard Beobachtung: Null Gerätebefehle');
 a(str_contains($hs->value('Status'),'BEOBACHTUNG'),'Status signalisiert Beobachtung');
+$nowStrategy=json_decode($hs->value('DecisionJSON'),true);
+a(isset($nowStrategy['forecast_advice']) && isset($nowStrategy['daily_strategy']),
+  'Tagesstrategie und 24-h-Auswertung werden gemeinsam im bestehenden JSON veroeffentlicht');
+a(($nowStrategy['daily_strategy']['safety']??'')==='ADVISORY_ONLY',
+  'Neue Tagesstrategie gibt keine Geraetefreigabe');
+a(($nowStrategy['daily_strategy']['program_change_executed']??null)===false,
+  'Kein Wochenplanwechsel durch Tagesstrategie');
 $hs->setProperty('EnableControl',true);$hs->Evaluate();
 a(count($GLOBALS['calls'])===0,'Freigabesperren blockieren einzelne Aktivierung');
 $hs->setProperty('MinimumVentilationValidated',true);
