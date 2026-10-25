@@ -7,6 +7,61 @@
  */
 final class JVHeliosArchiveChangeExport
 {
+    /** Three simple categories; archive changes never prove sensor freshness. */
+    public static function qualitySummary(array $export):array
+    {
+        $counts=['changes_found'=>0,'no_changes_recorded'=>0,'missing_or_failed'=>0];
+        $rooms=[];$weather=['temperature'=>false,'dewpoint'=>false];
+        $supply=false;
+        foreach ((array)($export['series']??[]) as $label=>$series) {
+            if (!is_array($series)) continue;
+            $code=(string)($series['archive_coverage']??'UNAVAILABLE');
+            $kind=$code==='CHANGE_EVENTS_ONLY'?'CHANGES_FOUND':
+                ($code==='NO_CHANGE_EVENTS_IN_WINDOW'?'NO_CHANGES_RECORDED':'MISSING_OR_FAILED');
+            if ($kind==='CHANGES_FOUND') $counts['changes_found']++;
+            elseif ($kind==='NO_CHANGES_RECORDED') $counts['no_changes_recorded']++;
+            else $counts['missing_or_failed']++;
+            if (preg_match('/^room\\.(.+)\\.(temperature|humidity)$/u',(string)$label,$m)) {
+                if(!isset($rooms[$m[1]]))
+                    $rooms[$m[1]]=['temperature'=>'NOT_IN_EXPORT','humidity'=>'NOT_IN_EXPORT'];
+                $rooms[$m[1]][$m[2]]=$kind;
+            }
+            if ($label==='weather.actual_outside_temperature_c'
+                && $kind==='CHANGES_FOUND') $weather['temperature']=true;
+            if ($label==='weather.actual_outside_dewpoint_c'
+                && $kind==='CHANGES_FOUND') $weather['dewpoint']=true;
+            if ($label==='helios.supply_after_exchanger_c'
+                && $kind==='CHANGES_FOUND') $supply=true;
+        }
+        ksort($rooms,SORT_STRING);
+        $next=[];
+        if (!$weather['temperature']||!$weather['dewpoint'])
+            $next[]='Original-Archivvariablen fuer Aussen-Temperatur und Taupunkt pruefen';
+        if ($counts['missing_or_failed']>0)
+            $next[]='Fehlende IDs, Links oder deaktivierte Archivierung pruefen';
+        if ($counts['no_changes_recorded']>0)
+            $next[]='Keine Aenderung ist kein Sensorausfall – Update-Nachweis fehlt';
+        if (!$supply)
+            $next[]='Archiv der tatsaechlichen Helios-Zuluft pruefen';
+        $next[]='Replay erst mit echter Sensorfrische und gepruefter Betriebsstabilitaet';
+        return [
+            'data_type'=>'ARCHIVED_VALUE_CHANGES_ONLY',
+            'groups'=>$counts,'rooms'=>$rooms,
+            'historical_outside_weather_change_evidence'=>$weather,
+            'historical_outside_weather_complete'=>$weather['temperature']&&$weather['dewpoint'],
+            'helios_supply_change_evidence'=>$supply,
+            'sensor_updates_proven'=>false,
+            'fan_and_bypass_stability_proven'=>false,
+            'ready_for_replay'=>false,
+            'ready_for_automatic_control'=>false,
+            'summary'=>'Wertaenderungen: '.$counts['changes_found'].
+                ' | ohne Aenderung: '.$counts['no_changes_recorded'].
+                ' | fehlend/fehlerhaft: '.$counts['missing_or_failed'].
+                ' | kein Steuerungsnachweis',
+            'next_steps'=>$next,
+        ];
+    }
+
     public static function build(
         int $archiveId,int $start,int $end,array $sources,
         callable $readValues,callable $isLogging,callable $isVariable,
@@ -21,6 +76,7 @@ final class JVHeliosArchiveChangeExport
             'source_count'=>0,'series'=>[],'problems'=>[],
             'source_coverage_complete'=>false,'unresolved_sources'=>[],
             'logged_change_only_sources'=>0,
+            'quality_summary'=>null,
             'important'=>'AC_GetLoggedValues is CHANGE-ONLY. Event timestamps do NOT prove subsequent sensor updates or stable device modes.',
             'missing_for_replay'=>[
                 'continuous sensor-update evidence for interval freshness',
@@ -137,6 +193,7 @@ final class JVHeliosArchiveChangeExport
         } elseif(!$result['source_coverage_complete']) {
             $result['status']='MISSING_ARCHIVE_SOURCES_NOT_REPLAY_READY';
         }
+        $result['quality_summary']=self::qualitySummary($result);
         return $result;
     }
 }
