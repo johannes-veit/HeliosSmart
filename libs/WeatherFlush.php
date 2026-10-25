@@ -45,7 +45,9 @@ final class JVHeliosWeatherFlush {
         $flap=$d['bypass_actual']??null;
         $out['bypass_actual']=is_bool($flap)?$flap:null;
         $out['intake_after_ewt']=is_numeric($intake)?round((float)$intake,2):null;
-        if (is_numeric($intake) && (float)$intake>=-10 && (float)$intake<=45) {
+        if (($d['season_signal']??'')==='HEATING_SEASON') {
+            $out['bypass_strategy']='CLOSED_FOR_HEAT_RECOVERY';
+        } elseif (is_numeric($intake) && (float)$intake>=-10 && (float)$intake<=45) {
             if ((float)$intake<=$in-1.5 && $in>=23)
                 $out['bypass_strategy']='OPEN_PREFERRED_IF_MANUFACTURER_PERMITS';
             elseif ((float)$intake>=$in+1)
