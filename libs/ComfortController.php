@@ -15,6 +15,7 @@ final class JVHeliosComfortController
             'status'=>'INSUFFICIENT','classification'=>'UNKNOWN',
             'comfort_index'=>null,'comfort_index_kind'=>'HEURISTIC_NOT_PMV',
             'rooms_usable'=>0,'rooms'=>[],
+            'living_average_temperature_c'=>null,'living_average_absolute_humidity_gm3'=>null,
             'hottest_room'=>null,'most_humid_room'=>null,
             'temperature_target_summer_c'=>'23-26 (orientation, measured air only)',
             'humidity_target_rh_pct'=>'40-55 (operator preference, not a standard)',
@@ -66,6 +67,10 @@ final class JVHeliosComfortController
         $base['dry_rooms']=$dry;
         if (count($items)<3) return $base;
         $base['status']='READY';
+        $livingT=array_sum(array_column($items,'temperature_c'))/count($items);
+        $livingAh=array_sum(array_column($items,'absolute_humidity_gm3'))/count($items);
+        $base['living_average_temperature_c']=round($livingT,2);
+        $base['living_average_absolute_humidity_gm3']=round($livingAh,2);
         $base['comfort_index']=(int)round(array_sum($scores)/count($scores));
         $sortedHot=$items;$sortedWet=$items;
         usort($sortedHot,static fn($a,$b)=>$b['temperature_c']<=>$a['temperature_c']);
@@ -73,7 +78,12 @@ final class JVHeliosComfortController
         $base['hottest_room']=$sortedHot[0];
         $base['most_humid_room']=$sortedWet[0];
 
-        $moisture=JVHeliosMoistureComfort::analyze($decision);
+        // Bath and kitchen spikes must not make comfortable living rooms
+        // appear humidity-loaded merely through the global mean.
+        $localDecision=$decision;
+        $localDecision['indoor_temperature']=$livingT;
+        $localDecision['indoor_absolute_humidity']=$livingAh;
+        $moisture=JVHeliosMoistureComfort::analyze($localDecision);
         $compatible=($moisture['status']??'')==='READY'
             && ($moisture['weather_cooling_boost_allowed']??false)===true;
         $base['outside_humidity_compatible']=$moisture['status']==='READY'?$compatible:null;
@@ -86,7 +96,7 @@ final class JVHeliosComfortController
             && (int)($fc['longest_contiguous_hours']??0)>=8
             && is_numeric($fc['temperature_max_c']??null)
             && (float)$fc['temperature_max_c']>=30;
-        $temperature=(float)($decision['indoor_temperature']??0);
+        $temperature=$livingT;
         $supply=$decision['supply_temperature']??null;
         $realCooling=is_numeric($supply) && $temperature-(float)$supply>=2.2;
         $summer=($decision['season_signal']??null)!=='HEATING_SEASON';
