@@ -102,8 +102,9 @@ final class JVHeliosWeatherFlush {
         }
         $comfort=(array)($d['comfort_control']??[]);
         if (($d['season_signal']??'')!=='HEATING_SEASON'
-            && ($comfort['status']??'')==='READY'
-            && ($comfort['weather_boost_compatible']??false)!==true) {
+            && array_key_exists('comfort_control',$d)
+            && (($comfort['status']??'')!=='READY'
+                || ($comfort['weather_boost_compatible']??false)!==true)) {
             $out['type']=null;
             $out['reason']='COMFORT_CONTROL_BLOCKED';
             return $out;
