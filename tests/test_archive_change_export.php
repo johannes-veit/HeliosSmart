@@ -17,7 +17,7 @@ $sources=[
 $calls=[];
 $read=static function(int $archive,int $id,int $from,int $to,int $limit)use(&$calls,$start):array {
     $calls[]=['archive'=>$archive,'id'=>$id,'from'=>$from,'to'=>$to,'limit'=>$limit];
-    if($from===0) return [['TimeStamp'=>$start-3*3600,'Value'=>21.5,'Duration'=>600]];
+    if($from<$start) return [['TimeStamp'=>$start-3*3600,'Value'=>21.5,'Duration'=>600]];
     if($id===29782 && $from===$start) return [
         ['TimeStamp'=>$start+5000,'Value'=>25.2,'Duration'=>500],
         ['TimeStamp'=>$start+600,'Value'=>25.0,'Duration'=>4400],
@@ -54,21 +54,21 @@ ae($r['series']['weather.actual_dewpoint']['archive_coverage']==='ID_NOT_CONFIGU
     'Missing actual outdoor dewpoint is stated instead of guessed');
 ae(count($calls)===16,'Four archived variables require three 12h slices and one preceding-context query each');
 foreach($calls as $call) {
-    ae($call['limit']<=10000 && ($call['from']===0 || $call['to']-$call['from']<=12*3600),
+    ae($call['limit']<=10000 && ($call['from']<$start && $call['to']===$start-1 || $call['to']-$call['from']<=12*3600),
         'Archive read limits and window sizes respected');
 }
 ae(JVHeliosArchiveChangeExport::build(1234,$start,$end+5*86400,
     $sources,$read,$logged,$variable,$link)['status']==='INVALID_REQUEST',
     'Period beyond three days rejected to keep SymBox archive load bounded');
 $readCap=static fn(int $a,int $id,int $from,int $to,int $max):array=>
-    $from===0?[]:array_fill(0,10000,['TimeStamp'=>$from+1,'Value'=>20.]);
+    $from<$start?[]:array_fill(0,10000,['TimeStamp'=>$from+1,'Value'=>20.]);
 $cap=JVHeliosArchiveChangeExport::build(1234,$start,$start+3600,
     ['room.temp'=>['id'=>29782]],$readCap,$logged,$variable,$link);
 ae($cap['status']==='PARTIAL_OR_FAILED_CHANGE_EVENT_EXPORT'
     && $cap['series']['room.temp']['archive_cap_hit'],
     'Archive hard cap of 10,000 must report incomplete source, not missing data');
 $dup=static fn(int $a,int $id,int $from,int $to,int $max):array=>
-    $from===0?[]:[
+    $from<$start?[]:[
       ['TimeStamp'=>$from+20,'Value'=>20],
       ['TimeStamp'=>$from+20,'Value'=>21]];
 $invalid=JVHeliosArchiveChangeExport::build(1234,$start,$start+3600,
