@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__.'/WeatherFlush.php';
 /**
  * Pure actuator planner. Its output is inert until the independent safety gates pass.
  * Priorities: actual wetroom humidity > plausible cooking > actual supply cooling.
@@ -30,7 +31,7 @@ final class JVHeliosBoostCoordinator
         }
         $flush=JVHeliosWeatherFlush::analyze($decision);
         if ($highPower && $flush['eligible']) {
-            $choices[]=['source'=>'WEATHER_OPTIMAL','rank'=>1,'level'=>4,'minutes'=>30];
+            $choices[]=['source'=>'WEATHER_OPTIMAL','rank'=>1.5,'level'=>4,'minutes'=>30];
         }
         usort($choices,static fn($a,$b)=>($b['rank']<=>$a['rank']));
         $pick=$choices[0]??null;
