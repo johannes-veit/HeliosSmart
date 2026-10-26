@@ -43,6 +43,31 @@ tw(!$c['building_time_constant_calibrated']
     &&!$c['fbh_solar_openings_known']
     &&!$c['continuous_fan_level_proven']&&!$c['can_actuate'],
     'Even consistent cooling windows prove neither thermal inertia nor ventilator effect or humidity safety');
+$permuted=array_reverse($cool);
+$p=JVHeliosLearningThermalWindows::analyze($permuted,$now,'EG Wohnen');
+tw($p['status']===$c['status']
+    &&$p['cold_outside_windows']===$c['cold_outside_windows']
+    &&$p['cold_outside_windows']===$p['cold_outside_distinct_nights'],
+    'Night-based six-hour selection is independent of array order and cannot double count one local night');
+$shiftedSource=array_slice($cool,1);
+$p=JVHeliosLearningThermalWindows::analyze($shiftedSource,$now,'EG Wohnen');
+tw($p['status']===$c['status']
+    &&abs($p['cold_outside_windows']-$c['cold_outside_windows'])<=1,
+    'Dropping first archival timestamp no longer changes all subsequent six-hour night classifications');
+$cherrypick=$cool;
+foreach($cherrypick as &$row){
+    $local=(new DateTimeImmutable('@'.$row['at']))->setTimezone($tz);
+    $h=(int)$local->format('G');
+    if($local->format('Y-m-d')==='2026-07-14'
+        &&in_array($h,[20,22],true))
+        $row['context']['outside_dewpoint_c']=19.0;
+}
+unset($row);
+$noCherry=JVHeliosLearningThermalWindows::analyze($cherrypick,$now,'EG Wohnen');
+tw($noCherry['cold_outside_windows']<$c['cold_outside_windows']
+    &&$noCherry['cold_outside_windows']
+        ===$noCherry['cold_outside_distinct_nights'],
+    'When first chronological night window is humid, later clearer hours cannot be cherry-picked as extra evidence');
 $flat=thermalRows($start,$now,'flat');
 $f=JVHeliosLearningThermalWindows::analyze($flat,$now,'OG Schlafen 1');
 tw($f['status']==='WIEDERHOLT_RAUMLUFT_KAUM_ABGEKUEHLT'
