@@ -110,6 +110,9 @@ class HeliosSmart extends IPSModule
         $this->WriteAttributeString('CookingEventState',json_encode(
             JVHeliosCookingEvents::prune($cooking,$cookingDesired)));
 
+        // Sofortiger lesender Diagnosebericht bereits beim Modul-Update.
+        // Keine komplette Evaluate()-Ausfuehrung: keine Party-Schaltmoeglichkeit.
+        $this->RefreshLearningReport();
     }
 
     /** Aenderungs-Ereignisse der vorhandenen Bad-RH-Variablen statt fuenf Minuten Polling. */
@@ -164,7 +167,10 @@ class HeliosSmart extends IPSModule
                 ['type'=>'CheckBox','name'=>'HighPowerSafetyValidated','caption'=>'S4 Anlagen-Sicherheit mit Luftmengen/Druck und Feuerstaette/Dunstabzug tatsaechlich geprueft'],
                 ['type'=>'CheckBox','name'=>'DevicePartyReturnValidated','caption'=>'Party endet am Geraet eigenstaendig und Wochenprogramm laeuft wieder'],
             ],
-            'actions'=>[['type'=>'Button','caption'=>'Jetzt bewerten (bei Freigabe ggf. Party starten)','onClick'=>'JVHS_Evaluate($id);']]
+            'actions'=>[
+                ['type'=>'Button','caption'=>'Nur Lerndiagnose aktualisieren (keine Schaltung)','onClick'=>'JVHS_RefreshLearningReport($id);'],
+                ['type'=>'Button','caption'=>'Jetzt bewerten (bei Freigabe ggf. Party starten)','onClick'=>'JVHS_Evaluate($id);'],
+            ]
         ],JSON_UNESCAPED_UNICODE);
     }
 
@@ -428,6 +434,74 @@ class HeliosSmart extends IPSModule
         return $v;
     }
 
+    /**
+     * Separate manual diagnosis refresh – NEVER evaluates an actuator,
+     * TryOwnParty, hardware readback or any module output gate.
+     * Also called during ApplyChanges so a newly created variable does not
+     * remain at Symcon's "Nie" until the next 5-minute tick.
+     */
+    public function RefreshLearningReport(): void
+    {
+        $now=time();
+        try {
+            [$rooms]=$this->ReadRooms($now);
+            $this->WriteLearningReport($rooms,[], $now);
+        } catch (Throwable $e) {
+            $this->SendDebug('LearningDiagnosis',substr($e->getMessage(),0,120),0);
+            $this->SetValue('LernDiagnose','HELIOS SMART – LERNDIAGNOSE | LESEFEHLER: '.
+                substr($e->getMessage(),0,120).' | Keine Geraetebefehle');
+        }
+    }
+
+    private function WriteLearningReport(array $rooms,array $extra,int $now):void
+    {
+        try {
+            $readNative=static function(int $id) {
+                return $id>0 && IPS_VariableExists($id)?GetValue($id):null;
+            };
+            $fan=$readNative((int)$this->ReadPropertyInteger('HeliosFanVariable'));
+            $mode=$readNative((int)$this->ReadPropertyInteger('HeliosModeVariable'));
+            $program=$readNative((int)$this->ReadPropertyInteger('HeliosProgramVariable'));
+            $supplyId=(int)$this->ReadPropertyInteger('HeliosSupplyTemperature');
+            $intakeId=(int)$this->ReadPropertyInteger('HeliosIntakeAfterEWT');
+            $supplyAge=null;
+            if($supplyId>0 && IPS_VariableExists($supplyId)) {
+                $updated=(int)(IPS_GetVariable($supplyId)['VariableUpdated']??0);
+                if($updated>0 && $updated<=$now+120)
+                    $supplyAge=(int)floor(max(0,$now-$updated)/60);
+            }
+            $supply=$readNative($supplyId);
+            $intake=$readNative($intakeId);
+            $baseline=[
+                'weather_quality'=>'NICHT_ABGEFRAGT_NUR_LERNBERICHT',
+                'fan_level'=>$fan,
+                'mode'=>$mode,
+                'program'=>$program,
+                'supply_temperature'=>$supplyAge!==null && $supplyAge<=20?$supply:null,
+                'supply_age_minutes'=>$supplyAge,
+                'intake_after_ewt'=>$intake,
+                'outside_temperature'=>null,
+                'outside_dewpoint'=>null,
+                'comfort_classification'=>'NUR_MESSWERTE',
+                'candidate_kind'=>'NICHT_BEWERTET',
+            ];
+            $snapshot=array_replace($baseline,$extra);
+            $old=json_decode($this->ReadAttributeString('LearningObservationState'),true);
+            $learning=JVHeliosLearningDiagnostics::update(
+                is_array($old)?$old:[],$rooms,$snapshot,$now);
+            $new=json_encode($learning['state'],JSON_UNESCAPED_UNICODE);
+            if(!is_string($new)) throw new RuntimeException('Lernzustand nicht kodierbar');
+            // Avoid unnecessary 5-minute writes to the durable attribute.
+            if($new!==$this->ReadAttributeString('LearningObservationState'))
+                $this->WriteAttributeString('LearningObservationState',$new);
+            $this->SetValue('LernDiagnose',$learning['report']);
+        } catch(Throwable $e) {
+            $this->SendDebug('LearningDiagnosis',substr($e->getMessage(),0,120),0);
+            $this->SetValue('LernDiagnose','HELIOS SMART – LERNDIAGNOSE | DIAGNOSEFEHLER: '.
+                substr($e->getMessage(),0,120).' | Keine Geraetebefehle');
+        }
+    }
+
     public function Evaluate(): void
     {
         $now=time();
@@ -612,6 +686,18 @@ class HeliosSmart extends IPSModule
         $candidate=JVHeliosBoostCoordinator::propose(
             $decision,$cooking['advice'],(int)GetValue($fanID),
             $this->ReadPropertyBoolean('EnableHighPowerParty'));
+        // Lernbeobachtung vor jeder moeglichen Geraeteausfuehrung schreiben.
+        // Ein spaeterer Fehler in Safety/Party/JSON darf die Meldung nicht blockieren.
+        $this->WriteLearningReport($rooms,[
+            'weather_quality'=>$decision['weather_quality']??'UNAVAILABLE',
+            'outside_temperature'=>($decision['weather_quality']??'')==='VERIFIED'
+                ?($decision['outside_temperature']??null):null,
+            'outside_dewpoint'=>($decision['weather_quality']??'')==='VERIFIED'
+                ?($decision['outside_dewpoint']??null):null,
+            'comfort_classification'=>$decision['comfort_control']['classification']??'UNBEKANNT',
+            'candidate_kind'=>$candidate['kind']??'KEEP_WEEKLY',
+        ],$now);
+
         $deviceStatus=[
             'instance_exists'=>IPS_InstanceExists($this->ReadPropertyInteger('HeliosInstance')),
             'module_verified'=>function_exists('IPS_GetInstance')
@@ -690,40 +776,6 @@ class HeliosSmart extends IPSModule
         $decision['safe_to_execute']=($guard['command_allowed']??false)===true;
         $decision['party_protocol_draft']['transmitted']=($execution['sent']??false)===true;
         $decision['party_protocol_draft']['note']='v0.12: echte Hersteller-Partyfunktion nur nach Einzel-Freigaben; keine automatische Rueckschaltung durch Symcon';
-        // Lernbeobachter: nur EIN neuer String in der Visu. Alle internen
-        // Temperaturbelege bleiben begrenzt im Attribut dieser Instanz.
-        // Fehler duerfen NIEMALS die bestehende Helios-Aktorlogik beeinflussen.
-        try {
-            $learningOld=json_decode($this->ReadAttributeString('LearningObservationState'),true);
-            $supplyAge=IPS_VariableExists($supplyID)
-                ?max(0,(int)floor(($now-(int)(IPS_GetVariable($supplyID)['VariableUpdated']??0))/60))
-                :null;
-            $learning=JVHeliosLearningDiagnostics::update(
-                is_array($learningOld)?$learningOld:[],
-                $rooms,
-                [
-                    'weather_quality'=>$decision['weather_quality']??'UNAVAILABLE',
-                    'fan_level'=>(int)GetValue($fanID),
-                    'mode'=>$mode,
-                    'program'=>$program,
-                    'supply_temperature'=>$supplyFresh?$supply:null,
-                    'supply_age_minutes'=>$supplyAge,
-                    'intake_after_ewt'=>$ewtFresh?(float)GetValue($intakeID):null,
-                    'outside_temperature'=>($decision['weather_quality']??'')==='VERIFIED'
-                        ?($decision['outside_temperature']??null):null,
-                    'outside_dewpoint'=>($decision['weather_quality']??'')==='VERIFIED'
-                        ?($decision['outside_dewpoint']??null):null,
-                    'comfort_classification'=>$decision['comfort_control']['classification']??'UNBEKANNT',
-                    'candidate_kind'=>$candidate['kind']??'KEEP_WEEKLY',
-                ],$now);
-            $this->WriteAttributeString('LearningObservationState',json_encode(
-                $learning['state'],JSON_UNESCAPED_UNICODE));
-            $this->SetValue('LernDiagnose',$learning['report']);
-        } catch (Throwable $learningError) {
-            $this->SendDebug('LearningDiagnosis',$learningError->getMessage(),0);
-            $this->SetValue('LernDiagnose','HELIOS SMART LERNDIAGNOSE | DIAGNOSEFEHLER: '.
-                substr($learningError->getMessage(),0,120).' | Anlage unveraendert');
-        }
         $this->SetValue('DecisionJSON',json_encode($decision,JSON_UNESCAPED_UNICODE));
         $this->SetValue('Monitoring',!$this->ReadPropertyBoolean('EnableControl'));
         $seasonLabel=match ($season['advice']['status']) {
