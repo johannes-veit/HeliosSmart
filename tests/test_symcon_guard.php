@@ -45,7 +45,11 @@ class IPSModule {
     public function RegisterVariableFloat($key,$name,$profile='',$pos=0){$this->values[$key]=null;}
     public function RegisterVariableBoolean($key,$name,$profile='',$pos=0){$this->values[$key]=null;}
     public function RegisterVariableString($key,$name,$profile='',$pos=0){$this->values[$key]=null;}
-    public function SetValue($key,$value){$this->values[$key]=$value;}
+    public function SetValue($key,$value){
+        if($key==='LernDiagnose')
+            $GLOBALS['learnReportWrites']=($GLOBALS['learnReportWrites']??0)+1;
+        $this->values[$key]=$value;
+    }
     public function value($key){return $this->values[$key]??null;}
     public function setProperty($key,$value){$this->props[$key]=$value;}
     public function RegisterMessage($id,$msg){$this->watch[(int)$id]=(int)$msg;return true;}
@@ -59,6 +63,8 @@ function a($x,$why){if(!$x){fwrite(STDERR,"FAIL $why\n");exit(1);}echo "PASS $wh
 $wc=new WetterZentrale();$wc->Create();$wc->ApplyChanges();$wc->Refresh();
 a($wc->value('Quality')==='PWS_ONLY','Ohne externe Daten PWS nicht verifiziert');
 $hs=new HeliosSmart();$hs->Create();$hs->ApplyChanges();$hs->setProperty('WeatherCenterInstance',42);
+$writesAfterInit=$GLOBALS['learnReportWrites']??0;
+a($writesAfterInit===1,'Only one learning diagnostic text write on initialization');
 a(str_contains((string)$hs->value('LernDiagnose'),'LERNDIAGNOSE FUER CHATGPT'),
   'Neue Lerndiagnose ist sofort nach ApplyChanges gefuellt und zeigt nicht mehr Nie');
 a(count($GLOBALS['calls'])===0,'ApplyChanges Lerndiagnose hat keinerlei Aktorbefehle');
@@ -71,6 +77,8 @@ a($hs->getWatches()[53361]===VM_UPDATE && $hs->getWatches()[28802]===VM_UPDATE,'
 
 $hs->Evaluate();
 a(count($GLOBALS['calls'])===0,'Standard Beobachtung: Null Gerätebefehle');
+a($GLOBALS['learnReportWrites']===$writesAfterInit,
+  'Five-minute Evaluate does not rewrite large chat diagnostic text');
 $learningText=(string)$hs->value('LernDiagnose');
 a(str_contains($learningText,'HELIOS SMART')
   && str_contains($learningText,'LERNDIAGNOSE FUER CHATGPT')
@@ -92,7 +100,10 @@ $GLOBALS['weatherForTest']=[
   'forecast'=>[]
 ];
 $oldCommandCount=count($GLOBALS['calls']);
+$beforeManualWrites=$GLOBALS['learnReportWrites'];
 $hs->RefreshLearningReport();
+a($GLOBALS['learnReportWrites']===$beforeManualWrites+1,
+  'Manual diagnosis refresh forces a current report even within the daily throttle');
 a(str_contains((string)$hs->value('LernDiagnose'),'Wetter: VERIFIED')
   && str_contains((string)$hs->value('LernDiagnose'),'Aussen 8.0C')
   && str_contains((string)$hs->value('LernDiagnose'),'Taupunkt'),
