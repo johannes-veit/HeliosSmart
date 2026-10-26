@@ -203,6 +203,15 @@ for($i=0;$i<11;$i++)$allRoomDetails['Room '.$i]=['samples'=>$first];
 $fullBound=JVHeliosLearningStore::encode($allRoomDetails,[],$now,0,$many);
 wq(strlen(json_encode($fullBound))<50000,
     'Full 11-room 84-point weather/supply observations PLUS four weekly footprints per room remain below 50KB in synthetic payload');
+$thermalAll=[];
+for($i=0;$i<11;$i++)$thermalAll['Room '.$i]=$three;
+$worst=JVHeliosLearningStore::encode($allRoomDetails,[],$now,0,$thermalAll);
+wq(strlen(json_encode($worst))<50000
+    &&count($worst['q'])===11
+    &&count($worst['q']['Room 0'][0])===8,
+    'New eighth thermal marker for four weeks and full 11-room weather/supply originals stays under 50KB JSON');
+wq(JVHeliosLearningStore::decode($worst)['weekly']['Room 0']===$three,
+    'Enhanced optional eight-integer weekly markers survive persistent roundtrip without changing original samples');
 $diagnostic=JVHeliosLearningDiagnostics::update(
     ['v'=>2,'t'=>$now,'d'=>0,'r'=>['EG Wohnen'=>array_map(
         static fn($p)=>[$p['at'],(int)round($p['c']*100),[
