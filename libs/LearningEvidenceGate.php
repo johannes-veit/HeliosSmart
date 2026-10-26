@@ -91,6 +91,15 @@ final class JVHeliosLearningEvidenceGate
             $result['next_data']='STOEREINFLUESSE_WIE_FBH_SONNE_FENSTER_PRUEFEN';
             return $result;
         }
+        // Never elevate a correlation to current research review without
+        // BOTH reliable recent 24h source behavior and recent full nights.
+        // Old weekly stamps are historical quality, not live freshness.
+        if($result['daily']!=='BESCHREIBUNG_ZULAESSIG'
+            ||$result['night']!=='BESCHREIBUNG_ZULAESSIG') {
+            $result['stage']='SPERRE_AKTUELLE_QUELLEN_ODER_NAECHTE';
+            $result['next_data']='AKTUELLE_24H_UND_NACHTBELEGE_PRUEFEN';
+            return $result;
+        }
         if(($w['stage_supported_weeks']??0)>=3
             &&($w['weather_supported_weeks']??0)>=3
             &&($stage['matched_weather_stage_pairs']??0)>=2
