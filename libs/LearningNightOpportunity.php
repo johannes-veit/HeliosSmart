@@ -21,6 +21,8 @@ final class JVHeliosLearningNightOpportunity
             'nights_outside_thermally_cool'=>0,
             'nights_outside_thermally_unfavorable'=>0,
             'nights_without_paired_weather'=>0,
+            'recent_nights_with_weather'=>0,
+            'older_nights_ignored'=>0,
             'mean_observed_night_delta_c'=>$nights['average_night_delta_c']??null,
             'historical_summer_heat'=>($longTerm['status']??'')==='MEHRERE_SOMMERMONATE_HOHES_MITTEL',
             'humidity_safety_proven'=>false,
@@ -59,6 +61,12 @@ final class JVHeliosLearningNightOpportunity
 
         foreach((array)($nights['night_history']??[]) as $night){
             if(!is_array($night))continue;
+            // A heat episode from the last 72h must not be explained by
+            // completely unrelated weather nights from nearly a week ago.
+            $morning=(int)($night['at_morning']??0);
+            if($morning<$now-96*3600 || $morning>$now+120){
+                $r['older_nights_ignored']++;continue;
+            }
             if(($night['weather_paired']??false)!==true){
                 $r['nights_without_paired_weather']++;continue;
             }
@@ -71,6 +79,7 @@ final class JVHeliosLearningNightOpportunity
                     continue 2;
                 }
             }
+            $r['recent_nights_with_weather']++;
             $eveningGap=(float)$night['indoor_evening_c']
                 -(float)$night['outside_evening_c'];
             $morningGap=(float)$night['indoor_morning_c']
@@ -89,7 +98,9 @@ final class JVHeliosLearningNightOpportunity
         $validWeather=$r['nights_outside_thermally_cool']
             +$r['nights_outside_thermally_unfavorable'];
         if($validWeather<2){
-            $r['status']='AUSSENWETTER_NACHTVERGLEICH_FEHLT';
+            $r['status']=$r['older_nights_ignored']>0
+                ?'NACHTVERGLEICHE_NICHT_AKTUELL'
+                :'AUSSENWETTER_NACHTVERGLEICH_FEHLT';
             $r['review_priority']='MEHR_GLEICHZEITIGE_WETTER_MESSUNGEN';
             return $r;
         }
