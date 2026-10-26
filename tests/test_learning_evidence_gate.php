@@ -41,6 +41,44 @@ eg($r['physical_model']==='SPERRE_NICHT_KALIBRIERT'
    &&!$r['effect_proven'],
    'Even maximum historical correlation never unlocks actuator or claims proven thermodynamics');
 
+$thermalWeeks=[
+ [202626,2,80,72,0,9,0,1],
+ [202627,2,81,74,0,9,0,1],
+ [202628,2,82,75,0,9,0,1],
+ [202629,2,82,77,0,9,0,1],
+];
+$freshThermal=[
+ 'status'=>'WIEDERHOLT_RAUMLUFT_ABGEKUEHLT_BEI_KUEHLER_AUSSENLUFT',
+ 'newest_window_age_h'=>12,
+];
+$tg=JVHeliosLearningEvidenceGate::review(
+ 'EG Wohnen',$trend,$nights,$stage,$thermalWeeks,$now,$freshThermal);
+eg($tg['thermal_repeatability']==='WIEDERHOLT_BEOBACHTBAR_NICHT_KALIBRIERT'
+   &&!$tg['learning_may_change_fan']
+   &&$tg['physical_model']==='SPERRE_NICHT_KALIBRIERT',
+   'Three independent thermal weeks PLUS fresh matching original windows allow descriptive repeatability only');
+$staleThermal=$freshThermal;$staleThermal['newest_window_age_h']=110;
+$tg=JVHeliosLearningEvidenceGate::review(
+ 'EG Wohnen',$trend,$nights,$stage,$thermalWeeks,$now,$staleThermal);
+eg($tg['thermal_repeatability']==='SPERRE_AKTUELLE_MESSFENSTER_FEHLEN',
+   'Old thermal history cannot replace absent current night windows');
+$changedThermal=[
+ 'status'=>'WIEDERHOLT_RAUMLUFT_KAUM_ABGEKUEHLT',
+ 'newest_window_age_h'=>10,
+];
+$tg=JVHeliosLearningEvidenceGate::review(
+ 'EG Wohnen',$trend,$nights,$stage,$thermalWeeks,$now,$changedThermal);
+eg($tg['thermal_repeatability']==='SPERRE_AKTUELL_ANDERER_VERLAUF',
+   'New stable behaviour vetoes historic cooling pattern even after four good weeks');
+$oppositeThermal=$thermalWeeks;$oppositeThermal[3][7]=2;
+$tg=JVHeliosLearningEvidenceGate::review(
+ 'EG Wohnen',$trend,$nights,$stage,$oppositeThermal,$now,$freshThermal);
+eg($tg['thermal_repeatability']==='SPERRE_WIDERSPRUECHLICHE_WOCHEN',
+   'Opposing independent thermal week requires explicit contradiction outcome');
+$tg=JVHeliosLearningEvidenceGate::review(
+ 'OG Bad',$trend,$nights,$stage,$thermalWeeks,$now,$freshThermal);
+eg($tg['thermal_repeatability']==='NEBENRAUM_NICHT_BEWERTET',
+   'Shower heat and humidity in bathrooms are never mistaken for sleep-room thermal repeatability');
 $conflict=$weekly;$conflict[3][5]=1;
 $r=JVHeliosLearningEvidenceGate::review(
     'EG Wohnen',$trend,$nights,$stage,$conflict,$now);
