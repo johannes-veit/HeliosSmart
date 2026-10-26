@@ -162,3 +162,26 @@ Die vorhandenen zwoelf wiederverwendeten Monatsstatistiken pro Raum reichen fuer
 **Interpretationsgrenzen:** Die 12 Monatsstatistiken summieren mehrere Jahre und erlauben nicht die Trennung einzelner Jahre. Ein Sommer-/Wintervergleich stellt **keinen Versuch mit gleich warmer und gleich feuchter Aussenluft** dar. Unterschiedliche FBH-Heizung/-Kuehlung, Sonneneinstrahlung, Fenster, offene Innentueren, Nutzerverhalten, Belueftungsstufe und der Sole-Erdwaermetauscher beeinflussen die Zusammenhaenge. Deshalb weder aus einer Differenz eine tatsaechliche Helios-Wirkung ableiten noch die Automatik oder den Hersteller-Wochenplan daraus veraendern.
 
 Die Regression prueft korrekte saisonale Mittelwerte, echte gemeinsame Raeume, mehrere Monate je Saison, fehlende Winterdaten, unausgewogene Raumzahlen und die unveraenderte kompakte Serialisierung.
+
+## Wiederkehrende sommerliche Raumueberwaermung ohne neue Datenspeicherung (26.10.2026)
+
+Im Modul `libs/LearningOverheat.php` ist die angekuendigte, **streng passive** Ueberwaermungsbeobachtung entstanden. Sie liest ausschliesslich die bereits vorhandenen originalen 2h-Stuetzpunkte aus der sieben Tage rollierenden Lernhistorie sowie die **bereits vorhandenen** zwoelf Monatsbehaelter. Es werden **keine neuen Langzeiteintraege, neuen Persistenzfelder, Variablen, Instanzen, Archive, Scheduler oder Hardwareaktionen** eingerichtet.
+
+- **Schlafzimmer** (`Schlafen` im Raumnamen): rein diagnostischer Orientierungswert ab **25,0 °C**.
+- **Wohnraeume, Kueche, Buero**: Orientierungswert ab **26,0 °C**.
+- **Bad, Gaeste-WC, Flur und sonstige Nebenraeume**: ohne Wohn-/Schlafraumreferenzwert. Die bestehenden Feuchteregeln fuer Dusche und WC sind davon unberuehrt.
+- Die aktuelle Ueberwaermungsbeobachtung ist auf Mai bis September beschraenkt. **Keine Behauptung einer Vorhersage** und keine aktive Kuehlung oder Party-Stufe.
+
+Aus dem laufenden, hoechstens 72 Stunden umfassenden **Originalverlauf** werden nur bei echten plausiblen Einzelmessungen ausgegeben:
+
+1. `MEHRERE_AKTUELLE_WARME_MESSWERTE`: Mindestens drei aufeinanderfolgende warme Originalpunkte, zeitlich ueber wenigstens drei Stunden verteilt und ohne zu grosse Luecke – vorsichtiger Fruehhinweis, keine Prognose.
+2. `WIEDERHOLT_UEBER_REFERENZ`: Mindestens sechs warme Originalpunkte, in wenigstens zwei verschiedenen Kalendertagen je mindestens zwei davon, mindestens zwoelf Originalwerte insgesamt und wenigstens 24 Stunden Gesamtdauer.
+3. `VERLAUF_MIT_MESSLUECKEN`, `LETZTER_WERT_ZU_ALT` oder `NICHT_GENUG_ORIGINALWERTE` blockieren falsche Sicherheit. Ein einzelner hoher Messwert reicht nicht aus.
+
+**Langfristig:** Die vorhandenen Monatssummen erlauben ausschliesslich die Aussage `MEHRERE_SOMMERMONATE_HOHES_MITTEL`, falls in mindestens zwei verschiedenen Sommermonaten (Juni–August) je mindestens zwoelf echte Einzelwerte vorhanden sind und das beobachtete Temperaturmittel des betreffenden Raums mindestens den unveraenderten Referenzwert erreicht. Ein einzelnes Maximum oder einzelner sommerlicher Hitzetag genuegt nicht. Dies beweist **keine** genaue Anzahl heisser Tage. Die gespeicherten Monatsstatistiken aggregieren mehrere Jahre und unterscheiden diese nicht.
+
+Die bestehende Variable **`LernDiagnose` #40745** zeigt im Berichtskopf nur die Zahl der betroffenen Raeume und fuegt bei konkreten Raumhinweisen eine kurze Kennzeichnung hinzu. Diese Berechnungen erfolgen **nur im Arbeitsspeicher**; `LearningObservationState` behaelt seine feste Struktur und bisherige Maximalgroesse.
+
+Es wird weder aus der beobachteten Ueberwaermung direkt eine wirksame Helios-Kuehlung abgeleitet noch werden Feuchte, Außentaupunkt, reale Luftvolumenstroeme oder Fussbodenheizung als unerhebliche Faktoren behandelt. Die Wetterzentrale und alle produktiven Regler bleiben unangetastet; insbesondere bleiben Herstellerwochenplan, hygienische Mindestlueftung sowie Koch-/Bad-Boosts unveraendert.
+
+Die Regression unter `tests/test_learning_overheat.php` prueft die getrennten Orientierungswerte, wiederholt heisse Tage, eine einzelne Temperaturspitze, fehlende und alte Messwerte, Winterbetrieb, ausgeschlossene Feuchtraeume, Sommermittel mit ungueltigen Summen und die vollstaendige Geraetebefehlsfreiheit.
