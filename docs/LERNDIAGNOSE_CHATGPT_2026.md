@@ -11,7 +11,7 @@ Genau **eine neue String-Variable** unter dieser Instanz:
 - Ident: `LernDiagnose`
 - Bezeichnung: `Lernprogramm – Diagnose fuer ChatGPT`
 - Position: 40, direkt nach `Status`, `DecisionJSON` und `Monitoring`.
-- Aktualisierung: bei den vorhandenen SMART-Auswertungen, ueblicherweise alle 5 Minuten.
+- Aktualisierung: neue Original-Lernpunkte werden bei vorhandenen SMART-Auswertungen erkannt; die kopierbare Diagnose wird automatisch hoechstens alle 12 Stunden geschrieben, manuell sofort.
 - **Keine** neue Kachelvariable fuer jeden Raum, keine weitere Lerninstanz, kein eigener Timer.
 
 **Der Nutzer kopiert den kompletten Variablentext manuell in den bestehenden ChatGPT-Chat.** Das Modul baut keine Internetverbindung zu ChatGPT auf und versendet keine privaten Messdaten eigenstaendig.
