@@ -48,8 +48,9 @@ $f=JVHeliosLearningThermalWindows::analyze($flat,$now,'OG Schlafen 1');
 tw($f['status']==='WIEDERHOLT_RAUMLUFT_KAUM_ABGEKUEHLT'
     &&$f['cold_outside_stable_windows']>=3,
     'Repeated minimal temperature change at cooler outdoor temperatures is described without claiming a cooling demand');
+$mixedRows=thermalRows($start,$now,'mixed');
 $mix=JVHeliosLearningThermalWindows::analyze(
-    thermalRows($start,$now,'mixed'),$now,'EG Wohnen');
+    $mixedRows,$now,'EG Wohnen');
 tw($mix['status']==='WIDERSPRUECHLICHE_THERMISCHE_FENSTER'
     &&$mix['cold_outside_cooling_windows']>0
     &&$mix['cold_outside_warming_windows']>0,
@@ -108,22 +109,12 @@ foreach($source as $room){
     $name=$room['name'];
     $rows=$name==='EG Wohnen'?$cool:
         ($name==='OG Schlafen 1'?$flat:
-        ($name==='OG Schlafen 2'?$mix:[]));
+        ($name==='OG Schlafen 2'?$mixedRows:[]));
     if($rows)$prior['rooms'][$name]=['samples'=>$rows];
 }
 $learn=JVHeliosLearningDiagnostics::update($prior,$source,[
     'weather_quality'=>'UNAVAILABLE','fan_level'=>2,'mode'=>0,'program'=>3
 ],$now);
-if($learn['thermal_cooling_rooms']!==1
-    ||$learn['thermal_stable_rooms']!==1
-    ||$learn['thermal_contradictory_rooms']!==1)
-    fwrite(STDERR, 'THERMAL_HOUSE_DEBUG '.json_encode([
-        'cool'=>$learn['thermal_cooling_rooms'],
-        'stable'=>$learn['thermal_stable_rooms'],
-        'conflict'=>$learn['thermal_contradictory_rooms'],
-        'rooms'=>array_map(static fn($v)=>$v['status'],
-            $learn['per_room_thermal_windows'])
-    ])."\n");
 tw($learn['thermal_cooling_rooms']===1
     &&$learn['thermal_stable_rooms']===1
     &&$learn['thermal_contradictory_rooms']===1
