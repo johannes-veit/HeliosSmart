@@ -74,7 +74,8 @@ final class JVHeliosLearningDiagnostics
         $state=['rooms'=>[],
             'last_report_at'=>(int)($expanded['last_report_at']??0),
             'last_diag_at'=>(int)($expanded['last_diag_at']??0),
-            'seasonal'=>(array)($expanded['seasonal']??[])];
+            'seasonal'=>(array)($expanded['seasonal']??[]),
+            'weekly'=>(array)($expanded['weekly']??[])];
         $priorRooms=(array)($expanded['rooms']??[]);
         // Preserve and migrate historical data on the first update from
         // legacy v1 format. On subsequent v2 runs, never count it twice.
@@ -104,6 +105,7 @@ final class JVHeliosLearningDiagnostics
         $overheatStats=[];
         $nightOpportunities=[];
         $stageStudies=[];
+        $weeklyStats=[];
         foreach($rooms as $room) {
             if(!is_array($room))continue;
             $name=trim((string)($room['name']??''));
@@ -191,6 +193,10 @@ final class JVHeliosLearningDiagnostics
                     $state['seasonal'],$name,$newMonthlyEvidence,$now);
             $history=array_slice(array_values($history),-84);
             $state['rooms'][$name]=['samples'=>$history];
+            $weekly=JVHeliosLearningWeeklyQuality::capture(
+                (array)($state['weekly'][$name]??[]),$history,$name,$now);
+            if($weekly)$state['weekly'][$name]=$weekly;
+            $weeklyStats[$name]=JVHeliosLearningWeeklyQuality::assess($weekly);
             $n=count($history);
             $first=$n>0?$history[0]:null;
             $last=$n>0?$history[$n-1]:null;
@@ -245,6 +251,7 @@ final class JVHeliosLearningDiagnostics
         // or a transient configuration read error. Bound total room keys.
         $state['rooms']=array_intersect_key($state['rooms'],$seen);
         $state['seasonal']=array_slice($state['seasonal'],0,20,true);
+        $state['weekly']=array_slice($state['weekly'],0,20,true);
         if ($changed>0 || $state['last_report_at']<=0) $state['last_report_at']=$now;
         $fmt=static function($value,int $digits=1):string {
             return is_numeric($value)&&is_finite((float)$value)
@@ -309,6 +316,18 @@ final class JVHeliosLearningDiagnostics
                 &&$v['data_gap']!=='KAUSALITAET_BYPASS_FBH_FENSTER_NICHT_BELEGT')
                 $stageNextGaps[]=$roomName.': '.$v['data_gap'];
         }
+        $multiweekRoomOK=0;
+        $multiweekWeatherOK=0;
+        $multiweekStagesOK=0;
+        $multiweekContradictions=0;
+        foreach($weeklyStats as $w) {
+            if($w['good_room_weeks']>=3)$multiweekRoomOK++;
+            if($w['weather_supported_weeks']>=3)$multiweekWeatherOK++;
+            if($w['status']==='WIEDERHOLTE_STUFENASSOZIATION_NUR_BEOBACHTUNG')
+                $multiweekStagesOK++;
+            if($w['status']==='WIDERSPRUECHLICHE_WOCHEN_STUFENBEOBACHTUNGEN')
+                $multiweekContradictions++;
+        }
         $measuredSpan=0;
         $enoughForDay=0;
         $longerTrend=0;
@@ -369,6 +388,12 @@ final class JVHeliosLearningDiagnostics
                 .' | Luecken '.$gaps.' | passende Wetter/Zuluft-Snapshots '.$paired,
             'Nachtmuster: mindestens 3 gueltige Naechte in '.$nightRooms.'/'.count($seen)
                 .' Raeumen | vergleichbare Aussenwetter-Nachtpaare '.$nightWeatherPairs,
+            'Mehrwochen-Qualitaet (letzte max. 4 abgeschlossene Wochen): '
+                .$multiweekRoomOK.' Raeume mit 3 Messwochen | '
+                .$multiweekWeatherOK.' Raeume mit 3 Wetterwochen | '
+                .$multiweekStagesOK.' Raeume mit wiederholter Stufenassoziation | '
+                .$multiweekContradictions.' Raeume mit Wochen-Widerspruechen'
+                .' | kein Wirkungsnachweis',
             'Langzeit-Speicher: '.$seasonalTotals['observations']
                 .' echte 2h-Stuetzpunkte zu 12 wiederkehrenden Kalendermonaten'
                 .' | letzte 7 Tage im Detail | keine unbegrenzt wachsende Historie',
@@ -456,7 +481,8 @@ final class JVHeliosLearningDiagnostics
         return [
             'state'=>$state,
             'compact_state'=>JVHeliosLearningStore::encode($state['rooms'],
-                $state['seasonal'],$state['last_report_at'],$state['last_diag_at']),
+                $state['seasonal'],$state['last_report_at'],$state['last_diag_at'],
+                $state['weekly']),
             'seasonal_totals'=>$seasonalTotals,
             'seasonal_climate'=>$seasonalClimate,
             'summer_winter_comparison'=>$seasonCompare,
@@ -473,6 +499,11 @@ final class JVHeliosLearningDiagnostics
             'per_room_overheating_evidence'=>$overheatStats,
             'per_room_night_review'=>$nightOpportunities,
             'per_room_stage_study'=>$stageStudies,
+            'per_room_multiweek_quality'=>$weeklyStats,
+            'multiweek_room_quality_rooms'=>$multiweekRoomOK,
+            'multiweek_weather_quality_rooms'=>$multiweekWeatherOK,
+            'multiweek_stage_repeat_rooms'=>$multiweekStagesOK,
+            'multiweek_stage_conflict_rooms'=>$multiweekContradictions,
             'observed_stage_study_pairs'=>$stagePairs,
             'stage_study_rooms'=>$stageRooms,
             'stage_transitions_seen'=>$stageTransitions,
