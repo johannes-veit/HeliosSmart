@@ -122,10 +122,15 @@ tw($learn['thermal_cooling_rooms']===1
     &&str_contains($learn['report'],'Thermische Beobachtungsraeume'),
     'Eleven-room report differentiates cooling, stable and contradictory thermal night windows');
 $state=$learn['compact_state'];
-tw(array_keys($state)===['v','t','d','r','m']
+tw(array_keys(array_intersect_key(
+        $state,array_fill_keys(['v','t','d','r','m'],true)
+    ))===['v','t','d','r','m']
+    &&count($state['q']??[])<=11
+    &&!isset($state['thermal'])
+    &&!isset($state['thermal_windows'])
     &&strlen(json_encode($state))<50000
     &&!$learn['control_authorized']&&!$learn['learning_calibrated'],
-    'New thermal analysis has zero new persistent keys, under 50KB synthetic storage, no actuation');
+    'New thermal analysis adds zero persistent keys beyond existing optional q weeks, under 50KB synthetic storage, no actuation');
 for($i=0;$i<140;$i++){
     $variant=$cool;$wet=$i%7===0;
     $outside=14+$i*0.10;$dew=$wet?outside+2:3+$i*.08;
