@@ -24,6 +24,8 @@ final class JVHeliosLearningNightOpportunity
             'recent_nights_with_weather'=>0,
             'older_nights_ignored'=>0,
             'mean_observed_night_delta_c'=>$nights['average_night_delta_c']??null,
+            'recent_observed_nights'=>0,
+            'recent_mean_night_delta_c'=>null,
             'historical_summer_heat'=>($longTerm['status']??'')==='MEHRERE_SOMMERMONATE_HOHES_MITTEL',
             'humidity_safety_proven'=>false,
             'actual_supply_response_calibrated'=>false,
@@ -59,6 +61,7 @@ final class JVHeliosLearningNightOpportunity
             return $r;
         }
 
+        $recentDeltas=[];
         foreach((array)($nights['night_history']??[]) as $night){
             if(!is_array($night))continue;
             // A heat episode from the last 72h must not be explained by
@@ -67,6 +70,9 @@ final class JVHeliosLearningNightOpportunity
             if($morning<$now-96*3600 || $morning>$now+120){
                 $r['older_nights_ignored']++;continue;
             }
+            if(is_numeric($night['delta_c']??null)
+                &&is_finite((float)$night['delta_c']))
+                $recentDeltas[]=(float)$night['delta_c'];
             if(($night['weather_paired']??false)!==true){
                 $r['nights_without_paired_weather']++;continue;
             }
@@ -95,6 +101,15 @@ final class JVHeliosLearningNightOpportunity
             else
                 $r['nights_outside_thermally_unfavorable']++;
         }
+        $r['recent_observed_nights']=count($recentDeltas);
+        if($r['recent_observed_nights']>0)
+            $r['recent_mean_night_delta_c']=round(
+                array_sum($recentDeltas)/$r['recent_observed_nights'],2);
+        if($r['recent_observed_nights']<2){
+            $r['status']='NACHTVERGLEICHE_NICHT_AKTUELL';
+            $r['review_priority']='WEITERE_NACHTMESSUNGEN_ABWARTEN';
+            return $r;
+        }
         $validWeather=$r['nights_outside_thermally_cool']
             +$r['nights_outside_thermally_unfavorable'];
         if($validWeather<2){
@@ -111,12 +126,12 @@ final class JVHeliosLearningNightOpportunity
             $r['review_priority']='KEINE_ZUSATZLUEFTUNG_AUS_DATEN_ABLEITEN';
             return $r;
         }
-        if((float)$nights['average_night_delta_c']<=-0.6){
+        if((float)$r['recent_mean_night_delta_c']<=-0.6){
             $r['status']='NACHTABKUEHLUNG_BEREITS_BEOBACHTET';
             $r['review_priority']='BESTEHENDES_VERHALTEN_WEITER_BEOBACHTEN';
             return $r;
         }
-        if((float)$nights['average_night_delta_c']>=-0.2){
+        if((float)$r['recent_mean_night_delta_c']>=-0.2){
             $r['status']='GERINGE_NACHTABKUEHLUNG_TROTZ_KUEHLER_AUSSENLUFT';
             $r['review_priority']='HOHE_PRIORITAET_FUER_REINEN_DATENVERGLEICH';
         }else{
