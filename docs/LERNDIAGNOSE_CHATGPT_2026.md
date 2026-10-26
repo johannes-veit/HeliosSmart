@@ -287,3 +287,30 @@ Unabhaengig davon, wie viele Wochen und Stufenpaare beobachtet wurden, bleibt `p
 `tests/test_learning_evidence_gate.php` prueft vierstufige Erfolgskriterien, aktuelle und historische Widersprueche, Temperaturausreisser, Luecken, alte Naechte, Winter, fehlende verifizierte Wetterdaten, zu wenige Wochen, Nebenraum-Ausschluss sowie **150 zusaetzliche widerspruechliche Messkonstellationen**. Dazu wird mit der echten `LearningDiagnostics::update`-Ausgabestruktur bestaetigt, dass keine Datenbankvariable, kein dauerhaftes Feld und keinerlei Freigabe fuer aktive Lueftung entsteht. Die gesamte PHP-Testsuite umfasst weiterhin die frueheren Langzeit-/Sommer-/Nacht-/Stufen-/Flash-Schonungsregressionen.
 
 Der Betreiber braucht die SymBox vorerst nicht zu aktualisieren. Alle hier beschriebenen Aenderungen sind ausschliesslich auf GitHub und wurden nicht an der produktiven privaten Helios ausgefuehrt.
+
+
+## Neues Thermik-Fenster: sechs Stunden mit Original-Zeitpunkten (26.10.2026)
+
+Mit `libs/LearningThermalWindows.php` wertet das Lernprogramm nun **nicht ueberlappende, echte Sechs-Stunden-Nachtabschnitte** aus den bereits gespeicherten maximal 84 Zwei-Stunden-Stuetzpunkten pro Raum aus. Es entstehen **keine neuen Instanzvariablen, Attribute, Timer, Archive, Dateien oder unbeschraenkten Datenreihen**. Die Beobachtung wird ausschliesslich im Arbeitsspeicher berechnet und in der bestehenden Diagnosevariable `LernDiagnose` #40745 mit einer kompakten Zusammenfassung sichtbar.
+
+### Voraussetzungen und Qualitaetsschutz
+
+- Ein Abschnitt benoetigt **vier echte aufeinanderfolgende Zeitpunkte** mit insgesamt etwa 5–7 Stunden Abstand und ohne groessere als drei Stunden auseinanderliegende Punkte. Ein Temperatursprung ueber 3 K zwischen benachbarten Punkten verwirft den Abschnitt.
+- Alle vier Punkte muessen einer **einzigen Berliner Nacht** zwischen 20:00 und 09:00 Uhr zugeordnet werden. Die UTC-Sekundenabstaende werden unveraendert verwendet, damit Sommerzeitwechsel keine erfundenen Stunden erzeugen.
+- Zu allen vier Raumwerten benoetigt das Modul vertrauenswuerdige Momentaufnahmen von **echter Wetter-Aussentemperatur, Wetter-Aussentaupunkt und wirklicher Helios-Zulufttemperatur nach dem Waermetauscher**. Der Helios-EWT-Eintritt ist keine reale Aussenwetter-Messung.
+- Fuer die besondere Kategorie `kuehlere trockene Aussenluft` muss die echte Aussenlufttemperatur **an allen vier Punkten mindestens 2 K** unter der jeweiligen Raumtemperatur liegen, und der wirkliche Wetter-Aussentaupunkt muss **an jedem Punkt hoechstens 16 °C** sein. Das ist nur ein sehr vorsichtiger Lernfilter. Er beweist weder die Feuchte der eingeblasenen Zuluft noch hygienische Eignung oder reale Kuehlwirkung.
+- Zur Vermeidung kuenstlich erhoehter Stichprobenzahlen werden akzeptierte Fenster **nicht ueberlappt**. Fuer eine wiederholte Aussage muessen wenigstens drei solche Fenster aus **drei verschiedenen Naechten** vorliegen; dazu muss die letzte gueltige Beobachtung hoechstens 96 Stunden alt sein.
+
+### Drei unterscheidbare Beobachtungen
+
+- `WIEDERHOLT_RAUMLUFT_ABGEKUEHLT_BEI_KUEHLER_AUSSENLUFT`: In wenigstens drei gueltigen Abschnitten ging die Raumtemperatur um mindestens 0,3 K zurueck. Das belegt nur die realen Raumtemperaturunterschiede.
+- `WIEDERHOLT_RAUMLUFT_KAUM_ABGEKUEHLT`: In wenigstens drei gueltigen Abschnitten blieb der Temperaturunterschied innerhalb von +/-0,3 K.
+- `WIDERSPRUECHLICHE_THERMISCHE_FENSTER`: Sowohl wiederholte Abkuehlung als auch Erwaermung unter den bewerteten kuehlen Aussenbedingungen wurde beobachtet. Statt voreiligem Mittelwert folgt ein deutlicher Hinweis auf unbekannte Stoereinfluesse. Bei fehlendem Kontext, alten Naechten, lueckenhaften Punkten, warmer oder schwüler Aussenluft wird keine solche Wiederholbarkeit behauptet.
+
+### Neue kompakte ChatGPT-Ausgabe
+
+`Thermische 6h-Nachtfenster` gibt die Raumzahlen mit wiederholter Abkuehlung, geringer Abkuehlung, Widerspruechen oder fehlenden Belegen aus. `Thermische Beobachtungsraeume (max. 3)` nennt bis zu drei Wohn- oder Schlafraeume, bei denen wenig Abkuehlung **beobachtet** wurde. Nebenraeume, Bäder, WCs und Flure werden nicht als Wohnraumindikatoren behandelt.
+
+Auch drei oder mehr beobachtete Sechs-Stunden-Abschnitte sind **kein** Nachweis einer physikalischen Gebaeude-Zeitkonstante, Speichermasse oder Helios-Kuehlleistung. FBH, Sonne, Fenster, Innentueren, Belegung sowie eine nicht gemessene Zuluftfeuchte und reale Stufen-Luftmenge koennen die Ergebnisse weiter wesentlich beeinflussen. Es wird **keine** Luefterstufe, Bypassstellung oder das Hersteller-Wochenprogramm veraendert.
+
+Die Regression testet wiederholte echte Abkuehlung, stabile und widerspruechliche Naechte, hohe Aussenfeuchte, fehlende Wetterkontexte, ungeeignete Temperaturunterschiede, Sensorluecken, alte Messungen, eine komplette 11-Raum-Haussimulation unter dem kompakt begrenzten Speicherstand sowie **140** zusaetzliche Sensitivitaetsfaelle mit dauerhaft fehlender Aktorberechtigung.
