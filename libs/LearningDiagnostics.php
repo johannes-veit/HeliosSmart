@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__.'/LearningPatterns.php';
 /**
  * Passive room-temperature observer. One bounded instance attribute holds
  * original temperature CHANGE/UPDATE evidence; one user-visible diagnostic.
@@ -73,6 +74,7 @@ final class JVHeliosLearningDiagnostics
         $freshHumidity=0;
         $seen=[];
         $roomStats=[];
+        $nightStats=[];
         foreach($rooms as $room) {
             if(!is_array($room))continue;
             $name=trim((string)($room['name']??''));
@@ -163,7 +165,9 @@ final class JVHeliosLearningDiagnostics
             // effect or physical thermal-inertia estimate.
             $dT=$n>=2?round((float)$last['c']-(float)$first['c'],2):null;
             $trend=self::describeHistory($history,$now);
+            $nights=JVHeliosLearningPatterns::analyze($history,$now);
             $roomStats[$name]=$trend;
+            $nightStats[$name]=$nights;
             $tText=$temperatureOK?number_format((float)$t,1,'.','').'C':'?';
             $rhText=$humidityOK?number_format((float)$rh,0,'.','').'%':'?';
             $lines[]=$name.': T '.$tText.' (Alter '.($tAge===null?'?':$tAge.'m')
@@ -175,7 +179,10 @@ final class JVHeliosLearningDiagnostics
                 .($trend['delta_24h_c']===null?'':', 24h '.
                     ($trend['delta_24h_c']>0?'+':'').$trend['delta_24h_c'].'C')
                 .($trend['gaps_gt_3h']>0?', Luecken '.$trend['gaps_gt_3h']:'')
-                .($trend['jumps_gt_3c']>0?', SPRUNG_PRUEFEN '.$trend['jumps_gt_3c']:'');
+                .($trend['jumps_gt_3c']>0?', SPRUNG_PRUEFEN '.$trend['jumps_gt_3c']:'')
+                .($nights['valid_nights']>0?', Naechte '.$nights['valid_nights'].
+                    ' (Mittel '.($nights['average_night_delta_c']>0?'+':'').
+                    $nights['average_night_delta_c'].'C)':'');
         }
         $state['rooms']=array_intersect_key($state['rooms'],$seen);
         if ($changed>0 || $state['last_report_at']<=0) $state['last_report_at']=$now;
@@ -195,6 +202,12 @@ final class JVHeliosLearningDiagnostics
         $longerTrend=0;
         $gaps=0;
         $paired=0;
+        $nightRooms=0;
+        $nightWeatherPairs=0;
+        foreach($nightStats as $v) {
+            if($v['valid_nights']>=3)$nightRooms++;
+            $nightWeatherPairs+=(int)$v['similar_weather_night_pairs'];
+        }
         foreach($roomStats as $v) {
             $measuredSpan=max($measuredSpan,(float)$v['span_h']);
             if($v['delta_24h_c']!==null)$enoughForDay++;
@@ -211,6 +224,8 @@ final class JVHeliosLearningDiagnostics
                 .' | 24h-Vergleich in '.$enoughForDay.'/'.count($seen).' Raeumen'
                 .' | Mehrtages-Trend in '.$longerTrend.'/'.count($seen).' Raeumen'
                 .' | Luecken '.$gaps.' | passende Wetter/Zuluft-Snapshots '.$paired,
+            'Nachtmuster: mindestens 3 gueltige Naechte in '.$nightRooms.'/'.count($seen)
+                .' Raeumen | vergleichbare Aussenwetter-Nachtpaare '.$nightWeatherPairs,
             'Grund: Luftmengen, solare/interne Lasten und Zuluftfeuchte nicht gemessen',
             'Helios: Stufe '.($snapshot['fan_level']??'?')
                 .' | Modus '.($snapshot['mode']??'?')
@@ -236,6 +251,8 @@ final class JVHeliosLearningDiagnostics
             'delta beschreibt nur beobachtete T-Aenderung zwischen erstem und letztem gespeicherten Stuetzpunkt.',
             '24h-Vergleich nur bei mindestens 8 Original-Messpunkten und einer passenden Messung 20-28h zuvor.',
             'Wetter/Zuluft-Kontext ist nur eine Momentaufnahme, KEIN Nachweis einer konstanten Helios-Stufe.',
+            'Nachtabkuehlung: echte Abend-/Morgen-Messpunkte, keine Prognose und kein Beleg fuer Helios-Effekt.',
+            'Vergleichbares Aussenwetter ist nicht gleichbedeutend mit gleichem Sonnen-/FBH-/Fensterzustand.',
             'Kein Nachweis einer Ursache durch Helios; FBH, Sonne, geoeffnete Tueren/Fenster koennen mitwirken.',
             'Gleiche Temperatur bedeutet weder Sensorfehler noch fehlenden Update; kein erzwungener Stundenwert.',
             'Bitte diesen gesamten Diagnose-Text in ChatGPT einfuegen; kein automatisches Senden.',
@@ -252,6 +269,9 @@ final class JVHeliosLearningDiagnostics
             'multi_day_rooms'=>$longerTrend,
             'paired_context_points'=>$paired,
             'per_room_observation'=>$roomStats,
+            'per_room_night_patterns'=>$nightStats,
+            'night_pattern_rooms'=>$nightRooms,
+            'similar_weather_night_pairs'=>$nightWeatherPairs,
             'learning_calibrated'=>false,
             'control_authorized'=>false,
         ];
