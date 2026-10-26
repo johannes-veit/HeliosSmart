@@ -59,59 +59,71 @@ final class JVHeliosLearningThermalWindows
         $n=count($rows);
         if($n<4)return $out;
         $tz=new DateTimeZone('Europe/Berlin');
-        $windows=[];$i=0;
-        while($i+3<$n){
-            $a=array_slice($rows,$i,4);
-            $span=$a[3]['at']-$a[0]['at'];
-            $gap=false;$jump=false;
-            for($j=1;$j<4;$j++){
-                $diff=$a[$j]['at']-$a[$j-1]['at'];
-                if($diff<3600||$diff>3*3600)$gap=true;
-                if(abs((float)$a[$j]['c']-(float)$a[$j-1]['c'])>3.0)$jump=true;
-            }
-            if($gap||$jump||$span<5*3600||$span>7*3600){
-                $out['rejected_gaps']++;$i++;continue;
-            }
-            $keys=array_map(static fn($p)=>self::nightKey($p['at'],$tz),$a);
-            if($keys[0]===null ||count(array_unique($keys))!==1){
-                $out['rejected_non_night']++;$i++;continue;
-            }
-            $gaps=[];$valid=true;$dry=true;$cold=true;
-            foreach($a as $p){
-                $ctx=$p['context']??null;
-                if(!is_array($ctx)
-                    ||($ctx['simultaneous_only']??false)!==true
-                    ||!is_numeric($ctx['outside_c']??null)
-                    ||!is_numeric($ctx['outside_dewpoint_c']??null)
-                    ||!is_numeric($ctx['supply_c']??null)){
-                    $valid=false;break;
+        // The old global four-point cursor depended on the phase of the
+        // first sensor sample. Group by REAL local night first, then select
+        // at most one chronological complete window per night. This avoids
+        // choosing a different apparent thermal response after a restart.
+        $byNight=[];
+        foreach($rows as $p) {
+            $key=self::nightKey($p['at'],$tz);
+            if($key===null){$out['rejected_non_night']++;continue;}
+            $byNight[$key][]=$p;
+        }
+        $windows=[];
+        foreach($byNight as $key=>$nightRows) {
+            $count=count($nightRows);
+            for($i=0;$i+3<$count;$i++){
+                $a=array_slice($nightRows,$i,4);
+                $span=$a[3]['at']-$a[0]['at'];
+                $gap=false;$jump=false;
+                for($j=1;$j<4;$j++){
+                    $diff=$a[$j]['at']-$a[$j-1]['at'];
+                    if($diff<3600||$diff>3*3600)$gap=true;
+                    if(abs((float)$a[$j]['c']-(float)$a[$j-1]['c'])>3.0)$jump=true;
                 }
-                $outside=(float)$ctx['outside_c'];
-                $dew=(float)$ctx['outside_dewpoint_c'];
-                $supply=(float)$ctx['supply_c'];
-                if(!is_finite($outside)||$outside< -40||$outside>55
-                    ||!is_finite($dew)||$dew< -45||$dew>$outside+0.5
-                    ||!is_finite($supply)||$supply< -10||$supply>45){
-                    $valid=false;break;
+                if($gap||$jump||$span<5*3600||$span>7*3600){
+                    $out['rejected_gaps']++;
+                    continue;
                 }
-                $gaps[]=(float)$p['c']-$outside;
-                if($dew>16)$dry=false;
-                if((float)$p['c']-$outside<2.0)$cold=false;
+                // Once the first complete temporal window is selected,
+                // NEVER cherry-pick a later one for better weather or
+                // stronger observed cooling.
+                $gaps=[];$valid=true;$dry=true;$cold=true;
+                foreach($a as $p){
+                    $ctx=$p['context']??null;
+                    if(!is_array($ctx)
+                        ||($ctx['simultaneous_only']??false)!==true
+                        ||!is_numeric($ctx['outside_c']??null)
+                        ||!is_numeric($ctx['outside_dewpoint_c']??null)
+                        ||!is_numeric($ctx['supply_c']??null)){
+                        $valid=false;break;
+                    }
+                    $outside=(float)$ctx['outside_c'];
+                    $dew=(float)$ctx['outside_dewpoint_c'];
+                    $supply=(float)$ctx['supply_c'];
+                    if(!is_finite($outside)||$outside< -40||$outside>55
+                        ||!is_finite($dew)||$dew< -45||$dew>$outside+0.5
+                        ||!is_finite($supply)||$supply< -10||$supply>45){
+                        $valid=false;break;
+                    }
+                    $gaps[]=(float)$p['c']-$outside;
+                    if($dew>16)$dry=false;
+                    if((float)$p['c']-$outside<2.0)$cold=false;
+                }
+                if(!$valid) $out['rejected_weather_context']++;
+                else {
+                    $out['accepted_six_hour_windows']++;
+                    if($dry&&$cold){
+                        $windows[]=[
+                            'night'=>$key,
+                            'at'=>$a[3]['at'],
+                            'delta'=>(float)$a[3]['c']-(float)$a[0]['c'],
+                            'gap'=>array_sum($gaps)/count($gaps),
+                        ];
+                    }
+                }
+                break; // One non-overlapping predefined window per night
             }
-            if(!$valid){
-                $out['rejected_weather_context']++;$i++;continue;
-            }
-            $out['accepted_six_hour_windows']++;
-            if($dry&&$cold){
-                $windows[]=[
-                    'night'=>$keys[0],
-                    'at'=>$a[3]['at'],
-                    'delta'=>(float)$a[3]['c']-(float)$a[0]['c'],
-                    'gap'=>array_sum($gaps)/count($gaps),
-                ];
-            }
-            // Strictly non-overlapping: do not multiply correlated windows.
-            $i+=4;
         }
         $out['cold_outside_windows']=count($windows);
         if(!$windows){
