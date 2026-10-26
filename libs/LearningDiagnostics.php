@@ -119,8 +119,10 @@ final class JVHeliosLearningDiagnostics
                 $slot=intdiv($tStamp,7200);
                 if(!isset($history[$slot])) {
                     // Timestamp comes directly from the source variable.
-                    // Context is a concurrent snapshot, NOT evidence that
-                    // this stage or bypass remained stable for two hours.
+                    // Context is a near-time read-only comparison, NOT
+                    // evidence of continuous stage or bypass operation.
+                    // Weather and supply must each be <=10 min old to avoid
+                    // joining a current room update with stale air values.
                     $context=null;
                     $near=(int)abs($now-$tStamp)<=180;
                     $weatherTrusted=in_array((string)($snapshot['weather_quality']??''),
@@ -128,11 +130,11 @@ final class JVHeliosLearningDiagnostics
                     $outAge=$snapshot['outside_age_minutes']??null;
                     $supplyAge=$snapshot['supply_age_minutes']??null;
                     if($near && $weatherTrusted && is_numeric($outAge)
-                        && (float)$outAge>=0 && (float)$outAge<=45
+                        && (float)$outAge>=0 && (float)$outAge<=10
                         && is_numeric($snapshot['outside_temperature']??null)
                         && is_numeric($snapshot['outside_dewpoint']??null)
                         && is_numeric($supplyAge) && (float)$supplyAge>=0
-                        && (float)$supplyAge<=20
+                        && (float)$supplyAge<=10
                         && is_numeric($snapshot['supply_temperature']??null)) {
                         $context=[
                             'supply_c'=>round((float)$snapshot['supply_temperature'],1),
