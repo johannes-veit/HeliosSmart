@@ -92,7 +92,7 @@ wq($withoutWeather[0][1]===1 &&$withoutWeather[0][3]===0,
     'Complete room-temperature week without trusted outdoor context earns only room-data quality, no stage-effect claim');
 $tooManyGaps=sampleWeek($week);
 $tooManyGaps=array_values(array_filter($tooManyGaps,
-    static fn($p)=>((int)(($p['at']-$week)/7200)%3)!==1));
+    static fn($p)=>((int)(($p['at']-$week)/7200)%4)<2));
 $gapped=JVHeliosLearningWeeklyQuality::capture(
     [],$tooManyGaps,'EG Wohnen',$now);
 wq($gapped[0][1]===0 &&$gapped[0][6]>2,
