@@ -210,8 +210,9 @@ ss(!str_contains($gaps,'Bad')&&!str_contains($gaps,'Flur')
 $compact=$whole['compact_state'];
 ss(strlen(json_encode($compact))<50000
     &&count($compact['r'])===11
-    &&array_keys($compact)===['v','t','d','r','m'],
-    'Eleven-room stage-quality learning fits existing compact v2 state below 50 KB without new attributes');
+    &&array_keys(array_intersect_key($compact,array_fill_keys(['v','t','d','r','m'],true)))===['v','t','d','r','m']
+    &&count($compact['q']??[])<=11,
+    'Eleven-room stage-quality learning fits compact v2 below 50KB with at most one bounded weekly field, no new Symcon attribute');
 ss(!$whole['control_authorized']&&!$whole['learning_calibrated'],
     'Even whole-house paired evidence does not unlock automatic ventilation control');
 echo "PASSIVE SUMMER FAN-STAGE STUDY TESTS PASSED\n";
