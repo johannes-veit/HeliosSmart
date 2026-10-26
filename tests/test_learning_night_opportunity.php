@@ -106,6 +106,23 @@ nr(!$report['control_authorized'] && !$report['learning_calibrated']
     &&!array_key_exists('night_opportunity',$report['compact_state'])
     &&!array_key_exists('night_review',$report['compact_state']),
     'Combined night review consumes no additional stored per-room or global state');
+// A recently hot room cannot be assigned high learning priority based
+// solely on cool weather nearly a week ago.
+$oldNights=JVHeliosLearningPatterns::analyze($base,$now);
+foreach($oldNights['night_history'] as &$night)
+    $night['at_morning']=$now-6*86400;
+unset($night);
+$heatNow=JVHeliosLearningOverheat::recent('EG Wohnen',$base,$now);
+$longTerm=JVHeliosLearningOverheat::summerProfile('EG Wohnen',[]);
+$staleReview=JVHeliosLearningNightOpportunity::analyze(
+    'EG Wohnen',$heatNow,$oldNights,$longTerm,$now);
+nr($staleReview['status']==='NACHTVERGLEICHE_NICHT_AKTUELL'
+    &&$staleReview['nights_outside_thermally_cool']===0
+    &&$staleReview['older_nights_ignored']>=3,
+    'Nearly week-old cool nights cannot be misapplied to a new hot-room episode');
+nr($a['recent_nights_with_weather']>=2
+    &&$a['older_nights_ignored']>=1,
+    'Recent matched nights drive the composite signal; older ones remain historical only');
 // Vary 121 outdoor/dewpoint pair combinations without ever producing
 // an actuator entitlement or a false physical-cooling-efficiency claim.
 for($i=0;$i<=120;$i++){
