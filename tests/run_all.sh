@@ -56,3 +56,4 @@ php tests/test_learning_overheat.php
 php tests/test_learning_night_opportunity.php
 php tests/test_learning_stage_study.php
 php tests/test_learning_weekly_quality.php
+php tests/test_learning_evidence_gate.php
