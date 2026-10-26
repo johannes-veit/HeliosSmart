@@ -292,11 +292,19 @@ final class JVHeliosLearningDiagnostics
         $stageRooms=0;
         $stageTransitions=0;
         $missingStageEvidence=0;
-        foreach($stageStudies as $v) {
+        $stageConflicts=0;
+        $stageSupplyWarm=0;
+        $stageNextGaps=[];
+        foreach($stageStudies as $roomName=>$v) {
             $stagePairs+=(int)$v['matched_weather_stage_pairs'];
             if($v['matched_weather_stage_pairs']>0)$stageRooms++;
             $stageTransitions+=(int)$v['stage_transitions_seen'];
             $missingStageEvidence+=(int)$v['missing_context_nights'];
+            $stageSupplyWarm+=(int)$v['supply_not_cooler_nights'];
+            if($v['pair_directions_disagree'])$stageConflicts++;
+            if($v['status']!=='AUSSERHALB_SOMMERSTUDIE'
+                &&$v['data_gap']!=='KAUSALITAET_BYPASS_FBH_FENSTER_NICHT_BELEGT')
+                $stageNextGaps[]=$roomName.': '.$v['data_gap'];
         }
         $measuredSpan=0;
         $enoughForDay=0;
@@ -355,7 +363,12 @@ final class JVHeliosLearningDiagnostics
             'Stufen-Lernvergleich: '.$stagePairs.' natuerliche Wetter-Nachtpaare in '
                 .$stageRooms.' Raeumen | erkennbare Stufenwechsel '.$stageTransitions
                 .' | unvollstaendige Quellen '.$missingStageEvidence
+                .' | Zuluft nicht kuehler '.$stageSupplyWarm
+                .' | widerspruechliche Paare '.$stageConflicts
                 .' | STUFEN_NUR_MOMENTAUFNAHMEN, KEIN WIRKUNGSNACHWEIS',
+            'Stufen-Messluecken (max. 3 Raeume): '.(count($stageNextGaps)>0
+                ?implode('; ',array_slice($stageNextGaps,0,3))
+                :'keine aktuelle Sommer-Messluecke ausgewiesen'),
             'Nacht-Lernfokus (max. 3 Raeume): '.(count($highNightRooms)>0
                 ?implode(', ',array_slice($highNightRooms,0,3))
                     .(count($highNightRooms)>3?', weitere '.(count($highNightRooms)-3):'')
@@ -420,6 +433,9 @@ final class JVHeliosLearningDiagnostics
             'stage_study_rooms'=>$stageRooms,
             'stage_transitions_seen'=>$stageTransitions,
             'incomplete_stage_source_nights'=>$missingStageEvidence,
+            'stage_observational_contradictions'=>$stageConflicts,
+            'stage_nights_without_cooler_supply'=>$stageSupplyWarm,
+            'stage_next_data_gaps'=>$stageNextGaps,
             'night_high_review_priority_rooms'=>$nightHighPriority,
             'night_high_review_room_names'=>$highNightRooms,
             'night_missing_evidence_rooms'=>$nightNeedsEvidence,
