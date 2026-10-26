@@ -95,6 +95,57 @@ $onlyMeasurements=JVHeliosLearningDiagnostics::update([],$rooms,[
     'weather_quality'=>'DWD_ONLY','fan_level'=>3],$now);
 ld($onlyMeasurements['fresh_temperature_rooms']===4,
  'Room data remains available when independent verified DWD weather is sole source');
+// Multi-day evidence must remain descriptive, not a learned fan effect.
+$twoDay=[];
+for($h=0;$h<=72;$h+=2)
+    $twoDay[]=['at'=>$now+$h*3600,'c'=>20.0+round($h/24,1)*0.4];
+$stats=JVHeliosLearningDiagnostics::describeHistory($twoDay,$now+72*3600);
+ld($stats['evidence']==='MEHRTAGES_TREND_BEOBACHTBAR'
+ && $stats['trend_24h']==='WAERMER' && $stats['delta_24h_c']>=0.3,
+ 'Three days of genuine support points make an observed 24h warming trend measurable');
+ld($stats['gaps_gt_3h']===0 && $stats['jumps_gt_3c']===0
+ && $stats['min_7d_c']===20.0,'Regular samples have no fake gaps or jumps');
+$constant=[];
+for($h=0;$h<=30;$h+=2) $constant[]=['at'=>$now+$h*3600,'c'=>21.5];
+$flat=JVHeliosLearningDiagnostics::describeHistory($constant,$now+30*3600);
+ld($flat['trend_24h']==='NAHEZU_GLEICH'
+ && $flat['delta_24h_c']===0.0,
+ 'Constant verified room temperature is stable, not a sensor-failure diagnosis');
+$gapped=$twoDay;
+$gapped=array_values(array_filter($gapped,static fn($v)=>$v['at']<$now+16*3600
+    ||$v['at']>$now+50*3600));
+$gap=JVHeliosLearningDiagnostics::describeHistory($gapped,$now+72*3600);
+ld($gap['gaps_gt_3h']>=1 && $gap['trend_24h']==='NOCH_NICHT_MESSBAR',
+ 'Big missing daily interval is reported, not interpolated into a trend');
+$spike=$twoDay;
+$spike[count($spike)-2]['c']+=5.5;
+$noise=JVHeliosLearningDiagnostics::describeHistory($spike,$now+72*3600);
+ld($noise['jumps_gt_3c']>=1 && $noise['delta_24h_c']===null,
+ 'Implausible short-period temperature jump suspends 24h trend');
+$old=JVHeliosLearningDiagnostics::describeHistory($twoDay,$now+90*3600);
+ld($old['delta_24h_c']===null,
+ 'No recent end measurement: no stale trend advertised as current');
+
+// Store supply/weather CONTEXT only if observed at nearly the same time,
+// genuinely trusted/fresh, and never treat a snapshot as period-wide proof.
+$pairedSnapshot=$snapshot;
+$pairedSnapshot['weather_quality']='VERIFIED';
+$pairedSnapshot['outside_age_minutes']=2;
+$near=JVHeliosLearningDiagnostics::update([],[$rooms[0]],$pairedSnapshot,$now);
+$ctx=$near['state']['rooms']['EG Wohnen']['samples'][0]['context']??null;
+ld(is_array($ctx) && $ctx['simultaneous_only']===true
+    && $ctx['supply_c']===20.0 && $ctx['outside_c']===9.3,
+ 'True near-simultaneous weather and Helios supply context saved as an explicitly point-in-time snapshot');
+ld($near['paired_context_points']===1 && !$near['control_authorized'],
+ 'Paired evidence remains observational and non-actuating');
+$untrusted=$pairedSnapshot;$untrusted['outside_age_minutes']=90;
+$notPaired=JVHeliosLearningDiagnostics::update([],[$rooms[0]],$untrusted,$now);
+ld($notPaired['paired_context_points']===0,
+ 'Old weather snapshot cannot be paired with a room measurement');
+$tooFar=$rooms[0];$tooFar['temperature_observed_at']=$now-20*60;
+$nonConcurrent=JVHeliosLearningDiagnostics::update([],[$tooFar],$pairedSnapshot,$now);
+ld($nonConcurrent['paired_context_points']===0,
+ 'Room and weather observed twenty minutes apart cannot be labelled simultaneous');
 $missing=JVHeliosLearningDiagnostics::update([],[],['weather_quality'=>'UNAVAILABLE'],$now);
 ld($missing['room_count']===0
  && str_contains($missing['report'],'BEOBACHTUNG_DATEN_TEILWEISE_FEHLEN'),
