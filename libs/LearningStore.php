@@ -47,8 +47,9 @@ final class JVHeliosLearningStore
             }
             $out['rooms'][$name]=['samples'=>$samples];
         }
-        if($compact && is_array($saved['m']??null)) {
-            foreach($saved['m'] as $name=>$bins) {
+        $sourceMonths=$compact?($saved['m']??null):($saved['seasonal']??null);
+        if(is_array($sourceMonths)) {
+            foreach($sourceMonths as $name=>$bins) {
                 if(!is_string($name)||!is_array($bins))continue;
                 $valid=[];
                 foreach($bins as $month=>$v) {
