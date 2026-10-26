@@ -204,6 +204,73 @@ final class JVHeliosLearningStore
         return $ret;
     }
 
+    /**
+     * Summer (Jun-Aug) against winter (Dec-Feb), with ZERO new storage.
+     *
+     * A comparable descriptive group only accepts the same rooms in BOTH
+     * seasons, each with >=12 trustworthy paired observations covering
+     * >=2 separate calendar months per season. Room means are weighted
+     * equally to avoid one fast-reporting sensor dominating the house.
+     * This does not compare matched outdoor conditions or distinct years.
+     */
+    public static function compareSeasons(array $seasonal):array
+    {
+        $result=[
+            'status'=>'ZU_WENIGE_VERGLEICHBARE_MONATSDATEN',
+            'common_rooms'=>0,
+            'summer_months'=>0,'winter_months'=>0,
+            'summer_mean_gap_k'=>null,'winter_mean_gap_k'=>null,
+            'summer_mean_outside_dewpoint_c'=>null,
+            'winter_mean_outside_dewpoint_c'=>null,
+            'summer_vs_winter_gap_k'=>null,
+            'cannot_compare_years'=>true,
+            'not_a_weather_matched_experiment'=>true,
+            'not_calibrated'=>true,'read_only'=>true,
+        ];
+        $extract=static function(array $bins,array $months):?array {
+            $n=0;$gap=0;$dew=0;$covered=0;
+            foreach($months as $month) {
+                $v=$bins[$month]??null;
+                if(!is_array($v)||count($v)<7)continue;
+                $all=(int)$v[0];$pairs=(int)$v[4];
+                if($all<1||$pairs<1||$pairs>$all)continue;
+                $gs=(int)$v[5];$ds=(int)$v[6];
+                if(abs($gs)>900*$pairs||abs($ds)>600*$pairs)continue;
+                $covered++;
+                $n+=$pairs;$gap+=$gs;$dew+=$ds;
+            }
+            if($covered<2||$n<12)return null;
+            return ['gap'=>$gap/($n*10),'dew'=>$dew/($n*10),
+                'months'=>$covered,'count'=>$n];
+        };
+        $sumGap=[];$winGap=[];$sumDew=[];$winDew=[];
+        $monthsSummer=[];$monthsWinter=[];
+        foreach(array_slice($seasonal,0,20,true) as $name=>$bins) {
+            if(!is_array($bins))continue;
+            $summer=$extract($bins,[6,7,8]);
+            $winter=$extract($bins,[12,1,2]);
+            if($summer===null||$winter===null)continue;
+            $sumGap[]=$summer['gap'];$winGap[]=$winter['gap'];
+            $sumDew[]=$summer['dew'];$winDew[]=$winter['dew'];
+            $monthsSummer[]=$summer['months'];
+            $monthsWinter[]=$winter['months'];
+        }
+        $n=count($sumGap);
+        $result['common_rooms']=$n;
+        if($n<3)return $result;
+        $avg=static fn(array $values):float=>array_sum($values)/count($values);
+        $result['summer_months']=min($monthsSummer);
+        $result['winter_months']=min($monthsWinter);
+        $result['summer_mean_gap_k']=round($avg($sumGap),1);
+        $result['winter_mean_gap_k']=round($avg($winGap),1);
+        $result['summer_mean_outside_dewpoint_c']=round($avg($sumDew),1);
+        $result['winter_mean_outside_dewpoint_c']=round($avg($winDew),1);
+        $result['summer_vs_winter_gap_k']=round(
+            $avg($sumGap)-$avg($winGap),1);
+        $result['status']='SAISONMITTEL_BEOBACHTBAR_NICHT_KAUSAL';
+        return $result;
+    }
+
     public static function totals(array $seasonal):array
     {
         $count=0;$months=0;
