@@ -261,3 +261,29 @@ Die bisherige 7-Tage-Historie kann **nicht** mehrere Beobachtungswochen belegen,
 - Ein synthetischer Belastungstest mit 11 Raeumen, 84 jeweils vollstaendigen Wetter-/Zuluftpunkten und vier kompletten Wochenbilanzen pro Raum prueft weiterhin die Untergrenze von **50 KB fuer den JSON-Zustand** (Testwert, keine Messung im SymBox-Speicher). Zusaetzlich werden sieben unabhaengige Beobachtungswochen, Wiederholung ohne neue Daten, fehlende Tage, Winter, Raumarten, widerspruechliche Beobachtungsrichtungen und die Uhrzeitumstellung getestet.
 
 **Version bleibt vorerst nur auf GitHub.** Die produktive Helios-Installation des Betreibers wurde nicht aktualisiert; eine spaetere Installation migriert die vorhandenen Daten automatisch und beobachtet weiter, ohne weitere Bedienung vorauszusetzen.
+
+
+## Entwicklungsmeilenstein: gestufte Lern-Auswertungsfreigabe (26.10.2026)
+
+Mit `libs/LearningEvidenceGate.php` gibt es nun eine **reine Beurteilung der Belegbarkeit**, keine Schaltfreigabe. Die Freigabe steuert nur, **welche Aussagen** die bereits vorhandene ChatGPT-Diagnose aus den echten Originaldaten begruenden darf. Sie wird fuer jeden Raum zur Laufzeit berechnet und **nie separat gespeichert**.
+
+### Vier strikt getrennte Erkenntnisstufen
+
+1. **Tagestrend beschreibbar:** benoetigt einen mit Originalzeitpunkten belegten aktuellen 24h-Temperaturunterschied, genuegend tatsaechliche Stuetzpunkte und keine gravierenden Sensorluecken oder unrealistischen Temperaturspruenge. Ohne das Ergebnis `SPERRE_QUELLEN`.
+2. **Nachtmuster beschreibbar:** wenigstens drei gueltige volle Nachtverlaeufe; der letzte zugehoerige Morgen darf nicht mehr als 96 Stunden zurueckliegen. Nur alte Naechte duerfen nicht als aktuelle Nachtbeobachtung ausgegeben werden.
+3. **Mehrwochen-Wettervergleich beschreibbar:** mindestens drei der vier kompakten abgeschlossenen Wochen brauchen ausreichende originale Raum- UND verifizierte Wetter-/Zuluft-Momentaufnahmen. Sind zwar drei Raumwochen verfuegbar, aber das Wetter fehlt, bleibt es bei `NUR_RAUMMESSUNGEN`; eine Wetterstudie wird nicht freigeschaltet.
+4. **Wiederholte Stufenkorrelation fuer Forschung:** zusaetzlich zur mehrwoechigen Wetterqualitaet braucht es wenigstens drei Wochen mit aehnlich gerichteten rein beobachteten Stufen-Nachtpaaren sowie mindestens zwei aktuelle geeignete Nachtpaare bei Vergleichsbedingungen. Gegensaetzliche Vorzeichen innerhalb einer Nachtstudie oder zwischen den vier Wochen erzeugen eine explizite **Sperre wegen Widerspruechen**. Im Winter bleibt der Sommer-Stufenvergleich aus.
+
+Die Pruefung gibt pro Raum eine maschinenlesbare `next_data`-Ursache aus. Im bestehenden Variablentext `LernDiagnose` #40745 wird alles auf **zwei kurze Zeilen** verdichtet: `Lern-Auswertungsfreigabe (NUR LESEN)` mit den Raumzahlen je Erkenntnisstufe sowie `Naechste Lernbelege (max. 3 Raeume)` fuer die vorrangig fehlende Messgrundlage. Die detaillierte PHP-Ausgabe steht fuer Offline-Tests bereit, wird aber nicht als zusaetzliche Symcon-Variable angelegt.
+
+### Physikalische und betriebliche Schranken
+
+Unabhaengig davon, wie viele Wochen und Stufenpaare beobachtet wurden, bleibt `physical_model=SPERRE_NICHT_KALIBRIERT` und jede Aktorberechtigung **FALSE**. Kein Stufensnapshot oder Monatsmittel beweist eine ununterbrochene Luefterstufe, den Bypasszustand, kalibrierte m³/h-Luftmengen, Feuchte der echten Zuluft oder kontrollierte FBH-/Sonnen-/Fenstereinfluesse. Daher keine automatischen Aenderungen an HELIOS, Wochenprogramm, S4, Bypass, LCN oder Shelly.
+
+**Speicher:** Keine neue persistente Historie; die Funktion liest nur die bisherigen maximal 84 Temperatur-Zeitpunkte und vier Wochenbelege pro Raum. Die vorhandene, auf 12 Monatsbehaelter und vier Wochen-Fingerprints begrenzte Struktur `LearningObservationState` bleibt byte-strukturell unveraendert (`v,t,d,r,m,q`). Das Diagnoseformat bleibt eine einzige Stringvariable.
+
+### Tests
+
+`tests/test_learning_evidence_gate.php` prueft vierstufige Erfolgskriterien, aktuelle und historische Widersprueche, Temperaturausreisser, Luecken, alte Naechte, Winter, fehlende verifizierte Wetterdaten, zu wenige Wochen, Nebenraum-Ausschluss sowie **150 zusaetzliche widerspruechliche Messkonstellationen**. Dazu wird mit der echten `LearningDiagnostics::update`-Ausgabestruktur bestaetigt, dass keine Datenbankvariable, kein dauerhaftes Feld und keinerlei Freigabe fuer aktive Lueftung entsteht. Die gesamte PHP-Testsuite umfasst weiterhin die frueheren Langzeit-/Sommer-/Nacht-/Stufen-/Flash-Schonungsregressionen.
+
+Der Betreiber braucht die SymBox vorerst nicht zu aktualisieren. Alle hier beschriebenen Aenderungen sind ausschliesslich auf GitHub und wurden nicht an der produktiven privaten Helios ausgefuehrt.
