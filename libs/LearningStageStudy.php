@@ -86,7 +86,8 @@ final class JVHeliosLearningStageStudy
                 if(!in_array($level,[2,3,4],true)
                     ||!is_finite($supply)||$supply< -10||$supply>45
                     ||!is_finite($outside)||$outside< -40||$outside>55
-                    ||!is_finite($dew)||$dew< -45||$dew>$outside+0.5){
+                    ||!is_finite($dew)||$dew< -45||$dew>$outside+0.5
+                    ||$dew>16.0){
                     $supplyOK=false;break;
                 }
                 // Real supply after heat exchanger must actually be cooler
