@@ -70,6 +70,7 @@ final class JVHeliosLearningDiagnostics
         $expanded=JVHeliosLearningStore::decode($prior);
         $state=['rooms'=>[],
             'last_report_at'=>(int)($expanded['last_report_at']??0),
+            'last_diag_at'=>(int)($expanded['last_diag_at']??0),
             'seasonal'=>(array)($expanded['seasonal']??[])];
         $priorRooms=(array)($expanded['rooms']??[]);
         // Preserve and migrate historical data on the first update from
@@ -293,7 +294,7 @@ final class JVHeliosLearningDiagnostics
         return [
             'state'=>$state,
             'compact_state'=>JVHeliosLearningStore::encode($state['rooms'],
-                $state['seasonal'],$state['last_report_at']),
+                $state['seasonal'],$state['last_report_at'],$state['last_diag_at']),
             'seasonal_totals'=>$seasonalTotals,
             'report'=>$report,
             'fresh_temperature_rooms'=>$freshTemperature,
