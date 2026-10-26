@@ -63,6 +63,10 @@ final class JVHeliosLearningWeeklyQuality
         }
         ksort($observations,SORT_NUMERIC);
         $n=count($observations);
+        // No fabricated week record at first installation, after a long
+        // outage, or when fewer than twelve ORIGINAL points are present.
+        // This also avoids needless persistent flash writes.
+        if($n<12)return $entries;
         // A missed weekly boundary must not create a chain of bogus weeks.
         // Only record a very small audit stamp for the last completed week.
         $gaps=0;$paired=0;$last=null;
