@@ -98,9 +98,11 @@ final class JVHeliosLearningNightOpportunity
         $validWeather=$r['nights_outside_thermally_cool']
             +$r['nights_outside_thermally_unfavorable'];
         if($validWeather<2){
-            $r['status']=$r['older_nights_ignored']>0
-                ?'NACHTVERGLEICHE_NICHT_AKTUELL'
-                :'AUSSENWETTER_NACHTVERGLEICH_FEHLT';
+            $r['status']=$r['nights_without_paired_weather']>0
+                ?'AUSSENWETTER_NACHTVERGLEICH_FEHLT'
+                :($r['older_nights_ignored']>0
+                    ?'NACHTVERGLEICHE_NICHT_AKTUELL'
+                    :'AUSSENWETTER_NACHTVERGLEICH_FEHLT');
             $r['review_priority']='MEHR_GLEICHZEITIGE_WETTER_MESSUNGEN';
             return $r;
         }
