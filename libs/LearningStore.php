@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__.'/LearningWeeklyQuality.php';
 /**
  * Compact, bounded and migration-safe long-term learning data.
  *
@@ -13,7 +14,8 @@ final class JVHeliosLearningStore
     public static function decode(array $saved):array
     {
         $out=['rooms'=>[],'last_report_at'=>(int)($saved['last_report_at']??$saved['t']??0),
-            'seasonal'=>[], 'last_diag_at'=>(int)($saved['d']??$saved['last_diag_at']??0)];
+            'seasonal'=>[], 'weekly'=>[],
+            'last_diag_at'=>(int)($saved['d']??$saved['last_diag_at']??0)];
         $compact=($saved['v']??null)===2 && is_array($saved['r']??null);
         $rooms=$compact?$saved['r']:(array)($saved['rooms']??[]);
         foreach($rooms as $name=>$rows) {
@@ -73,11 +75,19 @@ final class JVHeliosLearningStore
                 if($valid)$out['seasonal'][$name]=$valid;
             }
         }
+        $weekSource=$compact?($saved['q']??null):($saved['weekly']??null);
+        if(is_array($weekSource)) {
+            foreach(array_slice($weekSource,0,20,true) as $name=>$raw) {
+                if(!is_string($name)||$name===''||!is_array($raw))continue;
+                $weeks=JVHeliosLearningWeeklyQuality::decode($raw);
+                if($weeks)$out['weekly'][$name]=$weeks;
+            }
+        }
         return $out;
     }
 
     /** @param array<string, array{samples:array}> $rooms */
-    public static function encode(array $rooms,array $seasonal,int $stamp,int $diagAt=0):array
+    public static function encode(array $rooms,array $seasonal,int $stamp,int $diagAt=0,array $weekly=[]):array
     {
         $packed=['v'=>2,'t'=>$stamp,'d'=>$diagAt,'r'=>[],'m'=>[]];
         foreach($rooms as $name=>$state) {
@@ -111,6 +121,13 @@ final class JVHeliosLearningStore
                 $ret[(int)$m]=array_map('intval',array_slice($v,0,7));
             }
             if($ret) $packed['m'][$name]=$ret;
+        }
+        // Optional compact week footprints; existing v2 archives decode as
+        // before and a room without completed weeks costs zero bytes.
+        foreach(array_slice($weekly,0,20,true) as $name=>$entries) {
+            if(!is_string($name)||!is_array($entries))continue;
+            $rows=JVHeliosLearningWeeklyQuality::decode($entries);
+            if($rows)$packed['q'][$name]=$rows;
         }
         return $packed;
     }
