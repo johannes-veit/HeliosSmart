@@ -8,6 +8,61 @@
  */
 final class JVHeliosLearningDiagnostics
 {
+    /**
+     * Descriptive evidence only. Never extrapolates from missing hours,
+     * attributes a trend to the fan, or reports a learned thermal mass.
+     * A 24h trend needs a recent endpoint, one observed reference 20-28h
+     * earlier, and at least eight ORIGINAL two-hour support points.
+     */
+    public static function describeHistory(array $samples,int $now):array
+    {
+        $ret=['points'=>count($samples),'span_h'=>0.0,'recent_points'=>0,
+            'gaps_gt_3h'=>0,'jumps_gt_3c'=>0,
+            'delta_24h_c'=>null,'trend_24h'=>'NOCH_NICHT_MESSBAR',
+            'min_7d_c'=>null,'max_7d_c'=>null,'paired_context_points'=>0,
+            'evidence'=>'ANLAUF'];
+        if(!$samples)return $ret;
+        usort($samples,static fn($a,$b)=>($a['at']??0)<=>($b['at']??0));
+        $n=count($samples);$first=$samples[0];$last=$samples[$n-1];
+        $span=max(0,(int)$last['at']-(int)$first['at']);
+        $ret['span_h']=round($span/3600,1);
+        $temperatures=array_map(static fn($p)=>(float)$p['c'],$samples);
+        $ret['min_7d_c']=round(min($temperatures),1);
+        $ret['max_7d_c']=round(max($temperatures),1);
+        foreach($samples as $i=>$sample) {
+            if((int)$sample['at']>=$now-24*3600)$ret['recent_points']++;
+            if(isset($sample['context']) && is_array($sample['context'])
+                && ($sample['context']['simultaneous_only']??false)===true)
+                $ret['paired_context_points']++;
+            if($i===0)continue;
+            $elapsed=(int)$sample['at']-(int)$samples[$i-1]['at'];
+            if($elapsed>3*3600)$ret['gaps_gt_3h']++;
+            if($elapsed>0 && $elapsed<=3*3600
+                && abs((float)$sample['c']-(float)$samples[$i-1]['c'])>3.)
+                $ret['jumps_gt_3c']++;
+        }
+        if($span>=48*3600 && $n>=20 && $ret['gaps_gt_3h']<=4
+            && $ret['jumps_gt_3c']===0)$ret['evidence']='MEHRTAGES_TREND_BEOBACHTBAR';
+        elseif($span>=24*3600 && $n>=10)$ret['evidence']='ERSTE_TAGESVERLAEUFE';
+        if($n<8 || $ret['recent_points']<8 || $ret['jumps_gt_3c']>0
+            || (int)$last['at']<$now-3*3600)return $ret;
+        $reference=null;$referenceDistance=INF;
+        foreach($samples as $p) {
+            $age=(int)$last['at']-(int)$p['at'];
+            if($age<20*3600 || $age>28*3600)continue;
+            $distance=abs($age-24*3600);
+            if($distance<$referenceDistance) {
+                $reference=$p;$referenceDistance=$distance;
+            }
+        }
+        if($reference===null)return $ret;
+        $delta=round((float)$last['c']-(float)$reference['c'],2);
+        $ret['delta_24h_c']=$delta;
+        $ret['trend_24h']=$delta>=0.4?'WAERMER':
+            ($delta<=-0.4?'KUEHLER':'NAHEZU_GLEICH');
+        return $ret;
+    }
+
     public static function update(array $prior, array $rooms, array $snapshot, int $now):array
     {
         $state=['rooms'=>[],'last_report_at'=>(int)($prior['last_report_at']??0)];
@@ -17,6 +72,7 @@ final class JVHeliosLearningDiagnostics
         $freshTemperature=0;
         $freshHumidity=0;
         $seen=[];
+        $roomStats=[];
         foreach($rooms as $room) {
             if(!is_array($room))continue;
             $name=trim((string)($room['name']??''));
@@ -49,7 +105,12 @@ final class JVHeliosLearningDiagnostics
                 if($at<$now-7*86400 || $at>$now+120 ||$c<8||$c>40)continue;
                 $slot=intdiv($at,7200);
                 if(!isset($history[$slot]) ||$at<$history[$slot]['at'])
-                    $history[$slot]=['at'=>$at,'c'=>round($c,2)];
+                    $history[$slot]=array_filter([
+                        'at'=>$at,'c'=>round($c,2),
+                        'context'=>isset($p['context']) && is_array($p['context'])
+                            && ($p['context']['simultaneous_only']??false)===true
+                            ?$p['context']:null,
+                    ],static fn($value)=>$value!==null);
             }
             ksort($history,SORT_NUMERIC);
             $last=$history?end($history):null;
@@ -58,7 +119,34 @@ final class JVHeliosLearningDiagnostics
                 $slot=intdiv($tStamp,7200);
                 if(!isset($history[$slot])) {
                     // Timestamp comes directly from the source variable.
-                    $history[$slot]=['at'=>$tStamp,'c'=>round((float)$t,2)];
+                    // Context is a concurrent snapshot, NOT evidence that
+                    // this stage or bypass remained stable for two hours.
+                    $context=null;
+                    $near=(int)abs($now-$tStamp)<=180;
+                    $weatherTrusted=in_array((string)($snapshot['weather_quality']??''),
+                        ['VERIFIED','DWD_ONLY'],true);
+                    $outAge=$snapshot['outside_age_minutes']??null;
+                    $supplyAge=$snapshot['supply_age_minutes']??null;
+                    if($near && $weatherTrusted && is_numeric($outAge)
+                        && (float)$outAge>=0 && (float)$outAge<=45
+                        && is_numeric($snapshot['outside_temperature']??null)
+                        && is_numeric($snapshot['outside_dewpoint']??null)
+                        && is_numeric($supplyAge) && (float)$supplyAge>=0
+                        && (float)$supplyAge<=20
+                        && is_numeric($snapshot['supply_temperature']??null)) {
+                        $context=[
+                            'supply_c'=>round((float)$snapshot['supply_temperature'],1),
+                            'outside_c'=>round((float)$snapshot['outside_temperature'],1),
+                            'outside_dewpoint_c'=>round((float)$snapshot['outside_dewpoint'],1),
+                            'fan_level'=>is_numeric($snapshot['fan_level']??null)
+                                ?(int)$snapshot['fan_level']:null,
+                            'simultaneous_only'=>true,
+                        ];
+                    }
+                    $history[$slot]=array_filter([
+                        'at'=>$tStamp,'c'=>round((float)$t,2),
+                        'context'=>$context,
+                    ],static fn($value)=>$value!==null);
                     ksort($history,SORT_NUMERIC);
                     $changed++;
                 }
@@ -72,13 +160,19 @@ final class JVHeliosLearningDiagnostics
             // Only a descriptive observed difference, never a causal cooling
             // effect or physical thermal-inertia estimate.
             $dT=$n>=2?round((float)$last['c']-(float)$first['c'],2):null;
+            $trend=self::describeHistory($history,$now);
+            $roomStats[$name]=$trend;
             $tText=$temperatureOK?number_format((float)$t,1,'.','').'C':'?';
             $rhText=$humidityOK?number_format((float)$rh,0,'.','').'%':'?';
             $lines[]=$name.': T '.$tText.' (Alter '.($tAge===null?'?':$tAge.'m')
                 .'), RH '.$rhText.' (Alter '.($hAge===null?'?':$hAge.'m')
                 .'), Punkte '.$n
                 .($dT===null?'':($span<7200?', Lernzeitraum noch zu kurz':
-                    ', delta '.($dT>=0?'+':'').$dT.'C / '.round($span/3600,1).'h'));
+                    ', delta '.($dT>=0?'+':'').$dT.'C / '.round($span/3600,1).'h'))
+                .($trend['delta_24h_c']===null?'':', 24h '.
+                    ($trend['delta_24h_c']>0?'+':'').$trend['delta_24h_c'].'C')
+                .($trend['gaps_gt_3h']>0?', Luecken '.$trend['gaps_gt_3h']:'')
+                .($trend['jumps_gt_3c']>0?', SPRUNG_PRUEFEN '.$trend['jumps_gt_3c']:'');
         }
         $state['rooms']=array_intersect_key($state['rooms'],$seen);
         if ($changed>0 || $state['last_report_at']<=0) $state['last_report_at']=$now;
@@ -93,11 +187,27 @@ final class JVHeliosLearningDiagnostics
             :'BEOBACHTUNG_DATEN_TEILWEISE_FEHLEN';
         $date=(new DateTimeImmutable('@'.$now))
             ->setTimezone(new DateTimeZone('Europe/Berlin'))->format('d.m.Y H:i:s');
+        $measuredSpan=0;
+        $enoughForDay=0;
+        $longerTrend=0;
+        $gaps=0;
+        $paired=0;
+        foreach($roomStats as $v) {
+            $measuredSpan=max($measuredSpan,(float)$v['span_h']);
+            if($v['delta_24h_c']!==null)$enoughForDay++;
+            if($v['evidence']==='MEHRTAGES_TREND_BEOBACHTBAR')$longerTrend++;
+            $gaps+=(int)$v['gaps_gt_3h'];
+            $paired+=(int)$v['paired_context_points'];
+        }
         $header=[
             '=== HELIOS SMART – LERNDIAGNOSE FUER CHATGPT ===',
             'Messzeit: '.$date.' Europe/Berlin | Schema 1',
             'Lernmodus: '.$status.' | NUR LESEN | Keine automatische Uebertragung',
             'Lernstand: Temperatur-Stuetzpunkte (alle 2h, originaler Zeitstempel); Gebaeudetraegheit NICHT kalibriert',
+            'Messfortschritt: maximal '.number_format($measuredSpan,1,'.','').'h Verlauf'
+                .' | 24h-Vergleich in '.$enoughForDay.'/'.count($seen).' Raeumen'
+                .' | Mehrtages-Trend in '.$longerTrend.'/'.count($seen).' Raeumen'
+                .' | Luecken '.$gaps.' | passende Wetter/Zuluft-Snapshots '.$paired,
             'Grund: Luftmengen, solare/interne Lasten und Zuluftfeuchte nicht gemessen',
             'Helios: Stufe '.($snapshot['fan_level']??'?')
                 .' | Modus '.($snapshot['mode']??'?')
@@ -121,6 +231,8 @@ final class JVHeliosLearningDiagnostics
         $footer=[
             '-- Auswertungshinweise --',
             'delta beschreibt nur beobachtete T-Aenderung zwischen erstem und letztem gespeicherten Stuetzpunkt.',
+            '24h-Vergleich nur bei mindestens 8 Original-Messpunkten und einer passenden Messung 20-28h zuvor.',
+            'Wetter/Zuluft-Kontext ist nur eine Momentaufnahme, KEIN Nachweis einer konstanten Helios-Stufe.',
             'Kein Nachweis einer Ursache durch Helios; FBH, Sonne, geoeffnete Tueren/Fenster koennen mitwirken.',
             'Gleiche Temperatur bedeutet weder Sensorfehler noch fehlenden Update; kein erzwungener Stundenwert.',
             'Bitte diesen gesamten Diagnose-Text in ChatGPT einfuegen; kein automatisches Senden.',
@@ -133,6 +245,10 @@ final class JVHeliosLearningDiagnostics
             'fresh_humidity_rooms'=>$freshHumidity,
             'new_distinct_temperature_samples'=>$changed,
             'room_count'=>count($state['rooms']),
+            'trends_24h_rooms'=>$enoughForDay,
+            'multi_day_rooms'=>$longerTrend,
+            'paired_context_points'=>$paired,
+            'per_room_observation'=>$roomStats,
             'learning_calibrated'=>false,
             'control_authorized'=>false,
         ];
