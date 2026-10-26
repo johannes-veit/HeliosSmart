@@ -129,3 +129,21 @@ Das Lernprogramm ist nun auf **dauerhaft begrenzten Speicherbedarf** optimiert. 
 **Wesentliche fachliche Grenzen:** Mehrjahresmittel sind beobachtete Monatswerte, keine nachgewiesenen Helios-Kuehlleistungsdaten. Eine physikalische Kalibrierung braucht weiterhin echte Volumenstroeme, belastbare Stundenbedingungen und moegliche Solar-/FBH-/Fenstereinfluesse. Saisonale Monatsbehaelter ersetzen keine unverfaelschte Langzeit-Rohdatenarchivierung, wenn spaeter echte Kausalmodelle untersucht werden sollen.
 
 GitHub-CI prueft Migration v1→v2, Idempotenz bei erneutem 5-Minuten-Aufruf, bewahrte Zeitstempel und Wetterkontext, Rueckkehr eines zeitweise fehlenden Raumsensors, Vermeiden wiederholter Diagnose-Text-Schreibvorgaenge und mehr als 10.000 Eingangsbeobachtungen ueber 30 simulierte Jahre.
+
+## Wetterbezogene Monatsstatistik ohne wachsende Datenmenge (26.10.2026)
+
+Die fest auf zwoelf Kalender-Monatsbehaelter pro Raum begrenzte Langzeitspeicherung enthaelt nun zusätzlich **drei kleine Ganzzahlen pro vorhandenem Behaelter**, ohne weitere Tabellen, Variablen, Instanzen oder separate Wetterarchivierung:
+
+- Anzahl der Temperatur-Stuetzpunkte mit nachweislich gleichzeitigem Wetterkontext;
+- Summe der beobachteten Temperaturdifferenz **Raum minus echte Außenluft** (Zehntel Kelvin);
+- Summe der beobachteten **Außentaupunkte** (Zehntelgrad Celsius).
+
+Nur Beobachtungen mit echten Original-Zeitstempeln, verifiziertem Außenwetter und tatsächlicher Helios-Zuluft mit hinreichend frischen Messwerten können solche Wetterpaare erzeugen. Ein Paar ist eine Momentaufnahme: Es bestätigt keine durchgehend unveränderte Lüfterstufe, keine bekannte Zuluftfeuchte und keinerlei ursächliche Kühlauswirkung. Fehlt der Wetterkontext oder ist der Taupunkt physikalisch unplausibel, bleibt die Raumtemperaturstatistik trotzdem erhalten, aber der Wetterpaarzähler steigt **nicht**.
+
+Bei mindestens 20 solchen Belegen aus wenigstens drei Räumen zeigt dieselbe vorhandene **LernDiagnose #40745** für den aktuellen Kalendermonat eine kurze Zusatzzeile mit dem bisher beobachteten mittleren Innen-Außen-Temperaturunterschied und dem mittleren Außentaupunkt. Ist die Datenbasis kleiner, steht ausdrücklich `NOCH_NICHT_BEWERTBAR`.
+
+Der Langzeitspeicher unterscheidet weiterhin **nicht** die einzelnen Kalenderjahre. Es entstehen niemals neue Monatsbehaelter bei einem Jahreswechsel, sondern immer nur zwoelf vorhandene Behaelter je Raum. Ältere vierteilige Monatsstatistiken werden beim nächsten Lesevorgang mit null passenden Wetterpaaren erweitert: Bestehende Temperaturdaten bleiben erhalten, historisch fehlende Wetterwerte werden **nicht** erfunden.
+
+Die zusätzlichen Zahlen erhöhen den Speicherbedarf nur geringfügig. Die synthetische Regression überprüft den genauen Vergleich (zum Beispiel im Mittel 4,0 K innen wärmer und 14,0 °C Außentaupunkt), die korrekte Rückgewinnung nach Neuladen, abgewiesene unrealistische Taupunkte und die vollständige Abwesenheit von Aktorbefehlen.
+
+**Hinweis:** Selbst ein mehrjähriges gemessenes Monatsmittel bleibt eine deskriptive Haus-/Wetterbeobachtung, keine kalibrierte Aussage über Kühlleistung oder eine eigenständige Automatikfreigabe. Die produktive Lüftungsregelung wird nicht verändert. Die neue Version verbleibt bis zur späteren Aktualisierung durch den Betreiber ausschließlich auf GitHub.
