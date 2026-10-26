@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__.'/LearningStageStudy.php';
+require_once __DIR__.'/LearningThermalWindows.php';
 
 /**
  * One completed ISO calendar week => at most one tiny evidence fingerprint.
@@ -8,7 +9,9 @@ require_once __DIR__.'/LearningStageStudy.php';
  *
  * Fingerprint layout: [ISO-year-week, quality 0..3, original source count,
  * trusted concurrent weather points, stage-study night pairs, observed sign,
- * count of >4h gaps]. Sign: 9 unknown, -1/0/+1 observational.
+ * count of >4h gaps, optional thermic signature 0..3].
+ * The optional eighth integer codes 0=no conclusion, 1=room cooled,
+ * 2=room stable, 3=contradictory. Existing 7-int records stay valid.
  */
 final class JVHeliosLearningWeeklyQuality
 {
@@ -16,7 +19,7 @@ final class JVHeliosLearningWeeklyQuality
     {
         $ret=[];
         foreach(array_slice($raw,-4) as $v){
-            if(!is_array($v)||count($v)!==7)continue;
+            if(!is_array($v)||!in_array(count($v),[7,8],true))continue;
             $a=array_values($v);
             if(!isset($a[0],$a[1],$a[2],$a[3],$a[4],$a[5],$a[6]))continue;
             foreach($a as $n)if(!is_int($n))continue 2;
@@ -24,7 +27,8 @@ final class JVHeliosLearningWeeklyQuality
                 ||$a[2]<0||$a[2]>84||$a[3]<0||$a[3]>$a[2]
                 ||$a[4]<0||$a[4]>4
                 ||!in_array($a[5],[-1,0,1,9],true)
-                ||$a[6]<0||$a[6]>83)continue;
+                ||$a[6]<0||$a[6]>83
+                ||(isset($a[7])&&($a[7]<0||$a[7]>3)))continue;
             $ret[$a[0]]=$a;
         }
         ksort($ret,SORT_NUMERIC);
@@ -102,9 +106,20 @@ final class JVHeliosLearningWeeklyQuality
                 $quality=3;
             }
         }
+        $thermic=0;
+        if($quality>=2 &&!preg_match('/bad|wc|flur|ankleide|hwr/ui',$name)){
+            $observed=JVHeliosLearningThermalWindows::analyze(
+                $sampleList,$until-1,$name);
+            $map=[
+                'WIEDERHOLT_RAUMLUFT_ABGEKUEHLT_BEI_KUEHLER_AUSSENLUFT'=>1,
+                'WIEDERHOLT_RAUMLUFT_KAUM_ABGEKUEHLT'=>2,
+                'WIDERSPRUECHLICHE_THERMISCHE_FENSTER'=>3,
+            ];
+            $thermic=$map[$observed['status']]??0;
+        }
         $entries[]=[
             $id,$quality,min(84,$n),min(84,$paired),$pairs,$sign,
-            min(83,$gaps),
+            min(83,$gaps),$thermic,
         ];
         usort($entries,static fn($a,$b)=>$a[0]<=>$b[0]);
         $unique=[];
@@ -121,6 +136,10 @@ final class JVHeliosLearningWeeklyQuality
             'good_room_weeks'=>0,'weather_supported_weeks'=>0,
             'stage_supported_weeks'=>0,
             'stage_negative_weeks'=>0,'stage_positive_weeks'=>0,
+            'thermal_cooling_weeks'=>0,'thermal_stable_weeks'=>0,
+            'thermal_contradictory_weeks'=>0,
+            'thermal_status'=>'ZU_WENIGE_THERMIKWOCHEN',
+            'thermal_observation_only'=>true,
             'multiweek_effect_proven'=>false,
             'historical_stage_continuity_proven'=>false,
             'full_fbh_solar_window_controlled'=>false,
@@ -129,12 +148,27 @@ final class JVHeliosLearningWeeklyQuality
         foreach($entries as $e){
             if($e[1]>=1)$r['good_room_weeks']++;
             if($e[1]>=2)$r['weather_supported_weeks']++;
+            if($e[1]>=2) {
+                if(($e[7]??0)===1)$r['thermal_cooling_weeks']++;
+                if(($e[7]??0)===2)$r['thermal_stable_weeks']++;
+                if(($e[7]??0)===3)$r['thermal_contradictory_weeks']++;
+            }
             if($e[1]>=3){
                 $r['stage_supported_weeks']++;
                 if($e[5]===-1)$r['stage_negative_weeks']++;
                 if($e[5]===1)$r['stage_positive_weeks']++;
             }
         }
+        $thermicCount=$r['thermal_cooling_weeks']
+            +$r['thermal_stable_weeks']
+            +$r['thermal_contradictory_weeks'];
+        if($r['thermal_contradictory_weeks']>0
+            ||($r['thermal_cooling_weeks']>0 &&$r['thermal_stable_weeks']>0))
+            $r['thermal_status']='THERMIKWOCHEN_WIDERSPRUECHLICH';
+        elseif($thermicCount>=3 &&$r['thermal_cooling_weeks']>=3)
+            $r['thermal_status']='MEHRWOECHIG_RAUMLUFT_ABGEKUEHLT';
+        elseif($thermicCount>=3 &&$r['thermal_stable_weeks']>=3)
+            $r['thermal_status']='MEHRWOECHIG_RAUMLUFT_STABIL';
         if($r['good_room_weeks']<3)return $r;
         $r['status']='MEHRWOECHIGER_RAUMVERLAUF_BEOBACHTET';
         if($r['weather_supported_weeks']<3)return $r;
