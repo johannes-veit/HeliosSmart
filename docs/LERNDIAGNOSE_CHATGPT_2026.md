@@ -185,3 +185,33 @@ Die bestehende Variable **`LernDiagnose` #40745** zeigt im Berichtskopf nur die 
 Es wird weder aus der beobachteten Ueberwaermung direkt eine wirksame Helios-Kuehlung abgeleitet noch werden Feuchte, Außentaupunkt, reale Luftvolumenstroeme oder Fussbodenheizung als unerhebliche Faktoren behandelt. Die Wetterzentrale und alle produktiven Regler bleiben unangetastet; insbesondere bleiben Herstellerwochenplan, hygienische Mindestlueftung sowie Koch-/Bad-Boosts unveraendert.
 
 Die Regression unter `tests/test_learning_overheat.php` prueft die getrennten Orientierungswerte, wiederholt heisse Tage, eine einzelne Temperaturspitze, fehlende und alte Messwerte, Winterbetrieb, ausgeschlossene Feuchtraeume, Sommermittel mit ungueltigen Summen und die vollstaendige Geraetebefehlsfreiheit.
+
+
+## Grosses Entwicklungspaket: Raum-Überwärmung und Nacht-Lernbewertung (26.10.2026)
+
+Die zuvor isolierten Beobachter `LearningOverheat` und `LearningPatterns` arbeiten jetzt mit `LearningNightOpportunity` zusammen. Alle Ergebnisse werden **zur Laufzeit berechnet** und ausschließlich in der vorhandenen Variable `LernDiagnose` (#40745) ausgegeben. Keine weiteren Instanzattribute, Archivdateien, Variablen, Timer, unbeschränkte Speicherfelder oder Gerätekommandos.
+
+### Drei Belege werden gemeinsam geprüft
+
+1. **Aktuelle, durch echte Original-Messpunkte belegte Überwärmung:** Mindestens mehrere warme Messwerte im Sommer, je nach Raumart und bisheriger Datenqualität. Badezimmer, WCs und Flure sind keine Ersatzmesspunkte für Wohn-/Schlafräume. Eine einzelne Temperaturspitze oder ein lückenhafter Verlauf reicht nicht.
+2. **Gemessene Nachtreaktion:** mindestens drei gültige vollständige Abend-/Morgen-Nächte aus der rollierenden Sieben-Tage-Historie. Für die Bewertung eines *aktuellen* Wärmeereignisses werden jedoch **ausschließlich die vollständigen Nächte der letzten 96 Stunden** verwendet. Fehlende Stunden werden nicht interpoliert. Ein altes Mittel der Vorwoche darf nicht eine neue Wärmeepisode „erklären“.
+3. **Passende wirkliche Außenbedingungen:** Zu Abend und Morgen müssen Original-Snapshots des echten Außenwetters vorhanden sein. Beide Außenlufttemperaturen sollen wenigstens 2 K unter der gleichzeitig beobachteten Raumtemperatur liegen; der Außentaupunkt soll in beiden Momenten höchstens 16 °C betragen. Mindestens zwei zeitlich passende Nächte müssen diese Anforderungen erfüllen. Diese Grenzen sind **nur eine thermische Beobachtung** – kein Nachweis, dass die durch Enthalpiewärmetauscher oder Sole-EWT tatsächlich eingeblasene Luft dieselbe Temperatur/Feuchte hatte.
+
+### Unterschiedliche Ergebnisse statt automatischer Stufenbefehle
+
+- `GERINGE_NACHTABKUEHLUNG_TROTZ_KUEHLER_AUSSENLUFT` bei wiederholt warmem Raum, mindestens zwei passenden Außen-Nächten und durchschnittlich weniger als etwa 0,2 K Abkühlung der letzten Nächte. Das bedeutet **hohe Priorität für einen späteren Datenvergleich**, nicht etwa „Lüfterstufe erhöhen“.
+- `MAESSIGE_NACHTABKUEHLUNG_BEOBACHTET`: ein Zwischenfall, der zunächst weitere Beobachtung rechtfertigt.
+- `NACHTABKUEHLUNG_BEREITS_BEOBACHTET`: in den aktuellen Nächten im Mittel mindestens etwa 0,6 K beobachtete Abkühlung; deshalb wird **keine zusätzliche Lern-Priorität** aus fehlender Nachtabkühlung abgeleitet.
+- `AUSSENWETTER_BISHER_NICHT_HILFREICH` bei zu warmer oder hochtaupunktiger Außenluft; `AUSSENWETTER_NACHTVERGLEICH_FEHLT` bei unbestätigten Wetterdaten; `NACHTVERGLEICHE_NICHT_AKTUELL` bei nur älteren Nachtmessungen.
+- `KEINE_AKTUELLE_WAERMEBELASTUNG_BELEGT`, `AKTUELLE_HITZEDATEN_UNZUVERLAESSIG` oder `AUSSERHALB_SOMMERBEOBACHTUNG` verhindern unberechtigte aktuelle Bewertungen.
+
+Die bestehende Diagnose enthält eine neue kompakte Zeile **`Nacht-Lernbewertung`** mit der Anzahl belegter und unzureichend gemessener Räume. **`Nacht-Lernfokus (max. 3 Raeume)`** nennt die ersten höchstens drei Räume mit belegtem Vergleichsbedarf, damit der Betreiber den Diagnosetext unmittelbar an ChatGPT übergeben kann. Die Reihenfolge ist die bestehende Raumreihenfolge und **keine** physikalisch ermittelte Prioritätsskala.
+
+### Verifizierte Grenzen und Langzeitfähigkeit
+
+- Alle Lernhinweise bleiben passiv. Kein Party-Modus, kein Bypass-Befehl, keine Wochenprogramm-Umschaltung, keine neue Mindestlüftung und keine Schaltung an LCN/FBH/Shelly.
+- Trotz des Außentaupunkts wird ausdrücklich **keine** sichere Zuluftfeuchte und kein nachgewiesener Luftmengen-/Energie-/Wärmeeintrag behauptet. Die Ursache der beobachteten Temperaturänderung bleibt unbekannt (u. a. FBH, Sonne, Fenster, Türen und interne Lasten).
+- Die maximal 84 echten Zwei-Stunden-Punkte pro Raum und die zwölf wiederkehrenden Monatsstatistiken werden **nicht erweitert**. Für die neue Bewertung sind keine zusätzlichen persistenten Werte erforderlich.
+- Das komplette Testpaket deckt trockene/kühle Nächte, schwüle Nächte, thermisch zu warme Außenluft, schon gute Nachtabkühlung, plötzlich verbessertes/verschlechtertes Abkühlverhalten, fehlende Wetterwerte, alte und lückenhafte Zeitreihen, Winterbetrieb, nicht repräsentative Bäder, **121 weitere Taupunkt-/Temperaturkombinationen** und eine vollständige synthetische **11-Raum-Haussituation unter 50 KB JSON-Speicherzustand** ab.
+
+Diese Implementierung liegt bis zum späteren vom Betreiber selbst vorgesehenen Modulupdate ausschließlich auf GitHub. Sie autorisiert weiterhin keinerlei produktive Aktorsteuerung.
