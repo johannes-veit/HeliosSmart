@@ -58,6 +58,70 @@ $restored=JVHeliosLearningDiagnostics::update(
 ls(isset($restored['compact_state']['m']['EG Wohnen'])
  && $restored['compact_state']['m']['EG Wohnen'][10][0]===4,
  'Returning sensor continues established multi-year month counters instead of resetting');
+// No additional month bins: weather-aware learning occupies only three
+// bounded integers on an existing month record, never a new raw stream.
+$weatherStats=[];
+for($i=0;$i<50;$i++) {
+  $at=strtotime('2026-07-15 00:00:00 UTC')+$i*7200;
+  $weatherStats=JVHeliosLearningStore::record(
+    $weatherStats,'EG Wohnen',[[
+      'at'=>$at,'c'=>25.0,
+      'context'=>['simultaneous_only'=>true,'outside_c'=>20.0,
+        'outside_dewpoint_c'=>14.0,'supply_c'=>21.0,'fan_level'=>2]
+    ]],$at);
+  $weatherStats=JVHeliosLearningStore::record(
+    $weatherStats,'OG Schlafen 1',[[
+      'at'=>$at,'c'=>24.0,
+      'context'=>['simultaneous_only'=>true,'outside_c'=>20.0,
+        'outside_dewpoint_c'=>14.0,'supply_c'=>21.0,'fan_level'=>2]
+    ]],$at);
+  $weatherStats=JVHeliosLearningStore::record(
+    $weatherStats,'OG Schlafen 2',[[
+      'at'=>$at,'c'=>23.0,
+      'context'=>['simultaneous_only'=>true,'outside_c'=>20.0,
+        'outside_dewpoint_c'=>14.0,'supply_c'=>21.0,'fan_level'=>2]
+    ]],$at);
+}
+$summary=JVHeliosLearningStore::seasonalSummary($weatherStats,7);
+ls($summary['paired_samples']===150
+    &&$summary['rooms_with_weather_evidence']===3
+    &&$summary['mean_indoor_outdoor_gap_k']===4.0
+    &&$summary['mean_outside_dewpoint_c']===14.0,
+ 'Verified 2h weather-paired month summaries retain meaningful but purely observational 4K indoor-outdoor contrast');
+ls($summary['cannot_infer_fan_effect']===true
+    &&count($weatherStats['EG Wohnen'])===1,
+ 'Weather context never becomes claimed Helios cooling effect or extra history bins');
+$pack=JVHeliosLearningStore::encode([
+    'EG Wohnen'=>['samples'=>[]],
+    'OG Schlafen 1'=>['samples'=>[]],
+    'OG Schlafen 2'=>['samples'=>[]],
+ ],$weatherStats,$now);
+$unpacked=JVHeliosLearningStore::decode($pack);
+$restored=JVHeliosLearningStore::seasonalSummary($unpacked['seasonal'],7);
+ls($restored['paired_samples']===150
+    &&$restored['mean_indoor_outdoor_gap_k']===4.0,
+ 'Seven-entry month statistics roundtrip across restarts without losing paired weather');
+$legacyMonths=['v'=>2,'t'=>$now,'d'=>0,'r'=>[],'m'=>[
+ 'EG Wohnen'=>[7=>[30,7500,250,250]]]];
+$older=JVHeliosLearningStore::decode($legacyMonths);
+ls(JVHeliosLearningStore::seasonalSummary($older['seasonal'],7)['paired_samples']===0
+    &&$older['seasonal']['EG Wohnen'][7][0]===30,
+ 'Existing four-field seasonal records upgrade without inventing historical weather');
+$poor=[];
+$at=strtotime('2026-07-15 00:00:00 UTC');
+$poor=JVHeliosLearningStore::record($poor,'EG Wohnen',[
+  ['at'=>$at,'c'=>24.,'context'=>[
+    'simultaneous_only'=>false,'outside_c'=>16.,'outside_dewpoint_c'=>12.]],
+],$at);
+ls(JVHeliosLearningStore::seasonalSummary($poor,7)['paired_samples']===0,
+ 'Unverified outdoor values never count as weather-matched evidence');
+$invalid=[];
+$invalid=JVHeliosLearningStore::record($invalid,'EG Wohnen',[
+  ['at'=>$at,'c'=>24.,'context'=>[
+    'simultaneous_only'=>true,'outside_c'=>15.,'outside_dewpoint_c'=>21.]],
+],$at);
+ls(JVHeliosLearningStore::seasonalSummary($invalid,7)['paired_samples']===0,
+ 'Physically implausible dewpoint higher than air temperature is excluded');
 $st=$compact;$start=$now;
 // Simulate 30 years: never create 360 growing year/month series.
 // One genuine 2h support point per day; all twelve month-of-year bins remain
