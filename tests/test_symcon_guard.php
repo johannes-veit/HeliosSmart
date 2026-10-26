@@ -105,7 +105,7 @@ $hs->RefreshLearningReport();
 a($GLOBALS['learnReportWrites']===$beforeManualWrites+1,
   'Manual diagnosis refresh forces a current report even within the daily throttle');
 a(str_contains((string)$hs->value('LernDiagnose'),'Wetter: VERIFIED')
-  && str_contains((string)$hs->value('LernDiagnose'),'Aussen 8.0C')
+  && str_contains((string)$hs->value('LernDiagnose'),'reale Aussenluft 8.0C')
   && str_contains((string)$hs->value('LernDiagnose'),'Taupunkt'),
   'Manual diagnosis includes independently verified true outdoor climate');
 a(count($GLOBALS['calls'])===$oldCommandCount,
