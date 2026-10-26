@@ -146,4 +146,24 @@ for($i=0;$i<140;$i++){
     }
 }
 tw(true,'140 weather and dewpoint sensitivity variants never infer fan cooling or calibrate thermal mass');
+// Local night grouping must never manufacture a temperature point at
+// spring-forward or double-count the repeated hour at autumn fallback.
+foreach([
+    ['2026-03-28 18:00:00','2026-03-30 10:00:00'],
+    ['2026-10-24 18:00:00','2026-10-26 10:00:00'],
+] as $dstCase){
+    $begin=(new DateTimeImmutable($dstCase[0],$tz))->getTimestamp();
+    $end=(new DateTimeImmutable($dstCase[1],$tz))->getTimestamp();
+    $stream=[];
+    for($at=$begin;$at<=$end;$at+=7200)
+        $stream[]=['at'=>$at,'c'=>26.0,'context'=>[
+            'simultaneous_only'=>true,'outside_c'=>20.0,
+            'outside_dewpoint_c'=>11.0,'supply_c'=>19.0,'fan_level'=>2]];
+    $res=JVHeliosLearningThermalWindows::analyze($stream,$end,'EG Wohnen');
+    tw($res['cold_outside_windows']>=1
+        &&$res['cold_outside_windows']<count($stream)/4+1
+        &&!$res['building_time_constant_calibrated'],
+        'Berlin clock change retains actual UTC-aligned thermal windows and no synthetic measurements');
+}
+
 echo "PASSIVE THERMAL WINDOW STUDY TESTS PASSED\n";
