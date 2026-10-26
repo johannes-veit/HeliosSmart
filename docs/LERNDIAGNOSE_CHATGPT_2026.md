@@ -26,9 +26,9 @@ Eine kompakte Meldung `=== HELIOS SMART – LERNDIAGNOSE FUER CHATGPT ===` mit:
 - verifizierter externer Wetterstatus, echte Außentemperatur/Taupunkt nur, wenn verfuegbar;
 - Behaglichkeitsklasse, Zusatzlueftungskandidat und klare Nichteingriffs-Aussage;
 - je vorhandenem Raum: Temperatur, relative Feuchte, Alter beider **Original-Zeitstempel**;
-- je Raum Anzahl der hoechstens 72 gespeicherten Temperaturbelege sowie Differenz zwischen erstem und letztem beobachteten Wert.
+- je Raum Anzahl der hoechstens 84 gespeicherten Temperatur-Stuetzpunkte sowie Differenz zwischen erstem und letztem beobachteten Wert.
 
-Die gesammelten Temperaturpunkte stehen in **einem privaten Instanzattribut** `LearningObservationState` als kleine begrenzte Historie: maximal 72 Eintraege je Raum und nur innerhalb der letzten sieben Tage. Neue Punkte werden nur ueber **eindeutig neuere Original-Zeitstempel** aufgenommen; ein 5-Minuten-Auswertungstick erfindet keine weiteren Temperaturtelegramme.
+Die gesammelten Temperaturpunkte stehen in **einem privaten Instanzattribut** `LearningObservationState` als kleine begrenzte Historie: maximal 84 Eintraege je Raum und nur innerhalb der letzten sieben Tage. Neue Stuetzpunkte werden nur pro 2-Stunden-Zeitblock mit **Original-Zeitstempeln** aufgenommen; ein 5-Minuten-Auswertungstick erfindet keine weiteren Temperaturtelegramme.
 
 Der Bericht nennt dabei die Grenzen explizit: Die beobachtete Temperaturveraenderung belegt **keine** durch die Helios verursachte Kuehlung. Sonne, Fussbodenheizung/-kuehlung, offene Fenster, offene Tueren, Personen und elektrische Lasten beeinflussen die Temperatur ebenfalls. Die physikalischen Luftvolumenstroeme und Zuluftfeuchte sind weiterhin unbekannt. Es gibt noch **keine** echte Kalibrierung der thermischen Traegheit.
 
@@ -61,3 +61,22 @@ Die Integrationsregression prueft jetzt das Vorhandensein des Diagnosetexts **di
 4. Danach kann ChatGPT Quelle und Messalter kontrollieren, fehlende Werte erkennen und den Lernbeobachter gezielt weiter verbessern. Es muessen **keine** separaten Skripte installiert werden.
 
 **Keine Diagnose vom echten Haus liegt bereits vor**: Bisher wurden die Funktionen ausschliesslich synthetisch und in einer mockbasierten Symcon-Integration getestet.
+
+## Auswertung des ersten echten Diagnoselaufs vom 26.10.2026, 06:53
+
+Die vom Betreiber geteilte erste Diagnose bestaetigt **11/11 frische Temperaturwerte** und **7/11 frische Feuchtewerte**. Die vier laenger unveraenderten RH-Variablen EG Bad (479 min), EG Buero (476 min), EG Schlafen (387 min) und EG Wohnen (470 min) gelten als **indikativ**, nicht automatisch als defekt. EG Gaeste-WC hatte 67 % RH (frisch), Anlass zur Beobachtung, aber kein sicherer Dusch-/Feuchteereignisnachweis.
+
+Der Button `Nur Lerndiagnose aktualisieren` zeigte Wetter `NICHT_ABGEFRAGT_NUR_LERNBERICHT`, obwohl die WetterZentrale im normalen Steuerpfad verfuegbar sein kann. Das war eine Diagnose-Luecke, **kein bestaetigter Ausfall der Wetterstation**.
+
+Pro Raum waren bereits etwa 10-15 Temperatur-Zeitpunkte vorhanden, aber nur ueber 18-24 Minuten. Die bisherige 72-Punkte-Grenze waere damit binnen weniger Stunden voll gewesen. Daraus konnte keine mehrtaegige Gebaeudetraegheit bestimmt werden.
+
+### Korrektur
+- Manuelle Lerndiagnose liest jetzt denselben WetterZentrale-Snapshot wie die Hauptauswertung, **ausschliesslich lesend**. Fuer `VERIFIED` oder `DWD_ONLY` muessen Messungen mit originalen Zeitstempeln innerhalb von 45 Minuten liegen. Alte oder modellgestuetzte Wetterwerte werden nicht als frische verifizierte Aussenluft ausgegeben.
+- Temperatur-Stuetzpunkte werden auf **ein ORIGINAL-Ereignis pro 2-Stunden-Zeitblock und Raum** begrenzt. Maximal 84 Zeitpunkte je Raum, bis sieben Tage Beobachtungsfenster. Es werden ausschliesslich Original-Zeitstempel und Original-Messwerte gespeichert; keine interpolierten Messpunkte erzeugt.
+- Bestehende kurze Historien werden beim naechsten Auswerten automatisch auf diese groebere Rasterung verdichtet. Ein 20-Minuten-Verlauf wird dabei aus guten Gruenden noch nicht als thermischer Lerneffekt ausgewertet.
+- Der Bericht unterscheidet nun beobachtete Temperatur-Stuetzpunkte von **echten WertAENDERUNGEN**; identische Messwerte koennen trotz neuer Original-Zeitstempel sinnvoll sein.
+- Keine neue Variable, kein weiteres Modul und **kein** zusaetzlicher Aktorzugriff. Die Diagnose bleibt vom Helios-Wochenplan und von den bestehenden Sicherheitsfreigaben getrennt.
+
+Die Tests enthalten nun eine 48-Stunden-Simulation mit minuetlichen LCN-Temperaturzeitpunkten, kontrollieren die unverfaelschten Original-Timestamps sowie die Wetterdiagnose bei verifiziertem, altem und fehlendem Snapshot.
+
+**Nach Aktualisierung der Modulbibliothek** die vorhandene HELIOS-SMART-Konfiguration uebernehmen und `Nur Lerndiagnose aktualisieren (keine Schaltung)` druecken. Erste wirklich mehrtaegige Ergebnisse sind naturgemaess erst nach laengerer Beobachtung moeglich.
