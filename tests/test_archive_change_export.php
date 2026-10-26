@@ -1,5 +1,5 @@
 <?php
-require_once __DIR__.'/../simulation/ArchiveChangeExport.php';
+require_once __DIR__.'/simulation/ArchiveChangeExport.php';
 function ae(bool $ok,string $message):void {
     if(!$ok) {fwrite(STDERR,"FAIL ".$message."\n");exit(1);}
     echo "PASS ".$message."\n";

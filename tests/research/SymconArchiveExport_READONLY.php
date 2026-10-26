@@ -12,7 +12,7 @@
  */
 declare(strict_types=1);
 require_once __DIR__.'/../simulation/ArchiveChangeExport.php';
-require_once __DIR__.'/../libs/LCNRoomSources.php';
+require_once __DIR__.'/../../libs/LCNRoomSources.php';
 
 $smartInstanceID=52187; // Existing HELIOS SMART instance: READ PROPERTIES ONLY
 $lastHours=48;           // 24-72h research window; 48h default

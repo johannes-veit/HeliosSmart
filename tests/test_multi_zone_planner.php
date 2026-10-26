@@ -1,6 +1,6 @@
 <?php
 /** Multi-zone research tests: every single quantity below is an assumption. */
-require_once __DIR__.'/../simulation/MultiZonePlanner.php';
+require_once __DIR__.'/simulation/MultiZonePlanner.php';
 function mz(bool $ok,string $why):void {
     if (!$ok) {fwrite(STDERR,"FAIL $why\n"); exit(1);}
     echo "PASS $why\n";

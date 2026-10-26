@@ -2,8 +2,8 @@
 
 ## Was neu ist
 
-- `simulation/ArchiveChangeExport.php` – reine, unabhängig testbare Export-Funktion mit injizierten Lese-Callbacks; kein IP-Symcon-Befehl im Kern.
-- `research/SymconArchiveExport_READONLY.php` – **optionales, ausschließlich manuell ausführbares** Symcon-Forschungsskript; wird weder von `HeliosSmart/module.php` geladen noch von einem Timer aufgerufen.
+- `tests/simulation/ArchiveChangeExport.php` – reine, unabhängig testbare Export-Funktion mit injizierten Lese-Callbacks; kein IP-Symcon-Befehl im Kern.
+- `tests/research/SymconArchiveExport_READONLY.php` – **optionales, ausschließlich manuell ausführbares** Symcon-Forschungsskript; wird weder von `HeliosSmart/module.php` geladen noch von einem Timer aufgerufen.
 - `tests/test_archive_change_export.php` – Regression zu chronologischer Reihenfolge, fehlenden Variablen, fehlender Archivierung, Links, Abfragegrößenbegrenzung, Datenlücken und zweifelhaften Zeitstempeln.
 - Keine neue IP-Symcon-Instanz, keine neue Anzeigevariable, keine Änderung bestehender Sensorik, kein Zugriff auf Helios-Schaltbefehle, keine Änderung der Archivierung.
 
@@ -61,7 +61,7 @@ Status `MISSING_ARCHIVE_SOURCES_NOT_REPLAY_READY` unterscheidet fehlende Quellen
 
 ## Späterer Replay-Schritt
 
-`simulation/ArchiveReplay.php` darf nur eindeutig belegte Stunden mit originalen Sensor-Zeitstempeln, unabhängiger Wetterinformation und dokumentiert konstanten Helios-Zuständen auswerten. Ein voller, nachvollziehbarer Stunden-Verlauf der Lüfterstufe bzw. des Bypasses ist nicht automatisch dadurch gegeben, dass das Archive Control im Fenster keinen Wertwechsel zeigt. Deshalb werden `stage_stable_for_hour`, `bypass_stable_for_hour` und Sensorfrische **nicht** aus dieser Rohdatenliste auf `true` gesetzt.
+`tests/simulation/ArchiveReplay.php` darf nur eindeutig belegte Stunden mit originalen Sensor-Zeitstempeln, unabhängiger Wetterinformation und dokumentiert konstanten Helios-Zuständen auswerten. Ein voller, nachvollziehbarer Stunden-Verlauf der Lüfterstufe bzw. des Bypasses ist nicht automatisch dadurch gegeben, dass das Archive Control im Fenster keinen Wertwechsel zeigt. Deshalb werden `stage_stable_for_hour`, `bypass_stable_for_hour` und Sensorfrische **nicht** aus dieser Rohdatenliste auf `true` gesetzt.
 
 Für einen realen 6-/24h-Rückblick wird zunächst ein separates, dokumentiertes Zusammenführungsverfahren benötigt. Dabei ist zu beachten: Prognosequalität von DWD und der zukünftigen Helios-Zuluft bleibt auch dann noch unbewiesen, wenn nachträglich beobachtete Bedingungen gut zur Gebäudereaktion passen.
 

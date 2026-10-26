@@ -4,8 +4,8 @@ Stand 25.10.2026. **Ausschließlich theoretische Offline-Entwicklung.** Kein Ein
 
 ## Was entwickelt wurde
 
-- `simulation/MultiZoneResponse.php`: gekoppeltes Mehrraum-Wärmemodell mit getrennten Anfangstemperaturen, effektivem thermischem Speicher `Wh/K`, Wärmeverlust `W/K`, solaren und internen Gewinnen, angenommener Zuluftverteilung und symmetrischem Wärmeübergang zwischen Räumen (`W/K`).
-- `simulation/MultiZonePlanner.php`: untersucht bis zu 48 Stunden, ob maximal drei **zusätzliche** 30-Minuten-Phasen auf S3/S4 gegenüber der jeweiligen Wochenplan-Stufe einen temperatur-/energiebezogenen theoretischen Vorteil liefern. Minimale Pause zwischen Zusatzphasen: drei Stunden.
+- `tests/simulation/MultiZoneResponse.php`: gekoppeltes Mehrraum-Wärmemodell mit getrennten Anfangstemperaturen, effektivem thermischem Speicher `Wh/K`, Wärmeverlust `W/K`, solaren und internen Gewinnen, angenommener Zuluftverteilung und symmetrischem Wärmeübergang zwischen Räumen (`W/K`).
+- `tests/simulation/MultiZonePlanner.php`: untersucht bis zu 48 Stunden, ob maximal drei **zusätzliche** 30-Minuten-Phasen auf S3/S4 gegenüber der jeweiligen Wochenplan-Stufe einen temperatur-/energiebezogenen theoretischen Vorteil liefern. Minimale Pause zwischen Zusatzphasen: drei Stunden.
 - `tests/test_multi_zone_planner.php`: drei individuell geschützte Räume mit verschieden hoher Anfangstemperatur; direkter Test der Energieerhaltung bei symmetrischem Wärmeaustausch; Zeitumstellung, fehlende Daten, zu kühles Schlafzimmer, schwüle Außenluft und 48 zusätzliche synthetische Eingangskombinationen.
 - `tests/test_multi_zone_house.php`: **elf namentlich bekannte Hauszonen** (EG Bad, Büro, Gäste-WC, Küche, Schlafen, Wohnen, OG Ankleide/HWR, Bad, Flur, Schlafen 1/2), aber mit *explizit erfundenen* thermischen Parametern und Luftverteilungsanteilen zur reinen Validierung des Rechenwegs.
 

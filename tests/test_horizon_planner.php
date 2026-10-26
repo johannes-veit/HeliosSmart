@@ -1,5 +1,5 @@
 <?php
-require_once __DIR__.'/../simulation/HorizonPlanner.php';
+require_once __DIR__.'/simulation/HorizonPlanner.php';
 function hp(bool $ok,string $why):void {
     if (!$ok) {fwrite(STDERR,"FAIL $why\n");exit(1);}
     echo "PASS $why\n";

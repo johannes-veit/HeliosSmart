@@ -1,6 +1,6 @@
 # HELIOS SMART | rein theoretische Stufenoptimierung mit Gebäudeträgheit
 
-Stand: 25. Oktober 2026. Umsetzung in `simulation/BuildingResponse.php`, `simulation/HorizonPlanner.php` und `simulation/ModelFitter.php`, mit den zugehörigen Tests. **Vollkommen getrennt** vom produktiven `HeliosSmart/module.php`. Kein Symcon-/Hersteller-Zugriff und keine Schaltfreigabe.
+Stand: 25. Oktober 2026. Umsetzung in `tests/simulation/BuildingResponse.php`, `tests/simulation/HorizonPlanner.php` und `tests/simulation/ModelFitter.php`, mit den zugehörigen Tests. **Vollkommen getrennt** vom produktiven `HeliosSmart/module.php`. Kein Symcon-/Hersteller-Zugriff und keine Schaltfreigabe.
 
 ## Ziel und Betriebsgrenzen
 - Bis zu 24–48 zusammenhängende **UTC-Stunden** durchrechnen; lokale Kalenderzeiten für die Beschriftung korrekt einschließlich Zeitumstellung ableiten.
@@ -39,7 +39,7 @@ Beispielhafte Ausgabe:
 Der Plan wird **nicht** in eine reale Helios-Schaltung umgewandelt, auch wenn die Tests bestehen.
 
 ## Gebäudeträgheit nur konditional lernen
-`simulation/ModelFitter.php` schätzt eine *effektive* Wärmekapazität aus mindestens 72 lückenlosen stündlichen Zustandsbeobachtungen, **unter der Annahme**, dass die Lüftungsmenge, der thermische Gebäude-Leitwert und Solar-/Innenwärmeeintrag bereits vorgegeben wurden. Er sucht innerhalb eines deklarierten Kapazitätsintervalls, vergleicht nur die nächste Stunde aus dem jeweils beobachteten Zustand und verwendet einen **zeitlich späteren Testblock** (mindestens 24 Punkte), der nicht für das Anlernen verwendet wird.
+`tests/simulation/ModelFitter.php` schätzt eine *effektive* Wärmekapazität aus mindestens 72 lückenlosen stündlichen Zustandsbeobachtungen, **unter der Annahme**, dass die Lüftungsmenge, der thermische Gebäude-Leitwert und Solar-/Innenwärmeeintrag bereits vorgegeben wurden. Er sucht innerhalb eines deklarierten Kapazitätsintervalls, vergleicht nur die nächste Stunde aus dem jeweils beobachteten Zustand und verwendet einen **zeitlich späteren Testblock** (mindestens 24 Punkte), der nicht für das Anlernen verwendet wird.
 
 Wenn die Wetteranregung oder Temperaturvariation fehlt, verweigert der Schätzer eine scheinbare Identifikation. Auch ein gut bestandener Test mit simulierten Daten validiert weder die angenommenen Stufenvolumenströme noch die wahre Speichermasse deines Gebäudes. Der Vergleich gegen die naive Prognose „Temperatur bleibt gleich“ wird offen ausgewiesen. Parameter können bei unbekannten solaren Gewinnen/UA stark miteinander korrelieren.
 

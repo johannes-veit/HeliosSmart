@@ -2,9 +2,9 @@
 
 ## Zweck und aktuelle Grenze
 
-Neu: `simulation/ArchiveReplay.php` und `tests/test_archive_replay.php`. **Ausschließlich Offline-Forschung.** Keine Änderung an `HeliosSmart/module.php`, IP-Symcon, LCN, Gerätenetz, Helios-Herstellerprogramm oder dem Bypass. `offline_only=true`, `hardware_authorized=false`, `usable_for_control=false` bleiben unter ALLEN Eingaben invariant.
+Neu: `tests/simulation/ArchiveReplay.php` und `tests/test_archive_replay.php`. **Ausschließlich Offline-Forschung.** Keine Änderung an `HeliosSmart/module.php`, IP-Symcon, LCN, Gerätenetz, Helios-Herstellerprogramm oder dem Bypass. `offline_only=true`, `hardware_authorized=false`, `usable_for_control=false` bleiben unter ALLEN Eingaben invariant.
 
-Der Prüfer kann später explizit exportierte Zeitreihen von IP-Symcon mit dem vorhandenen `simulation/MultiZoneResponse.php` vergleichen. **Bislang liegen keine realen Hausarchiv-Reihen als Input vor.** Die Tests verwenden ausschließlich künstlich erzeugte 120-Stunden-/Mehrraumverläufe und Gegenproben.
+Der Prüfer kann später explizit exportierte Zeitreihen von IP-Symcon mit dem vorhandenen `tests/simulation/MultiZoneResponse.php` vergleichen. **Bislang liegen keine realen Hausarchiv-Reihen als Input vor.** Die Tests verwenden ausschließlich künstlich erzeugte 120-Stunden-/Mehrraumverläufe und Gegenproben.
 
 Ein scheinbar kleiner Fehler in synthetischen Tests ist keine reale Modellgüte. Ein mit denselben physikalischen Annahmen erzeugter synthetischer Verlauf MUSS exakt wiedergegeben werden; das prüft lediglich die Rechenkette.
 

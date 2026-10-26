@@ -1,6 +1,6 @@
 <?php
-require_once __DIR__.'/../libs/ComfortController.php';
-require_once __DIR__.'/../libs/WeatherFlush.php';
+require_once __DIR__.'/../../libs/ComfortController.php';
+require_once __DIR__.'/../../libs/WeatherFlush.php';
 
 /**
  * Small, read-only research summary for the three questions:

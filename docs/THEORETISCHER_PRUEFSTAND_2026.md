@@ -2,7 +2,7 @@
 
 ## Status und Abgrenzung
 
-**OFFLINE ONLY.** Neue Datei `simulation/ThermalVentilation.php` und `tests/test_theoretical_ventilation.php`. Keine Änderung an der laufenden Modulentscheidung, keinen Symcon-Lese- oder Schreibzugriff, keine Aktivierung der Herstellersteuerung. Die bestehende kombinierte Wetter-/Komfortregel im Produktivmodul bleibt unverändert.
+**OFFLINE ONLY.** Neue Datei `tests/simulation/ThermalVentilation.php` und `tests/test_theoretical_ventilation.php`. Keine Änderung an der laufenden Modulentscheidung, keinen Symcon-Lese- oder Schreibzugriff, keine Aktivierung der Herstellersteuerung. Die bestehende kombinierte Wetter-/Komfortregel im Produktivmodul bleibt unverändert.
 
 672 synthetische Szenarien variieren Innenraumtemperatur, Stufen-Zulufttemperatur, hypothetisches Kühlziel und Außenfeuchte; die gesamte CI-Testsuite wird ausgeführt. Ein bestandener Test ist keine Aussage über tatsächliche Heiz-/Kühlleistung des Gebäudes oder Luftqualität.
 

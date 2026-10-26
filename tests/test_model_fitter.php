@@ -1,5 +1,5 @@
 <?php
-require_once __DIR__.'/../simulation/ModelFitter.php';
+require_once __DIR__.'/simulation/ModelFitter.php';
 function mf(bool $ok,string $msg):void {
     if (!$ok) {fwrite(STDERR,"FAIL $msg\n");exit(1);}
     echo "PASS $msg\n";

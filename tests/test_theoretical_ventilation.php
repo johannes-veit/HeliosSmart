@@ -1,6 +1,6 @@
 <?php
 /** These are HYPOTHETICAL study parameters, NOT fan measurements. */
-require_once __DIR__.'/../simulation/ThermalVentilation.php';
+require_once __DIR__.'/simulation/ThermalVentilation.php';
 function vt(bool $condition,string $message):void {
     if (!$condition) {fwrite(STDERR,"FAIL ".$message."\n");exit(1);}
     echo "PASS $message\n";

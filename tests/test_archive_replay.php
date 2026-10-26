@@ -1,5 +1,5 @@
 <?php
-require_once __DIR__.'/../simulation/ArchiveReplay.php';
+require_once __DIR__.'/simulation/ArchiveReplay.php';
 
 function ar(bool $condition,string $why):void {
     if (!$condition) {fwrite(STDERR,"FAIL $why\n");exit(1);}

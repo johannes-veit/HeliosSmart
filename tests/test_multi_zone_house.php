@@ -6,7 +6,7 @@
  * Bath/guest WC/kitchen/hall explicitly have ZERO direct supply in this
  * illustrative case; effective door heat coupling is not an airflow model.
  */
-require_once __DIR__.'/../simulation/MultiZonePlanner.php';
+require_once __DIR__.'/simulation/MultiZonePlanner.php';
 function houseCheck(bool $ok,string $why):void {
  if (!$ok) {fwrite(STDERR,"FAIL $why\n");exit(1);}
  echo "PASS $why\n";
