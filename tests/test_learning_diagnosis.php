@@ -43,11 +43,15 @@ ld($b['new_distinct_temperature_samples']===1
  && str_contains($b['report'],'delta +0.3C'),
  'Real changed temperature after one hour is captured, descriptive only');
 $stale=$rooms;
+foreach($stale as &$room) {
+    $room['temperature_observed_at']=$now+55*60;
+    $room['humidity_observed_at']=$now+55*60;
+} unset($room);
 $stale[0]['humidity_observed_at']=$now-12*3600;
 $stale[1]['temperature_observed_at']=$now-3*3600;
 $staleResult=JVHeliosLearningDiagnostics::update($b['state'],$stale,$snapshot,$now+3600);
 ld($staleResult['fresh_humidity_rooms']===3
- && $staleResult['fresh_temperature_rooms']===2,
+ && $staleResult['fresh_temperature_rooms']===3,
  'Stale RH or temperature not promoted to fresh by repeated evaluation');
 ld(str_contains($staleResult['report'],'Alter 780m'),
  'Original sensor age in minutes remains explicitly visible even when old');
