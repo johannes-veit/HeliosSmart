@@ -14,7 +14,7 @@ require_once __DIR__.'/LearningPatterns.php';
  */
 final class JVHeliosLearningStageStudy
 {
-    public static function analyze(array $samples,int $now):array
+    public static function analyze(array $samples,int $now,string $roomName=''):array
     {
         $out=[
             'status'=>'KEINE_VERGLEICHBAREN_NAECHTE',
@@ -38,6 +38,15 @@ final class JVHeliosLearningStageStudy
             'can_actuate'=>false,
             'read_only'=>true,
         ];
+        if($roomName!=='' && (stripos($roomName,'Bad')!==false
+            || stripos($roomName,'WC')!==false
+            || stripos($roomName,'Flur')!==false
+            || stripos($roomName,'Ankleide')!==false
+            || stripos($roomName,'HWR')!==false)) {
+            $out['status']='KEIN_WOHN_ODER_SCHLAFRAUM';
+            $out['data_gap']='KEIN_RELEVANTER_WOHNRAUM';
+            return $out;
+        }
         if($now<=0)return $out;
         $tz=new DateTimeZone('Europe/Berlin');
         $local=(new DateTimeImmutable('@'.$now))->setTimezone($tz);
