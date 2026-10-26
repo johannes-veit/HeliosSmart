@@ -233,6 +233,7 @@ final class JVHeliosLearningDiagnostics
         $month=(int)(new DateTimeImmutable('@'.$now))
             ->setTimezone(new DateTimeZone('Europe/Berlin'))->format('n');
         $seasonalClimate=JVHeliosLearningStore::seasonalSummary($state['seasonal'],$month);
+        $seasonCompare=JVHeliosLearningStore::compareSeasons($state['seasonal']);
         $measuredSpan=0;
         $enoughForDay=0;
         $longerTrend=0;
@@ -273,6 +274,12 @@ final class JVHeliosLearningDiagnostics
                     $seasonalClimate['mean_outside_dewpoint_c'],1,'.','').'C'
                     .' ('.$seasonalClimate['paired_samples'].' Messwerte)')
                 .' | keine Aussage zur Helios-Wirkung',
+            'Sommer/Winter-Vergleich: '.($seasonCompare['status']==='SAISONMITTEL_BEOBACHTBAR_NICHT_KAUSAL'
+                ?'gleiche '.$seasonCompare['common_rooms'].' Raeume | Innen-Aussen-Abstand Sommer '.
+                    number_format($seasonCompare['summer_mean_gap_k'],1,'.','').'K, Winter '.
+                    number_format($seasonCompare['winter_mean_gap_k'],1,'.','').'K'
+                :'NOCH_ZU_WENIG_WETTERPAARE ('.$seasonCompare['common_rooms'].' gemeinsame Raeume)')
+                .' | nur Langzeitbeobachtung, keine Helios-Wirkung',
             'Grund: Luftmengen, solare/interne Lasten und Zuluftfeuchte nicht gemessen',
             'Helios: Stufe '.($snapshot['fan_level']??'?')
                 .' | Modus '.($snapshot['mode']??'?')
@@ -312,6 +319,7 @@ final class JVHeliosLearningDiagnostics
                 $state['seasonal'],$state['last_report_at'],$state['last_diag_at']),
             'seasonal_totals'=>$seasonalTotals,
             'seasonal_climate'=>$seasonalClimate,
+            'summer_winter_comparison'=>$seasonCompare,
             'report'=>$report,
             'fresh_temperature_rooms'=>$freshTemperature,
             'fresh_humidity_rooms'=>$freshHumidity,
