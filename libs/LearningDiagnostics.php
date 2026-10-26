@@ -168,6 +168,7 @@ final class JVHeliosLearningDiagnostics
             $rhText=$humidityOK?number_format((float)$rh,0,'.','').'%':'?';
             $lines[]=$name.': T '.$tText.' (Alter '.($tAge===null?'?':$tAge.'m')
                 .'), RH '.$rhText.' (Alter '.($hAge===null?'?':$hAge.'m')
+                .($hAge!==null && $hAge>45?', nur Indikation':'')
                 .'), Punkte '.$n
                 .($dT===null?'':($span<7200?', Lernzeitraum noch zu kurz':
                     ', delta '.($dT>=0?'+':'').$dT.'C / '.round($span/3600,1).'h'))
