@@ -64,6 +64,20 @@ a($hs->getWatches()[53361]===VM_UPDATE && $hs->getWatches()[28802]===VM_UPDATE,'
 
 $hs->Evaluate();
 a(count($GLOBALS['calls'])===0,'Standard Beobachtung: Null Gerätebefehle');
+$learningText=(string)$hs->value('LernDiagnose');
+a(str_contains($learningText,'HELIOS SMART')
+  && str_contains($learningText,'LERNDIAGNOSE FUER CHATGPT')
+  && str_contains($learningText,'nicht gemessen'),
+  'Eine Lerndiagnose-Textvariable mit Quellen und Grenzen vorhanden');
+a(str_contains($learningText,'Keine automatische Uebertragung'),
+  'Kein ungewollter externer ChatGPT-Versand durch Lernprogramm');
+$sampled=json_decode($hs->ReadAttributeString('LearningObservationState'),true);
+a(is_array($sampled) && is_array($sampled['rooms']??null),
+  'Lernmesspunkte intern im Attribut statt weiteren sichtbaren Variablen');
+$hs->Evaluate();
+a(count($GLOBALS['calls'])===0,
+  'Wiederholte Lernbeobachtung verursacht keinen zusaetzlichen Helios-Befehl');
+
 a(str_contains($hs->value('Status'),'BEOBACHTUNG'),'Status signalisiert Beobachtung');
 $nowStrategy=json_decode($hs->value('DecisionJSON'),true);
 a(isset($nowStrategy['forecast_advice']) && isset($nowStrategy['daily_strategy']),
