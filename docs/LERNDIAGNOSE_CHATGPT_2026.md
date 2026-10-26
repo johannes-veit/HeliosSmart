@@ -80,3 +80,21 @@ Pro Raum waren bereits etwa 10-15 Temperatur-Zeitpunkte vorhanden, aber nur uebe
 Die Tests enthalten nun eine 48-Stunden-Simulation mit minuetlichen LCN-Temperaturzeitpunkten, kontrollieren die unverfaelschten Original-Timestamps sowie die Wetterdiagnose bei verifiziertem, altem und fehlendem Snapshot.
 
 **Nach Aktualisierung der Modulbibliothek** die vorhandene HELIOS-SMART-Konfiguration uebernehmen und `Nur Lerndiagnose aktualisieren (keine Schaltung)` druecken. Erste wirklich mehrtaegige Ergebnisse sind naturgemaess erst nach laengerer Beobachtung moeglich.
+
+## Naechster Entwicklungsschritt: Tagestrends und Lern-Kontext (26.10.2026)
+
+**Keine zusaetzlichen sichtbaren Symcon-Variablen, keine neuen Timer, keine neuen Hardwarebefehle.** Die bestehende eine Diagnosevariable `LernDiagnose` und das vorhandene begrenzte Instanzattribut `LearningObservationState` bleiben erhalten. Diese Aenderungen sind auf GitHub entwickelt, eine SymBox-Aktualisierung durch den Betreiber erfolgt **spaeter**.
+
+Die zwei Stuetzpunkte-Regeln der Vorversion werden erweitert:
+1. **24h-Temperaturtrend je Raum** nur bei acht oder mehr echten Stuetzpunkten innerhalb der letzten 24h, einer Originalmessung 20 bis 28h vor dem letzten Stuetzpunkt, und einem letzten Stuetzpunkt, der hoechstens drei Stunden alt ist. Klassifikation `WAERMER`, `KUEHLER`, `NAHEZU_GLEICH` bei mehr als +/-0,4 K. Das ist eine **Beobachtung**, keine Prognose, keine Helios-Wirkungszuschreibung.
+2. **Mehrtages-Evidenz** nach mindestens 48h Verteilung ueber mindestens 20 Stuetzpunkte, wenigen Luecken und ohne unplausible Spruenge. Es wird nicht behauptet, dass damit bereits Waermekapazitaet oder Heiz-/Kuehlleistung gelernt waeren.
+3. **Datenluecken und Ausreisser**: mehr als drei Stunden Abstand zwischen benachbarten Stuetzpunkten oder mehr als 3,0 K Temperaturwechsel innerhalb bis zu drei Stunden werden im Diagnosebericht kenntlich gemacht. Bei grobem Temperatur-Sprung wird kein sicherer 24h-Trend ausgegeben. Die Rohwerte werden nicht als Fehler geloescht.
+4. **Kurzer 7-Tage-Messbereich**: beobachtete Minimum-/Maximum-Werte werden intern deskriptiv fuer die Qualitaetsbewertung erfasst, keine Raum-Sollwerte geaendert.
+5. **Temperatur plus Luftzustand nur zum selben Zeitraum**: Ein Original-Raumtemperaturzeitpunkt muss maximal drei Minuten von der Diagnosezeit entfernt sein; verifizierter Wetter- und realer Helios-Zuluftwert duerfen hoechstens je zehn Minuten alt sein. Nur dann duerfen Wetteraussentemperatur, Taupunkt, Zuluft und aktuelle Stufe gemeinsam am Stuetzpunkt als `context.simultaneous_only=true` gespeichert werden. Das beweist **niemals**, dass Luefterstufe oder Bypass waehrend der naechsten zwei Stunden unveraendert waren. Es ist keine automatisch kalibrierte Kuehlleistung.
+6. **Stale Raumfeuchte sichtbar**: Ist ein RH-Wert aelter als 45 min, bleibt er im Diagnosebericht mit Originalalter ersichtlich, aber mit der Kennzeichnung `nur Indikation`.
+
+Die Kopfzeile der Lerndiagnose zeigt kuenftig `Messfortschritt` (maximaler beobachteter Verlauf, Anzahl der 24h-Vergleiche und Mehrtagestrends, Zahl der Datenluecken sowie wirklich zeitlich passende Wetter/Zuluft-Momentaufnahmen). Dadurch erkennt ChatGPT die wichtigsten Grenzen mit einem einzigen kopierten Diagnosetext.
+
+Es werden **keine Stundenwerte hochgerechnet**, keine originale Quelle mit frischen Messungen verwechselt und keine Aktorbefehle freigeschaltet. Ein Ergebnis `24h +0,3 C` bedeutet lediglich die Temperaturdifferenz zwischen zwei historischen Messzeitpunkten, nicht den Beweis eines Helios-Effekts. Die frueheren Nutzeranforderungen zu Komfort, Feuchte und sicherem Hersteller-Wochenplan bleiben unveraendert.
+
+Die Regression testet 48h haeufige reale Zeitpunkte, 72h Raumtrends, konstante Temperaturen, Datenluecken, abrupten Sprung, zu alte Beobachtungen, nicht passende Wetter- und Zuluft-Zeitstempel sowie die bestehende Symcon-Hardwarebefehlsfreiheit.
