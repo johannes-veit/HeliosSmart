@@ -123,6 +123,46 @@ nr($staleReview['status']==='NACHTVERGLEICHE_NICHT_AKTUELL'
 nr($a['recent_nights_with_weather']>=2
     &&$a['older_nights_ignored']>=1,
     'Recent matched nights drive the composite signal; older ones remain historical only');
+// Full-house synthetic integration: rank only actually supported warm
+// rooms, never a bathroom, a cool room, a wet-outside night or warm air.
+$names=[
+ 'EG Wohnen','OG Schlafen 1','EG Büro','EG Küche','EG Bad',
+ 'EG Gäste WC','EG Schlafen','OG Ankleide','OG Bad','OG Flur',
+ 'OG Schlafen 2',
+];
+$houseHistory=[];$houseNow=[];
+foreach($names as $name){
+    $variant=$name==='EG Büro'?'strong':
+        ($name==='EG Küche'?'humid':'weak');
+    $samples=scenario($start,$now,$variant);
+    if(!in_array($name,['EG Wohnen','OG Schlafen 1','EG Büro','EG Küche'],true))
+        foreach($samples as &$p)$p['c']=22.0;
+    unset($p);
+    $houseHistory[$name]=['samples'=>$samples];
+    $houseNow[]=['name'=>$name,
+        'temperature'=>in_array($name,['EG Wohnen','OG Schlafen 1','EG Büro','EG Küche'],true)
+            ?26.5:22.0,
+        'rh'=>50,'temperature_observed_at'=>$now,
+        'humidity_observed_at'=>$now];
+}
+$house=JVHeliosLearningDiagnostics::update(
+    ['rooms'=>$houseHistory],$houseNow,[
+        'weather_quality'=>'UNAVAILABLE','fan_level'=>3,
+        'mode'=>0,'program'=>3],$now);
+nr($house['night_high_review_priority_rooms']===2
+    &&$house['night_high_review_room_names']===['EG Wohnen','OG Schlafen 1'],
+    'House-level 11-room learning focuses only on two evidenced warm weakly cooling rooms');
+nr(str_contains($house['report'],'Nacht-Lernfokus (max. 3 Raeume): EG Wohnen, OG Schlafen 1')
+    &&$house['night_missing_evidence_rooms']>=0
+    &&$house['night_already_cooling_rooms']>=1,
+    'Single copyable ChatGPT report identifies rooms and stronger cooling cases');
+$maxStorage=strlen(json_encode($house['compact_state']));
+nr($maxStorage<50000 &&count($house['compact_state']['r'])===11,
+    '11-room combined learning stays under 50KB stored JSON using existing state format');
+nr(!isset($house['compact_state']['night_review'])
+    &&!isset($house['compact_state']['review_priority'])
+    &&!isset($house['compact_state']['overheat']),
+    'Ephemeral conclusions create zero new persistent keys or archive variables');
 // Vary 121 outdoor/dewpoint pair combinations without ever producing
 // an actuator entitlement or a false physical-cooling-efficiency claim.
 for($i=0;$i<=120;$i++){
