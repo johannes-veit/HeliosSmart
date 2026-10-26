@@ -45,6 +45,19 @@ ls($again['new_distinct_temperature_samples']===0
 ls(JVHeliosLearningStore::totals($again['state']['seasonal'])['observations']===4,
  'Monthly count remains idempotent on repeat evaluation');
 
+// A temporary missing room sensor must not erase 30-year seasonal evidence.
+$drop=JVHeliosLearningDiagnostics::update($compact,[$rooms[1]],$snapshot,$now+10*60);
+ls(!isset($drop['compact_state']['r']['EG Wohnen'])
+    && isset($drop['compact_state']['m']['EG Wohnen']),
+  'Temporary missing room drops short detail but preserves bounded long-term month statistics');
+$recover=$rooms;
+$recover[0]['temperature_observed_at']=$now+2*3600+30;
+$recover[0]['temperature']=22.2;
+$restored=JVHeliosLearningDiagnostics::update(
+    $drop['compact_state'],$recover,$snapshot,$now+2*3600+40);
+ls(isset($restored['compact_state']['m']['EG Wohnen'])
+ && $restored['compact_state']['m']['EG Wohnen'][10][0]===4,
+ 'Returning sensor continues established multi-year month counters instead of resetting');
 $st=$compact;$start=$now;
 // Simulate 30 years: never create 360 growing year/month series.
 // One genuine 2h support point per day; all twelve month-of-year bins remain
