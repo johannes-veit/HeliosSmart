@@ -114,6 +114,16 @@ foreach($source as $room){
 $learn=JVHeliosLearningDiagnostics::update($prior,$source,[
     'weather_quality'=>'UNAVAILABLE','fan_level'=>2,'mode'=>0,'program'=>3
 ],$now);
+if($learn['thermal_cooling_rooms']!==1
+    ||$learn['thermal_stable_rooms']!==1
+    ||$learn['thermal_contradictory_rooms']!==1)
+    fwrite(STDERR, 'THERMAL_HOUSE_DEBUG '.json_encode([
+        'cool'=>$learn['thermal_cooling_rooms'],
+        'stable'=>$learn['thermal_stable_rooms'],
+        'conflict'=>$learn['thermal_contradictory_rooms'],
+        'rooms'=>array_map(static fn($v)=>$v['status'],
+            $learn['per_room_thermal_windows'])
+    ])."\n");
 tw($learn['thermal_cooling_rooms']===1
     &&$learn['thermal_stable_rooms']===1
     &&$learn['thermal_contradictory_rooms']===1
