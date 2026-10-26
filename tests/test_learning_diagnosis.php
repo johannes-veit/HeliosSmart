@@ -31,6 +31,30 @@ ld(str_contains($a['report'],'LERNDIAGNOSE FUER CHATGPT')
  'Copyable complete report with input values, limitations and sharing instructions');
 ld(!$a['learning_calibrated'] && !$a['control_authorized'],
  'Early learning samples never authorize actuator or claim calibrated thermal inertia');
+ld(str_contains($a['report'],'-- Naechste Pruefschritte fuer ChatGPT (max. 5) --')
+ && str_contains($a['report'],'Pruefauftrag: Bitte Datenluecken priorisieren')
+ && str_contains($a['report'],'KEIN_NACHWEIS_DER_HELIOS_WIRKUNG'),
+ 'One copyable report tells ChatGPT what evidence to prioritize without pretending physical calibration');
+ld(str_contains($a['report'],'Sole-EWT Eintritt (NICHT Wetter-Aussenluft): 15.0C')
+ && str_contains($a['report'],'reale Aussenluft 9.3C')
+ && str_contains($a['report'],'Wetteralter ?'),
+ 'Device intake explicitly distinguished from real outdoor weather; missing age not guessed');
+ld(str_contains($a['report'],'Aussenwetter-Snapshot fuer zeitgleiche Lernpaare zu alt')
+ && str_contains($a['report'],'Tatsaechliche Zuluft nach Waermetauscher fuer zeitgleiche Lernpaare zu alt'),
+ 'Unspecified sensor ages are reported as missing proof, not fresh by assumption');
+$sourceAges=$snapshot;
+$sourceAges['outside_age_minutes']=2;
+$sourceAges['intake_age_minutes']=4;
+$updatedReport=JVHeliosLearningDiagnostics::update([],$rooms,$sourceAges,$now);
+ld(str_contains($updatedReport['report'],'Original-Messalter 4m')
+ && str_contains($updatedReport['report'],'Wetteralter 2m'),
+ 'Native intake and independent outside age appear as separate original timestamps');
+$untrustedWeather=$sourceAges;
+$untrustedWeather['weather_quality']='MODEL_SUPPORTED';
+$unverified=JVHeliosLearningDiagnostics::update([],$rooms,$untrustedWeather,$now);
+ld(str_contains($unverified['report'],'Verifiziertes Aussenwetter fehlt'),
+ 'A mere weather model is never passed to ChatGPT as verified outdoor input');
+
 $again=JVHeliosLearningDiagnostics::update($a['state'],$rooms,$snapshot,$now+5*60);
 ld($again['new_distinct_temperature_samples']===0
  && count($again['state']['rooms']['EG Wohnen']['samples'])===1,
