@@ -55,8 +55,9 @@ $staleResult=JVHeliosLearningDiagnostics::update($b['state'],$stale,$snapshot,$n
 ld($staleResult['fresh_humidity_rooms']===3
  && $staleResult['fresh_temperature_rooms']===3,
  'Stale RH or temperature not promoted to fresh by repeated evaluation');
-ld(str_contains($staleResult['report'],'Alter 960m'),
- 'Original sensor age in minutes remains explicitly visible even when old');
+ld(str_contains($staleResult['report'],'Alter 960m')
+ && str_contains($staleResult['report'],'nur Indikation'),
+ 'Several-hours-old room RH is shown with real age but explicitly only indicative');
 $bad=$rooms;$bad[0]['temperature_observed_at']=$now+3600;
 $future=JVHeliosLearningDiagnostics::update([],$bad,$snapshot,$now);
 ld($future['new_distinct_temperature_samples']===3,
@@ -103,6 +104,8 @@ $stats=JVHeliosLearningDiagnostics::describeHistory($twoDay,$now+72*3600);
 ld($stats['evidence']==='MEHRTAGES_TREND_BEOBACHTBAR'
  && $stats['trend_24h']==='WAERMER' && $stats['delta_24h_c']>=0.3,
  'Three days of genuine support points make an observed 24h warming trend measurable');
+ld($stats['paired_context_points']===0 && $stats['trend_24h']!=='NOCH_NICHT_MESSBAR',
+ 'Observed 24h temperature trend remains possible without making up weather or Helios context');
 ld($stats['gaps_gt_3h']===0 && $stats['jumps_gt_3c']===0
  && $stats['min_7d_c']===20.0,'Regular samples have no fake gaps or jumps');
 $constant=[];
