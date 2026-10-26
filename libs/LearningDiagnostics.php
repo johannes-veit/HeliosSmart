@@ -10,7 +10,7 @@ final class JVHeliosLearningDiagnostics
 {
     public static function update(array $prior, array $rooms, array $snapshot, int $now):array
     {
-        $state=['rooms'=>[],'last_report_at'=>$now];
+        $state=['rooms'=>[],'last_report_at'=>(int)($prior['last_report_at']??0)];
         $priorRooms=is_array($prior['rooms']??null)?$prior['rooms']:[];
         $lines=[];
         $changed=0;
@@ -73,6 +73,7 @@ final class JVHeliosLearningDiagnostics
                 .($dT===null?'':', delta '.($dT>=0?'+':'').$dT.'C / '.round($span/3600,1).'h');
         }
         $state['rooms']=array_intersect_key($state['rooms'],$seen);
+        if ($changed>0 || $state['last_report_at']<=0) $state['last_report_at']=$now;
         $fmt=static function($value,int $digits=1):string {
             return is_numeric($value)&&is_finite((float)$value)
                 ?number_format((float)$value,$digits,'.',''):'?';
