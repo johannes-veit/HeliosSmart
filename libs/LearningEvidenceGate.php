@@ -96,8 +96,13 @@ final class JVHeliosLearningEvidenceGate
         // Old weekly stamps are historical quality, not live freshness.
         if($result['daily']!=='BESCHREIBUNG_ZULAESSIG'
             ||$result['night']!=='BESCHREIBUNG_ZULAESSIG') {
-            $result['stage']='SPERRE_AKTUELLE_QUELLEN_ODER_NAECHTE';
-            $result['next_data']='AKTUELLE_24H_UND_NACHTBELEGE_PRUEFEN';
+            // Show "stale historical evidence" only when historical stage
+            // data actually exists. For a first install with zero points,
+            // the most useful message remains "collect real originals".
+            if(($w['stage_supported_weeks']??0)>=3) {
+                $result['stage']='SPERRE_AKTUELLE_QUELLEN_ODER_NAECHTE';
+                $result['next_data']='AKTUELLE_24H_UND_NACHTBELEGE_PRUEFEN';
+            }
             return $result;
         }
         if(($w['stage_supported_weeks']??0)>=3
