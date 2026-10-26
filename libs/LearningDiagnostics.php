@@ -327,6 +327,37 @@ final class JVHeliosLearningDiagnostics
             $gaps+=(int)$v['gaps_gt_3h'];
             $paired+=(int)$v['paired_context_points'];
         }
+        // Explain the next *evidence* gaps instead of treating a growing
+        // sample counter as a learned fan effect or a reason to switch S4.
+        // This is a concise checklist inside the EXISTING text variable.
+        $nextChecks=[];
+        if($freshTemperature<3)
+            $nextChecks[]='Weniger als 3 Raumtemperaturen mit originaler Aenderung <=120 min: Quellen und Meldeverhalten pruefen; unveraenderte Temperatur ist kein Fehlerbeweis.';
+        if($freshHumidity<3)
+            $nextChecks[]='Weniger als 3 Raumfeuchten mit originaler Aenderung <=45 min: Feuchtebewertung bleibt eingeschraenkt; nicht kuenstlich aktualisieren.';
+        if(!in_array($weather,['VERIFIED','DWD_ONLY'],true))
+            $nextChecks[]='Verifiziertes Aussenwetter fehlt; Helios-EWT-Eintritt ist KEINE reale Aussenmessung.';
+        elseif(!is_numeric($snapshot['outside_age_minutes']??null)
+            || (float)$snapshot['outside_age_minutes']>10)
+            $nextChecks[]='Aussenwetter-Snapshot fuer zeitgleiche Lernpaare zu alt oder Alter unbekannt (Soll <=10 min).';
+        if(!is_numeric($snapshot['supply_age_minutes']??null)
+            || (float)$snapshot['supply_age_minutes']>10)
+            $nextChecks[]='Tatsaechliche Zuluft nach Waermetauscher fuer zeitgleiche Lernpaare zu alt oder Alter unbekannt (Soll <=10 min).';
+        if($enoughForDay<3)
+            $nextChecks[]='Noch zu wenige echte 24h-Vergleiche ('.$enoughForDay.'/'.count($seen).' Raeume); mindestens einen weiteren Tag Originalmeldungen beobachten.';
+        if($paired<10)
+            $nextChecks[]='Wenig zeitgleiche Raum/Wetter/Zuluft-Daten ('.$paired.' Punkte): Messzeitpunkte vor dem Vergleich pruefen, keine Zwischenwerte erfinden.';
+        if($gaps>0)
+            $nextChecks[]='Zeitluecken >3h ('.$gaps.'): erst die Datenabdeckung klaeren, bevor aus Temperaturtrends Schluesse gezogen werden.';
+        if(!$nextChecks)
+            $nextChecks[]='Datenbasis fuer beschreibende Trends vorhanden; kausale Lueftungswirkung dennoch NICHT belegt.';
+        $nextChecks=array_slice($nextChecks,0,5);
+        $outsideAgeText=is_numeric($snapshot['outside_age_minutes']??null)
+            &&(float)$snapshot['outside_age_minutes']>=0
+            ?(int)$snapshot['outside_age_minutes'].'m':'?';
+        $intakeAgeText=is_numeric($snapshot['intake_age_minutes']??null)
+            &&(float)$snapshot['intake_age_minutes']>=0
+            ?(int)$snapshot['intake_age_minutes'].'m':'?';
         $header=[
             '=== HELIOS SMART – LERNDIAGNOSE FUER CHATGPT ===',
             'Messzeit: '.$date.' Europe/Berlin | Schema 1',
@@ -385,15 +416,22 @@ final class JVHeliosLearningDiagnostics
                 .' | Original-Messalter '.(
                     is_numeric($snapshot['supply_age_minutes']??null)
                         ?(int)$snapshot['supply_age_minutes'].'m':'?'),
-            'Sole-EWT Eintritt: '.$fmt($snapshot['intake_after_ewt']??null).'C',
-            'Wetter: '.$weather.' | Aussen '. $fmt($snapshot['outside_temperature']??null).'C'
-                .' | Aussen-Taupunkt '.$fmt($snapshot['outside_dewpoint']??null).'C',
+            'Sole-EWT Eintritt (NICHT Wetter-Aussenluft): '.
+                $fmt($snapshot['intake_after_ewt']??null).'C'
+                .' | Original-Messalter '.$intakeAgeText,
+            'Wetter: '.$weather.' | reale Aussenluft '. $fmt($snapshot['outside_temperature']??null).'C'
+                .' | Aussen-Taupunkt '.$fmt($snapshot['outside_dewpoint']??null).'C'
+                .' | Wetteralter '.$outsideAgeText,
             'Raumtemperaturen <=120m: '.$freshTemperature
                 .' | Raumfeuchten <=45m: '.$freshHumidity
                 .' | neue 2h-Stuetzpunkte dieser Auswertung: '.$changed,
             'Behaglichkeit: '.(string)($snapshot['comfort_classification']??'UNBEKANNT')
                 .' | Zusatzlueftung: '.(string)($snapshot['candidate_kind']??'UNBEKANNT')
                 .' | Hardwareausfuehrung aus Lernmodul: NEIN',
+            'Datenqualitaet: '.($freshTemperature>=3?'Raum-T ausreichend':'Raum-T eingeschraenkt')
+                .' | '.($freshHumidity>=3?'Raum-RH ausreichend':'Raum-RH eingeschraenkt')
+                .' | '.($paired>=10?'Lernpaare vorhanden':'Lernpaare noch selten')
+                .' | KEIN_NACHWEIS_DER_HELIOS_WIRKUNG',
             '-- Raeume: 2h-Stuetzpunkte mit originaler Messzeit (max. 84/Raum) --',
         ];
         $footer=[
@@ -411,7 +449,10 @@ final class JVHeliosLearningDiagnostics
             'Gleiche Temperatur bedeutet weder Sensorfehler noch fehlenden Update; kein erzwungener Stundenwert.',
             'Bitte diesen gesamten Diagnose-Text in ChatGPT einfuegen; kein automatisches Senden.',
         ];
-        $report=implode("\n",array_merge($header,$lines,$footer));
+        $nextSection=['-- Naechste Pruefschritte fuer ChatGPT (max. 5) --'];
+        foreach($nextChecks as $i=>$note) $nextSection[]=($i+1).'. '.$note;
+        $nextSection[]='Pruefauftrag: Bitte Datenluecken priorisieren, reale Messbelege von Hypothesen trennen und keinerlei Schaltfreigabe aus diesem Bericht ableiten.';
+        $report=implode("\n",array_merge($header,$lines,$nextSection,$footer));
         return [
             'state'=>$state,
             'compact_state'=>JVHeliosLearningStore::encode($state['rooms'],
