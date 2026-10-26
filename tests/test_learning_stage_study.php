@@ -41,6 +41,24 @@ ss($sampleStudy['continuous_stage_proven']===false
     &&$sampleStudy['suggested_fan_level']===null
     &&$sampleStudy['can_actuate']===false,
     'Even many matched nights never prove causal fan effect, continuous stage, or hardware permission');
+ss($sampleStudy['data_gap']==='KAUSALITAET_BYPASS_FBH_FENSTER_NICHT_BELEGT'
+    &&!$sampleStudy['pair_directions_disagree'],
+    'Even consistent observational pairs still require FBH, bypass and opening status before any causal conclusion');
+$conflicting=$samples;
+foreach($conflicting as &$p){
+    $local=(new DateTimeImmutable('@'.$p['at']))->setTimezone($tz);
+    if($local->format('Y-m-d')==='2026-07-14'
+        &&in_array((int)$local->format('G'),[6,8],true)
+        &&(int)$p['context']['fan_level']===3)
+        $p['c']=27.2;
+}unset($p);
+$conflict=JVHeliosLearningStageStudy::analyze($conflicting,$now);
+ss($conflict['matched_weather_stage_pairs']>=2
+    &&$conflict['pair_directions_disagree']
+    &&$conflict['higher_stage_mean_delta_difference_c']===null
+    &&$conflict['status']==='WIDERSPRUECHLICHE_STUFENBEOBACHTUNGEN'
+    &&$conflict['data_gap']==='STOEREINFLUESSE_UNBEKANNT',
+    'Conflicting observed stage outcomes suppress misleading average and name unknown confounders');
 $all2=$samples;
 foreach($all2 as &$p)$p['context']['fan_level']=2;
 unset($p);
