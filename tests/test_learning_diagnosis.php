@@ -40,8 +40,13 @@ ld(str_contains($a['report'],'Sole-EWT Eintritt (NICHT Wetter-Aussenluft): 15.0C
  && str_contains($a['report'],'Wetteralter ?'),
  'Device intake explicitly distinguished from real outdoor weather; missing age not guessed');
 ld(str_contains($a['report'],'Aussenwetter-Snapshot fuer zeitgleiche Lernpaare zu alt')
- && str_contains($a['report'],'Tatsaechliche Zuluft nach Waermetauscher fuer zeitgleiche Lernpaare zu alt'),
- 'Unspecified sensor ages are reported as missing proof, not fresh by assumption');
+ && !str_contains($a['report'],'Tatsaechliche Zuluft nach Waermetauscher fuer zeitgleiche Lernpaare zu alt'),
+ 'Missing outside timestamp is flagged while genuine fresh supply age remains accepted');
+$tooOldSupply=$snapshot;
+$tooOldSupply['supply_age_minutes']=14;
+$tooOldSupplyReport=JVHeliosLearningDiagnostics::update([],$rooms,$tooOldSupply,$now);
+ld(str_contains($tooOldSupplyReport['report'],'Tatsaechliche Zuluft nach Waermetauscher fuer zeitgleiche Lernpaare zu alt'),
+ 'Old supply timestamp separately prevents paired learning evidence');
 $sourceAges=$snapshot;
 $sourceAges['outside_age_minutes']=2;
 $sourceAges['intake_age_minutes']=4;
