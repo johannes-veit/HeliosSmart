@@ -449,6 +449,7 @@ class HeliosSmart extends IPSModule
                 'weather_quality'=>'KEINE_VERIFIZIERTE_AUSSENMESSUNG',
                 'outside_temperature'=>null,
                 'outside_dewpoint'=>null,
+                'outside_age_minutes'=>null,
             ];
             // Read-only snapshot of the same WeatherZentrale that the normal
             // HELIOS decision uses. Never start a forecast refresh or alter
@@ -468,6 +469,8 @@ class HeliosSmart extends IPSModule
                             'weather_quality'=>$quality,
                             'outside_temperature'=>(float)$current['temperature'],
                             'outside_dewpoint'=>(float)$current['dewpoint'],
+                            'outside_age_minutes'=>isset($current['observed_at'])
+                                ?max(0,(int)floor(($now-(int)$current['observed_at'])/60)):null,
                         ];
                     } else {
                         $weatherInfo['weather_quality']=$quality.'_NICHT_AKTUELL_ODER_UNBESTAETIGT';
@@ -722,10 +725,13 @@ class HeliosSmart extends IPSModule
         // Ein spaeterer Fehler in Safety/Party/JSON darf die Meldung nicht blockieren.
         $this->WriteLearningReport($rooms,[
             'weather_quality'=>$decision['weather_quality']??'UNAVAILABLE',
-            'outside_temperature'=>($decision['weather_quality']??'')==='VERIFIED'
+            'outside_temperature'=>in_array(($decision['weather_quality']??''),['VERIFIED','DWD_ONLY'],true)
                 ?($decision['outside_temperature']??null):null,
-            'outside_dewpoint'=>($decision['weather_quality']??'')==='VERIFIED'
+            'outside_dewpoint'=>in_array(($decision['weather_quality']??''),['VERIFIED','DWD_ONLY'],true)
                 ?($decision['outside_dewpoint']??null):null,
+            'outside_age_minutes'=>isset($weather['current']['observed_at'])
+                && in_array(($decision['weather_quality']??''),['VERIFIED','DWD_ONLY'],true)
+                ?max(0,(int)floor(($now-(int)$weather['current']['observed_at'])/60)):null,
             'comfort_classification'=>$decision['comfort_control']['classification']??'UNBEKANNT',
             'candidate_kind'=>$candidate['kind']??'KEEP_WEEKLY',
         ],$now);
