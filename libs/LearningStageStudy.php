@@ -25,6 +25,8 @@ final class JVHeliosLearningStageStudy
             'supply_not_cooler_nights'=>0,
             'matched_weather_stage_pairs'=>0,
             'higher_stage_mean_delta_difference_c'=>null,
+            'pair_directions_disagree'=>false,
+            'data_gap'=>'MEHR_VOLLSTAENDIGE_NAECHTE',
             'matched_stage_pairs'=>[],
             'observed_stage_only'=>true,
             'continuous_stage_proven'=>false,
@@ -111,6 +113,9 @@ final class JVHeliosLearningStageStudy
                 'stage_observation_points'=>$contexts];
         }
         if(count($eligible)<2){
+            $out['data_gap']=$out['stage_transitions_seen']>0
+                ?'STUFENWECHSEL_BEOBACHTET'
+                :'GEMEINSAME_ZULUFT_WETTER_UND_STUFENMESSUNGEN_FEHLEN';
             $out['status']=$out['stage_transitions_seen']>0
                 ?'STUFENWECHSEL_IN_BEOBACHTUNG'
                 :'ZU_WENIGE_STUFENBEOBACHTUNGEN';
@@ -154,13 +159,32 @@ final class JVHeliosLearningStageStudy
         }
         $out['matched_weather_stage_pairs']=count($pairs);
         $out['matched_stage_pairs']=$pairs;
-        if(!$pairs){$out['status']='KEINE_AEHNLICHEN_WETTERNAECHTE_MIT_ANDEREN_STUFEN';return $out;}
+        if(!$pairs){
+            $out['status']='KEINE_AEHNLICHEN_WETTERNAECHTE_MIT_ANDEREN_STUFEN';
+            $out['data_gap']='GLEICHE_AUSSENBEDINGUNGEN_MIT_ANDERER_STUFE_FEHLEN';
+            return $out;
+        }
         if(count($pairs)>=2){
+            $positive=count(array_filter($diffs,
+                static fn($d)=>$d>=0.25));
+            $negative=count(array_filter($diffs,
+                static fn($d)=>$d<=-0.25));
+            if($positive>0 &&$negative>0){
+                // Opposite directions could reflect FBH, solar gains,
+                // occupants, bypass or pure sensor noise. Do not provide
+                // a misleading averaged stage advantage.
+                $out['pair_directions_disagree']=true;
+                $out['status']='WIDERSPRUECHLICHE_STUFENBEOBACHTUNGEN';
+                $out['data_gap']='STOEREINFLUESSE_UNBEKANNT';
+                return $out;
+            }
             $out['status']='MEHRERE_NATUERLICHE_STUFENVERGLEICHE_NUR_BEOBACHTUNG';
             $out['higher_stage_mean_delta_difference_c']=round(
                 array_sum($diffs)/count($diffs),2);
+            $out['data_gap']='KAUSALITAET_BYPASS_FBH_FENSTER_NICHT_BELEGT';
         } else {
             $out['status']='ERSTES_NATUERLICHES_STUFENPAAR_NUR_BEOBACHTUNG';
+            $out['data_gap']='WEITERE_VERGLEICHBARE_NAECHTE';
         }
         return $out;
     }
