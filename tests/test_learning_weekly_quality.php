@@ -31,6 +31,29 @@ function sampleWeek(int $start,int $direction=-1,bool $context=true):array {
     }
     return $rows;
 }
+// Deterministic overnight behaviour, all timestamps original, with the
+// same small completed-week q record, not an additional time series.
+function thermalWeek(int $start,string $kind):array {
+    $tz=new DateTimeZone('Europe/Berlin');$rows=[];
+    for($i=0;$i<84;$i++){
+        $at=$start+$i*7200;
+        $dt=(new DateTimeImmutable('@'.$at))->setTimezone($tz);
+        $h=(int)$dt->format('G');
+        $night=$h>=20||$h<=9;
+        $localNight=$h<=9?$dt->modify('-1 day'):$dt;
+        $choice=$kind==='mixed'
+            ?((int)$localNight->format('j')%2===0?'cool':'flat')
+            :$kind;
+        $step=$h>=20?($h-20)/2:($h+4)/2;
+        $c=$night&&$choice==='cool'?26.0-$step*0.2:26.0;
+        $rows[]=['at'=>$at,'c'=>round($c,2),'context'=>[
+            'simultaneous_only'=>true,'outside_c'=>20.0,
+            'outside_dewpoint_c'=>12.0,'supply_c'=>19.0,
+            'fan_level'=>2,
+        ]];
+    }
+    return $rows;
+}
 $empty=JVHeliosLearningWeeklyQuality::capture(
     [],[],'EG Wohnen',wStart('2026-07-13 00:05:00'));
 wq($empty===[],
@@ -64,6 +87,45 @@ $dstWeek=JVHeliosLearningWeeklyQuality::capture(
 wq(count($dstRows)===85 &&$dstWeek[0][1]===2
     &&$dstWeek[0][2]===84 &&$dstWeek[0][3]===84,
     'Berlin October time change includes true extra hour without creating an 85th stored count or fake weekly time interval');
+$firstThermal=JVHeliosLearningWeeklyQuality::capture(
+    [],thermalWeek($week,'cool'),'EG Wohnen',$now);
+wq(count($firstThermal[0])===8 &&$firstThermal[0][7]===1
+    &&$firstThermal[0][1]>=2,
+    'Only one optional integer persists repeated 6h room cooling in a real finished week');
+$flatThermal=JVHeliosLearningWeeklyQuality::capture(
+    [],thermalWeek($week,'flat'),'EG Wohnen',$now);
+wq(count($flatThermal[0])===8 &&$flatThermal[0][7]===2,
+    'Flat observed summer nights are encoded by one distinct finite weekly value');
+$wetRoomThermal=JVHeliosLearningWeeklyQuality::capture(
+    [],thermalWeek($week,'cool'),'OG Bad',$now);
+wq($wetRoomThermal[0][7]===0,
+    'Wet room has no thermic study sign even if its sensors report benign night conditions');
+$three=[];
+for($i=0;$i<4;$i++){
+    $monday=(new DateTimeImmutable('2026-07-06 00:00:00',$tz))
+        ->modify('+'.$i.' weeks');
+    $firstAt=$monday->getTimestamp();
+    $nextMonday=$monday->modify('+1 week')->getTimestamp()+300;
+    $three=JVHeliosLearningWeeklyQuality::capture(
+        $three,thermalWeek($firstAt,'cool'),'EG Wohnen',$nextMonday);
+}
+$threeView=JVHeliosLearningWeeklyQuality::assess($three);
+wq(count($three)===4&&$threeView['thermal_cooling_weeks']===4
+    &&$threeView['thermal_status']==='MEHRWOECHIG_RAUMLUFT_ABGEKUEHLT',
+    'Four independent completed hot-season weeks show repeatable observed room cooling without a causal effect');
+$thirdFlipped=$three;
+$thirdFlipped[3][7]=2;
+$contrary=JVHeliosLearningWeeklyQuality::assess($thirdFlipped);
+wq($contrary['thermal_status']==='THERMIKWOCHEN_WIDERSPRUECHLICH'
+    &&$contrary['thermal_stable_weeks']===1,
+    'Opposite thermal pattern in one independent week vetoes a repeated direction');
+$formerSeven=[[202628,2,80,78,0,9,0]];
+wq(JVHeliosLearningWeeklyQuality::decode($formerSeven)===$formerSeven
+    &&JVHeliosLearningWeeklyQuality::assess($formerSeven)['thermal_cooling_weeks']===0,
+    'Old 7-number weekly footprints survive unchanged and never acquire invented historical thermics');
+$illegalEight=[[202628,2,80,78,0,9,0,9]];
+wq(JVHeliosLearningWeeklyQuality::decode($illegalEight)===[],
+    'Unexpected or corrupt eighth thermal state is rejected at compact-storage boundary');
 $legacy=['v'=>2,'t'=>$now,'d'=>$now,'r'=>[],'m'=>[]];
 $decoded=JVHeliosLearningStore::decode($legacy);
 wq($decoded['weekly']===[],'Old v2 learning state without optional weekly quality field decodes without inventing previous history');
