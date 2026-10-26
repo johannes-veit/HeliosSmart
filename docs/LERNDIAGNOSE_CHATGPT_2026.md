@@ -147,3 +147,18 @@ Der Langzeitspeicher unterscheidet weiterhin **nicht** die einzelnen Kalenderjah
 Die zusätzlichen Zahlen erhöhen den Speicherbedarf nur geringfügig. Die synthetische Regression überprüft den genauen Vergleich (zum Beispiel im Mittel 4,0 K innen wärmer und 14,0 °C Außentaupunkt), die korrekte Rückgewinnung nach Neuladen, abgewiesene unrealistische Taupunkte und die vollständige Abwesenheit von Aktorbefehlen.
 
 **Hinweis:** Selbst ein mehrjähriges gemessenes Monatsmittel bleibt eine deskriptive Haus-/Wetterbeobachtung, keine kalibrierte Aussage über Kühlleistung oder eine eigenständige Automatikfreigabe. Die produktive Lüftungsregelung wird nicht verändert. Die neue Version verbleibt bis zur späteren Aktualisierung durch den Betreiber ausschließlich auf GitHub.
+
+## Sommer-/Wintervergleich ohne zusaetzlichen Speicher (26.10.2026)
+
+Die vorhandenen zwoelf wiederverwendeten Monatsstatistiken pro Raum reichen fuer eine erste **passive saisonale Gegenueberstellung**. Die neue Funktion `JVHeliosLearningStore::compareSeasons()` berechnet ausschliesslich im Arbeitsspeicher:
+
+- **Sommer:** Juni, Juli, August.
+- **Winter:** Dezember, Januar, Februar.
+- Vergleich nur ueber **mindestens drei identische Raeume**, die in **beiden** Jahreszeiten je mindestens zwoelf belegte Wetter-/Raum-Messpaare aus wenigstens **zwei verschiedenen Monaten** besitzen. Ein nur im Sommer verfuegbarer Sensor oder ein Raum mit haeufigeren Meldungen darf das Ergebnis nicht dominieren; deshalb gehen die bereits beobachteten Mittelwerte der gemeinsamen Raeume jeweils gleichgewichtet ein.
+- Je Jahreszeit: beschreibendes Mittel **Raumtemperatur minus echte Wetter-Aussentemperatur** sowie mittlerer **Aussentaupunkt**. Differenz zwischen diesen Saisonmitteln wird ausschliesslich als Klimabeobachtung bezeichnet.
+- Bei unzureichender Datenbasis steht `ZU_WENIGE_VERGLEICHBARE_MONATSDATEN`, und es wird **kein** Saison-Unterschied erfunden.
+- Es entstehen keine weiteren Archive, Kalenderjahresstatistiken, Raumvariablen, Timer oder Eintraege im dauerhaften Speicher. Die bereits vorhandene `LernDiagnose` #40745 zeigt im Kopf eine kurze Zeile `Sommer/Winter-Vergleich`.
+
+**Interpretationsgrenzen:** Die 12 Monatsstatistiken summieren mehrere Jahre und erlauben nicht die Trennung einzelner Jahre. Ein Sommer-/Wintervergleich stellt **keinen Versuch mit gleich warmer und gleich feuchter Aussenluft** dar. Unterschiedliche FBH-Heizung/-Kuehlung, Sonneneinstrahlung, Fenster, offene Innentueren, Nutzerverhalten, Belueftungsstufe und der Sole-Erdwaermetauscher beeinflussen die Zusammenhaenge. Deshalb weder aus einer Differenz eine tatsaechliche Helios-Wirkung ableiten noch die Automatik oder den Hersteller-Wochenplan daraus veraendern.
+
+Die Regression prueft korrekte saisonale Mittelwerte, echte gemeinsame Raeume, mehrere Monate je Saison, fehlende Winterdaten, unausgewogene Raumzahlen und die unveraenderte kompakte Serialisierung.
