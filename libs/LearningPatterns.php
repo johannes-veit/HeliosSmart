@@ -73,17 +73,28 @@ final class JVHeliosLearningPatterns
                 'elapsed_h'=>round($elapsed/3600,1),
                 'observed_points'=>$covered,
                 'weather_paired'=>false,
-                'outside_evening_c'=>null,'outside_morning_c'=>null];
+                'outside_evening_c'=>null,'outside_morning_c'=>null,
+                'outside_dewpoint_evening_c'=>null,
+                'outside_dewpoint_morning_c'=>null];
             $ctxA=$a['context'];$ctxB=$b['context'];
             if(is_array($ctxA)&&is_array($ctxB)
                 && ($ctxA['simultaneous_only']??false)===true
                 && ($ctxB['simultaneous_only']??false)===true
-                && isset($ctxA['outside_c'],$ctxB['outside_c'])
+                && isset($ctxA['outside_c'],$ctxB['outside_c'],
+                    $ctxA['outside_dewpoint_c'],$ctxB['outside_dewpoint_c'])
                 && is_numeric($ctxA['outside_c'])
-                && is_numeric($ctxB['outside_c'])) {
+                && is_numeric($ctxB['outside_c'])
+                && is_numeric($ctxA['outside_dewpoint_c'])
+                && is_numeric($ctxB['outside_dewpoint_c'])
+                && (float)$ctxA['outside_dewpoint_c']
+                    <=(float)$ctxA['outside_c']+0.5
+                && (float)$ctxB['outside_dewpoint_c']
+                    <=(float)$ctxB['outside_c']+0.5) {
                 $entry['weather_paired']=true;
                 $entry['outside_evening_c']=(float)$ctxA['outside_c'];
                 $entry['outside_morning_c']=(float)$ctxB['outside_c'];
+                $entry['outside_dewpoint_evening_c']=(float)$ctxA['outside_dewpoint_c'];
+                $entry['outside_dewpoint_morning_c']=(float)$ctxB['outside_dewpoint_c'];
             }
             $nights[]=$entry;
         }
@@ -105,14 +116,18 @@ final class JVHeliosLearningPatterns
             $out['night_pattern']='ERSTE_NACHTVERLAEUFE';
         }
         // Compare consecutive eligible observed nights at near-equal
-        // EVENING AND MORNING actual outdoor temperature (<=2 K).
+        // EVENING AND MORNING outdoor temperature AND dew point (<=2 K).
         // At most one comparison per night, no pairwise multiplication.
         $previous=null;$differences=[];
         foreach($nights as $night) {
             if(!$night['weather_paired'])continue;
             if($previous!==null
                 && abs($night['outside_evening_c']-$previous['outside_evening_c'])<=2
-                && abs($night['outside_morning_c']-$previous['outside_morning_c'])<=2) {
+                && abs($night['outside_morning_c']-$previous['outside_morning_c'])<=2
+                && abs($night['outside_dewpoint_evening_c']
+                    -$previous['outside_dewpoint_evening_c'])<=2
+                && abs($night['outside_dewpoint_morning_c']
+                    -$previous['outside_dewpoint_morning_c'])<=2) {
                 $differences[]=abs($night['delta_c']-$previous['delta_c']);
             }
             $previous=$night;
