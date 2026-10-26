@@ -68,7 +68,7 @@ final class JVHeliosLearningPatterns
                 $out['rejected_incomplete_nights']++;
                 continue;
             }
-            $entry=['day'=>$day,'at_morning'=>$b['at'],
+            $entry=['day'=>$day,'at_evening'=>$a['at'],'at_morning'=>$b['at'],
                 'indoor_evening_c'=>round($a['c'],2),
                 'indoor_morning_c'=>round($b['c'],2),
                 'delta_c'=>round($b['c']-$a['c'],2),
