@@ -226,7 +226,7 @@ final class JVHeliosLearningDiagnostics
             $thermalWindows[$name]=JVHeliosLearningThermalWindows::analyze(
                 $history,$now,$name);
             $evidenceReviews[$name]=JVHeliosLearningEvidenceGate::review(
-                $name,$trend,$nights,$stageStudy,$weekly,$now);
+                $name,$trend,$nights,$stageStudy,$weekly,$now,$thermalWindows[$name]);
             $tText=$temperatureOK?number_format((float)$t,1,'.','').'C':'?';
             $rhText=$humidityOK?number_format((float)$rh,0,'.','').'%':'?';
             $lines[]=$name.': T '.$tText.' (Alter '.($tAge===null?'?':$tAge.'m')
@@ -323,6 +323,17 @@ final class JVHeliosLearningDiagnostics
             ],true)
                 &&$v['data_gap']!=='KAUSALITAET_BYPASS_FBH_FENSTER_NICHT_BELEGT')
                 $stageNextGaps[]=$roomName.': '.$v['data_gap'];
+        }
+        $thermalMultiCool=0;
+        $thermalMultiStable=0;
+        $thermalMultiConflict=0;
+        $thermalCurrentConsistent=0;
+        foreach($weeklyStats as $name=>$w){
+            if($w['thermal_status']==='MEHRWOECHIG_RAUMLUFT_ABGEKUEHLT')$thermalMultiCool++;
+            if($w['thermal_status']==='MEHRWOECHIG_RAUMLUFT_STABIL')$thermalMultiStable++;
+            if($w['thermal_status']==='THERMIKWOCHEN_WIDERSPRUECHLICH')$thermalMultiConflict++;
+            if(($evidenceReviews[$name]['thermal_repeatability']??'')
+                ==='WIEDERHOLT_BEOBACHTBAR_NICHT_KALIBRIERT')$thermalCurrentConsistent++;
         }
         $multiweekRoomOK=0;
         $multiweekWeatherOK=0;
@@ -444,6 +455,11 @@ final class JVHeliosLearningDiagnostics
             'Thermische Beobachtungsraeume (max. 3): '.(count($thermalRooms)>0
                 ?implode(', ',array_slice($thermalRooms,0,3))
                 :'noch kein wiederholt traeger Raum belastbar erkennbar'),
+            'Thermik-Wochenvergleich (max. 4 abgeschlossene): Abkuehlung '.$thermalMultiCool
+                .' Raeume | stabil '.$thermalMultiStable
+                .' | widerspruechlich '.$thermalMultiConflict
+                .' | auch aktuell bestaetigt '.$thermalCurrentConsistent
+                .' | nur Beobachtung, keine Gebaeude-Zeitkonstante',
             'Langzeit-Speicher: '.$seasonalTotals['observations']
                 .' echte 2h-Stuetzpunkte zu 12 wiederkehrenden Kalendermonaten'
                 .' | letzte 7 Tage im Detail | keine unbegrenzt wachsende Historie',
@@ -556,6 +572,10 @@ final class JVHeliosLearningDiagnostics
             'thermal_stable_rooms'=>$thermalStable,
             'thermal_contradictory_rooms'=>$thermalContradict,
             'thermal_more_evidence_rooms'=>$thermalMissing,
+            'thermal_weekly_cooling_rooms'=>$thermalMultiCool,
+            'thermal_weekly_stable_rooms'=>$thermalMultiStable,
+            'thermal_weekly_conflict_rooms'=>$thermalMultiConflict,
+            'thermal_weekly_recently_confirmed_rooms'=>$thermalCurrentConsistent,
             'daily_description_rooms'=>$reviewDaily,
             'night_description_rooms'=>$reviewNight,
             'multiweek_description_rooms'=>$reviewMulti,
