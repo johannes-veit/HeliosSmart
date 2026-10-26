@@ -212,8 +212,11 @@ final class JVHeliosLearningDiagnostics
                     ' (Mittel '.($nights['average_night_delta_c']>0?'+':'').
                     $nights['average_night_delta_c'].'C)':'');
         }
+        // The 7-day detail buffer may drop absent rooms, but the tiny
+        // 12-month long-term summary must survive a temporary missing sensor
+        // or a transient configuration read error. Bound total room keys.
         $state['rooms']=array_intersect_key($state['rooms'],$seen);
-        $state['seasonal']=array_intersect_key($state['seasonal'],$seen);
+        $state['seasonal']=array_slice($state['seasonal'],0,20,true);
         if ($changed>0 || $state['last_report_at']<=0) $state['last_report_at']=$now;
         $fmt=static function($value,int $digits=1):string {
             return is_numeric($value)&&is_finite((float)$value)
