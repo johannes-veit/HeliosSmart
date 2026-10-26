@@ -84,6 +84,28 @@ a(is_array($sampled) && is_array($sampled['rooms']??null),
 $hs->Evaluate();
 a(count($GLOBALS['calls'])===0,
   'Wiederholte Lernbeobachtung verursacht keinen zusaetzlichen Helios-Befehl');
+// Manually requested diagnosis must consult verified local WeatherZentrale
+// but must never refresh it or issue a Helios actuation.
+$GLOBALS['weatherForTest']=[
+  'quality'=>'VERIFIED',
+  'current'=>JVWeatherMath::readPair(8.0,80.0)+['observed_at'=>time()-100],
+  'forecast'=>[]
+];
+$oldCommandCount=count($GLOBALS['calls']);
+$hs->RefreshLearningReport();
+a(str_contains((string)$hs->value('LernDiagnose'),'Wetter: VERIFIED')
+  && str_contains((string)$hs->value('LernDiagnose'),'Aussen 8.0C')
+  && str_contains((string)$hs->value('LernDiagnose'),'Taupunkt'),
+  'Manual diagnosis includes independently verified true outdoor climate');
+a(count($GLOBALS['calls'])===$oldCommandCount,
+  'Weather learning diagnosis stays purely read-only');
+$GLOBALS['weatherForTest']['current']['observed_at']=time()-7200;
+$hs->RefreshLearningReport();
+a(str_contains((string)$hs->value('LernDiagnose'),'NICHT_AKTUELL_ODER_UNBESTAETIGT')
+ && str_contains((string)$hs->value('LernDiagnose'),'Aussen ?C'),
+ 'Stale weather source not misrepresented as fresh readings');
+unset($GLOBALS['weatherForTest']);
+
 
 a(str_contains($hs->value('Status'),'BEOBACHTUNG'),'Status signalisiert Beobachtung');
 $nowStrategy=json_decode($hs->value('DecisionJSON'),true);
