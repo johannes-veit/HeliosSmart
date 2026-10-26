@@ -37,26 +37,33 @@ final class JVHeliosLearningDiagnostics
             $hAge=$humidityOK?(int)floor(max(0,$now-$hStamp)/60):null;
             if($tAge!==null && $tAge<=120)$freshTemperature++;
             if($hAge!==null && $hAge<=45)$freshHumidity++;
+            // Temperature values arrive every 1-2 minutes. Keeping each one
+            // exhausted the former 72-point history in only ~2 hours.
+            // ONE ORIGINAL sample per 2h bucket spans a full seven days with
+            // 84 bounded entries/room. Never create a fabricated sample.
             $history=[];
             foreach((array)($priorRooms[$name]['samples']??[]) as $p) {
                 if(!is_array($p)||!is_numeric($p['at']??null)
                     ||!is_numeric($p['c']??null))continue;
                 $at=(int)$p['at'];$c=(float)$p['c'];
-                if($at<$now-7*86400 || $at>$now+120
-                    ||$c<8||$c>40)continue;
-                $history[$at]=['at'=>$at,'c'=>round($c,2)];
+                if($at<$now-7*86400 || $at>$now+120 ||$c<8||$c>40)continue;
+                $slot=intdiv($at,7200);
+                if(!isset($history[$slot]) ||$at<$history[$slot]['at'])
+                    $history[$slot]=['at'=>$at,'c'=>round($c,2)];
             }
             ksort($history,SORT_NUMERIC);
             $last=$history?end($history):null;
             if($temperatureOK && $tStamp>=(int)($last['at']??0)
-                && $tStamp>=$now-2*3600
-                && (!isset($history[$tStamp]))) {
-                // Original sample timestamp, not each repeated Evaluate tick.
-                $history[$tStamp]=['at'=>$tStamp,'c'=>round((float)$t,2)];
-                ksort($history,SORT_NUMERIC);
-                $changed++;
+                && $tStamp>=$now-2*3600) {
+                $slot=intdiv($tStamp,7200);
+                if(!isset($history[$slot])) {
+                    // Timestamp comes directly from the source variable.
+                    $history[$slot]=['at'=>$tStamp,'c'=>round((float)$t,2)];
+                    ksort($history,SORT_NUMERIC);
+                    $changed++;
+                }
             }
-            $history=array_slice(array_values($history),-72);
+            $history=array_slice(array_values($history),-84);
             $state['rooms'][$name]=['samples'=>$history];
             $n=count($history);
             $first=$n>0?$history[0]:null;
@@ -70,7 +77,8 @@ final class JVHeliosLearningDiagnostics
             $lines[]=$name.': T '.$tText.' (Alter '.($tAge===null?'?':$tAge.'m')
                 .'), RH '.$rhText.' (Alter '.($hAge===null?'?':$hAge.'m')
                 .'), Punkte '.$n
-                .($dT===null?'':', delta '.($dT>=0?'+':'').$dT.'C / '.round($span/3600,1).'h');
+                .($dT===null?'':($span<7200?', Lernzeitraum noch zu kurz':
+                    ', delta '.($dT>=0?'+':'').$dT.'C / '.round($span/3600,1).'h'));
         }
         $state['rooms']=array_intersect_key($state['rooms'],$seen);
         if ($changed>0 || $state['last_report_at']<=0) $state['last_report_at']=$now;
@@ -89,7 +97,7 @@ final class JVHeliosLearningDiagnostics
             '=== HELIOS SMART – LERNDIAGNOSE FUER CHATGPT ===',
             'Messzeit: '.$date.' Europe/Berlin | Schema 1',
             'Lernmodus: '.$status.' | NUR LESEN | Keine automatische Uebertragung',
-            'Lernstand: Temperatur-Aenderungen gesammelt; Gebaeudetraegheit NICHT kalibriert',
+            'Lernstand: Temperatur-Stuetzpunkte (alle 2h, originaler Zeitstempel); Gebaeudetraegheit NICHT kalibriert',
             'Grund: Luftmengen, solare/interne Lasten und Zuluftfeuchte nicht gemessen',
             'Helios: Stufe '.($snapshot['fan_level']??'?')
                 .' | Modus '.($snapshot['mode']??'?')
@@ -104,17 +112,17 @@ final class JVHeliosLearningDiagnostics
                 .' | Aussen-Taupunkt '.$fmt($snapshot['outside_dewpoint']??null).'C',
             'Raumtemperaturen <=120m: '.$freshTemperature
                 .' | Raumfeuchten <=45m: '.$freshHumidity
-                .' | neue originale Temperatur-Zeitpunkte dieser Auswertung: '.$changed,
+                .' | neue 2h-Stuetzpunkte dieser Auswertung: '.$changed,
             'Behaglichkeit: '.(string)($snapshot['comfort_classification']??'UNBEKANNT')
                 .' | Zusatzlueftung: '.(string)($snapshot['candidate_kind']??'UNBEKANNT')
                 .' | Hardwareausfuehrung aus Lernmodul: NEIN',
-            '-- Räume: originale Wertzeitpunkte (kein erfundener Sensor-Heartbeat) --',
+            '-- Raeume: 2h-Stuetzpunkte mit originaler Messzeit (max. 84/Raum) --',
         ];
         $footer=[
             '-- Auswertungshinweise --',
-            'delta beschreibt nur beobachtete T-Aenderung zwischen erstem und letztem gespeichertem Wert.',
+            'delta beschreibt nur beobachtete T-Aenderung zwischen erstem und letztem gespeicherten Stuetzpunkt.',
             'Kein Nachweis einer Ursache durch Helios; FBH, Sonne, geoeffnete Tueren/Fenster koennen mitwirken.',
-            'Keine Stundenwerte erfinden, keine originale Meldung wegen unveraendertem Wert voraussetzen.',
+            'Gleiche Temperatur bedeutet weder Sensorfehler noch fehlenden Update; kein erzwungener Stundenwert.',
             'Bitte diesen gesamten Diagnose-Text in ChatGPT einfuegen; kein automatisches Senden.',
         ];
         $report=implode("\n",array_merge($header,$lines,$footer));
