@@ -113,7 +113,7 @@ a(count($GLOBALS['calls'])===$oldCommandCount,
 $GLOBALS['weatherForTest']['current']['observed_at']=time()-7200;
 $hs->RefreshLearningReport();
 a(str_contains((string)$hs->value('LernDiagnose'),'NICHT_AKTUELL_ODER_UNBESTAETIGT')
- && str_contains((string)$hs->value('LernDiagnose'),'Aussen ?C'),
+ && str_contains((string)$hs->value('LernDiagnose'),'reale Aussenluft ?C'),
  'Stale weather source not misrepresented as fresh readings');
 unset($GLOBALS['weatherForTest']);
 
