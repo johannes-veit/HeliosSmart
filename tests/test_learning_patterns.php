@@ -54,6 +54,16 @@ $diff=JVHeliosLearningPatterns::analyze($changed,$now);
 np($diff['valid_nights']>=5 &&
     $diff['similar_weather_night_pairs']<$warm['similar_weather_night_pairs'],
     'Nights with different evening weather not called comparable');
+$damp=$samples;
+foreach($damp as &$r) {
+    $day=(int)(new DateTimeImmutable('@'.$r['at']))
+        ->setTimezone(new DateTimeZone('Europe/Berlin'))->format('z');
+    $r['context']['outside_dewpoint_c']=$day%2?11.0:15.0;
+} unset($r);
+$dampResult=JVHeliosLearningPatterns::analyze($damp,$now);
+np($dampResult['valid_nights']===$warm['valid_nights']
+    && $dampResult['similar_weather_night_pairs']<$warm['similar_weather_night_pairs'],
+    'Same outdoor temperature but materially different dewpoint is NOT similar summer weather');
 $withGap=$samples;
 $removeNight='2026-07-13';
 $withGap=array_values(array_filter($withGap,static function($r)use($removeNight){
