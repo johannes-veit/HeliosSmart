@@ -142,6 +142,14 @@ $untrusted=$pairedSnapshot;$untrusted['outside_age_minutes']=90;
 $notPaired=JVHeliosLearningDiagnostics::update([],[$rooms[0]],$untrusted,$now);
 ld($notPaired['paired_context_points']===0,
  'Old weather snapshot cannot be paired with a room measurement');
+$slightlyOld=$pairedSnapshot;$slightlyOld['outside_age_minutes']=12;
+$notPaired=JVHeliosLearningDiagnostics::update([],[$rooms[0]],$slightlyOld,$now);
+ld($notPaired['paired_context_points']===0,
+ 'Outside data 12 minutes old is fine for ordinary monitoring but not a tightly matched learning pair');
+$oldSupply=$pairedSnapshot;$oldSupply['supply_age_minutes']=14;
+$notPaired=JVHeliosLearningDiagnostics::update([],[$rooms[0]],$oldSupply,$now);
+ld($notPaired['paired_context_points']===0,
+ 'Stale supply is not incorrectly tied to current room temperature for learning');
 $tooFar=$rooms[0];$tooFar['temperature_observed_at']=$now-20*60;
 $nonConcurrent=JVHeliosLearningDiagnostics::update([],[$tooFar],$pairedSnapshot,$now);
 ld($nonConcurrent['paired_context_points']===0,
