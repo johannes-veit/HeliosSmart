@@ -268,9 +268,12 @@ final class JVHeliosLearningDiagnostics
         $nightHighPriority=0;
         $nightNeedsEvidence=0;
         $nightCoolingObserved=0;
-        foreach($nightOpportunities as $v) {
-            if($v['review_priority']==='HOHE_PRIORITAET_FUER_REINEN_DATENVERGLEICH')
+        $highNightRooms=[];
+        foreach($nightOpportunities as $roomName=>$v) {
+            if($v['review_priority']==='HOHE_PRIORITAET_FUER_REINEN_DATENVERGLEICH') {
                 $nightHighPriority++;
+                $highNightRooms[]=$roomName;
+            }
             if(in_array($v['status'],[
                 'WARM_ABER_NACHTDATEN_FEHLEN',
                 'AUSSENWETTER_NACHTVERGLEICH_FEHLT',
@@ -330,8 +333,12 @@ final class JVHeliosLearningDiagnostics
             'Nacht-Lernbewertung: '.$nightHighPriority
                 .' Raeume mit schwacher beobachteter Nachtabkuehlung trotz kuehler Aussennaechte'
                 .' | Daten fehlen bei '.$nightNeedsEvidence
-                .' | ausreichende Nachtabkuehlung bereits beobachtet: '.$nightCoolingObserved
+                .' | staerkere Nachtabkuehlung bereits beobachtet: '.$nightCoolingObserved
                 .' | NUR VERGLEICHSBEDARF, keine Luefterfreigabe',
+            'Nacht-Lernfokus (max. 3 Raeume): '.(count($highNightRooms)>0
+                ?implode(', ',array_slice($highNightRooms,0,3))
+                    .(count($highNightRooms)>3?', weitere '.(count($highNightRooms)-3):'')
+                :'noch keiner ausreichend belegt'),
             'Grund: Luftmengen, solare/interne Lasten und Zuluftfeuchte nicht gemessen',
             'Helios: Stufe '.($snapshot['fan_level']??'?')
                 .' | Modus '.($snapshot['mode']??'?')
@@ -387,6 +394,7 @@ final class JVHeliosLearningDiagnostics
             'per_room_overheating_evidence'=>$overheatStats,
             'per_room_night_review'=>$nightOpportunities,
             'night_high_review_priority_rooms'=>$nightHighPriority,
+            'night_high_review_room_names'=>$highNightRooms,
             'night_missing_evidence_rooms'=>$nightNeedsEvidence,
             'night_already_cooling_rooms'=>$nightCoolingObserved,
             'recent_overheating_rooms'=>$recentHeatRooms,
