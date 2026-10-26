@@ -59,6 +59,13 @@ function a($x,$why){if(!$x){fwrite(STDERR,"FAIL $why\n");exit(1);}echo "PASS $wh
 $wc=new WetterZentrale();$wc->Create();$wc->ApplyChanges();$wc->Refresh();
 a($wc->value('Quality')==='PWS_ONLY','Ohne externe Daten PWS nicht verifiziert');
 $hs=new HeliosSmart();$hs->Create();$hs->ApplyChanges();$hs->setProperty('WeatherCenterInstance',42);
+a(str_contains((string)$hs->value('LernDiagnose'),'LERNDIAGNOSE FUER CHATGPT'),
+  'Neue Lerndiagnose ist sofort nach ApplyChanges gefuellt und zeigt nicht mehr Nie');
+a(count($GLOBALS['calls'])===0,'ApplyChanges Lerndiagnose hat keinerlei Aktorbefehle');
+$form=json_decode($hs->GetConfigurationForm(),true);
+a(str_contains(json_encode($form),'JVHS_RefreshLearningReport'),
+  'Modul-Formular hat eigenen Schaltbefehls-freien Diagnose-Aktualisieren-Knopf');
+
 a(array_keys($hs->getWatches())===[53361,28802],'Nur EG/OG Bad registrieren VM_UPDATE');
 a($hs->getWatches()[53361]===VM_UPDATE && $hs->getWatches()[28802]===VM_UPDATE,'Abonnements reagieren ausschliesslich auf VM_UPDATE');
 
@@ -86,7 +93,13 @@ a(($nowStrategy['daily_strategy']['safety']??'')==='ADVISORY_ONLY',
   'Neue Tagesstrategie gibt keine Geraetefreigabe');
 a(($nowStrategy['daily_strategy']['program_change_executed']??null)===false,
   'Kein Wochenplanwechsel durch Tagesstrategie');
-$hs->setProperty('EnableControl',true);$hs->Evaluate();
+$hs->setProperty('EnableControl',true);
+$beforeLearningButtons=count($GLOBALS['calls']);
+$hs->RefreshLearningReport();
+a(count($GLOBALS['calls'])===$beforeLearningButtons
+  && str_contains((string)$hs->value('LernDiagnose'),'LERNDIAGNOSE FUER CHATGPT'),
+  'Separater Lernbericht schaltet auch bei aktivierter Automatik keine Helios-Party');
+$hs->Evaluate();
 a(count($GLOBALS['calls'])===0,'Freigabesperren blockieren einzelne Aktivierung');
 $hs->setProperty('MinimumVentilationValidated',true);
 $hs->setProperty('CombustionSafetyValidated',true);
