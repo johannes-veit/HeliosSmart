@@ -13,7 +13,7 @@ final class JVHeliosLearningStore
     public static function decode(array $saved):array
     {
         $out=['rooms'=>[],'last_report_at'=>(int)($saved['last_report_at']??$saved['t']??0),
-            'seasonal'=>[]];
+            'seasonal'=>[], 'last_diag_at'=>(int)($saved['d']??$saved['last_diag_at']??0)];
         $compact=($saved['v']??null)===2 && is_array($saved['r']??null);
         $rooms=$compact?$saved['r']:(array)($saved['rooms']??[]);
         foreach($rooms as $name=>$rows) {
@@ -58,10 +58,6 @@ final class JVHeliosLearningStore
                     $sum=(int)($v[1]??0);
                     $min=(int)($v[2]??0);
                     $max=(int)($v[3]??0);
-                    if($count<1||$count>1000000||$min>=$max+1) {
-                        // constant min==max is valid; only min>max is not.
-                        if($min>$max)continue;
-                    }
                     if($count<1||$count>1000000||$min>$max)continue;
                     $valid[$m]=[$count,$sum,$min,$max];
                 }
@@ -72,9 +68,9 @@ final class JVHeliosLearningStore
     }
 
     /** @param array<string, array{samples:array}> $rooms */
-    public static function encode(array $rooms,array $seasonal,int $stamp):array
+    public static function encode(array $rooms,array $seasonal,int $stamp,int $diagAt=0):array
     {
-        $packed=['v'=>2,'t'=>$stamp,'r'=>[],'m'=>[]];
+        $packed=['v'=>2,'t'=>$stamp,'d'=>$diagAt,'r'=>[],'m'=>[]];
         foreach($rooms as $name=>$state) {
             if(!is_string($name)||!is_array($state))continue;
             $rows=[];
