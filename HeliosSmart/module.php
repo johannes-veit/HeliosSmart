@@ -538,7 +538,7 @@ class HeliosSmart extends IPSModule
             if(!is_string($new)) throw new RuntimeException('Lernzustand nicht kodierbar');
             if($new!==$previousJson)
                 $this->WriteAttributeString('LearningObservationState',$new);
-            if($emit && ($force || $this->GetValue('LernDiagnose')!==$learning['report']))
+            if($emit)
                 $this->SetValue('LernDiagnose',$learning['report']);
         } catch(Throwable $e) {
             $this->SendDebug('LearningDiagnosis',substr($e->getMessage(),0,120),0);
