@@ -69,6 +69,8 @@ final class JVHeliosLearningPatterns
                 continue;
             }
             $entry=['day'=>$day,'at_morning'=>$b['at'],
+                'indoor_evening_c'=>round($a['c'],2),
+                'indoor_morning_c'=>round($b['c'],2),
                 'delta_c'=>round($b['c']-$a['c'],2),
                 'elapsed_h'=>round($elapsed/3600,1),
                 'observed_points'=>$covered,
