@@ -49,3 +49,4 @@ php tests/test_multi_zone_house.php
 php tests/test_archive_replay.php
 php tests/test_archive_change_export.php
 php tests/test_simple_decision.php
+php tests/test_learning_diagnosis.php
