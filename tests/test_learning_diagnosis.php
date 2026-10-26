@@ -35,6 +35,8 @@ $again=JVHeliosLearningDiagnostics::update($a['state'],$rooms,$snapshot,$now+5*6
 ld($again['new_distinct_temperature_samples']===0
  && count($again['state']['rooms']['EG Wohnen']['samples'])===1,
  'Five-minute timer cannot duplicate one original sensor update');
+ld($again['state']===$a['state'],
+ 'Repeated 5-minute evaluation leaves durable learning attribute unchanged');
 $second=$rooms;
 $second[0]['temperature']=23.9;
 $second[0]['temperature_observed_at']=$now+55*60;
