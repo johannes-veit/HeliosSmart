@@ -122,6 +122,61 @@ $invalid=JVHeliosLearningStore::record($invalid,'EG Wohnen',[
 ],$at);
 ls(JVHeliosLearningStore::seasonalSummary($invalid,7)['paired_samples']===0,
  'Physically implausible dewpoint higher than air temperature is excluded');
+// The existing twelve room-month counters also support a small
+// summer/winter report, without a YEAR series or an extra persistent field.
+$seasons=[];
+for($i=0;$i<3;$i++) {
+    $room='Referenzraum '.$i;
+    $seasons[$room]=[
+        6=>[8,8*240,240,240,8,8*50,8*130],
+        7=>[8,8*250,250,250,8,8*50,8*130],
+        12=>[8,8*210,210,210,8,8*140,8*15],
+        1=>[8,8*215,215,215,8,8*140,8*15],
+    ];
+}
+$seasonView=JVHeliosLearningStore::compareSeasons($seasons);
+ls($seasonView['status']==='SAISONMITTEL_BEOBACHTBAR_NICHT_KAUSAL'
+    && $seasonView['common_rooms']===3
+    && $seasonView['summer_mean_gap_k']===5.0
+    && $seasonView['winter_mean_gap_k']===14.0
+    && $seasonView['summer_vs_winter_gap_k']===-9.0,
+    'Summer and winter gap comparison uses same rooms in both seasons with two observed months');
+ls($seasonView['summer_mean_outside_dewpoint_c']===13.0
+    && $seasonView['winter_mean_outside_dewpoint_c']===1.5
+    && $seasonView['not_calibrated'] && $seasonView['cannot_compare_years'],
+    'Seasonal dewpoint signals are descriptive and cannot infer causal ventilation or individual years');
+$oneMonth=$seasons;
+foreach($oneMonth as &$bins)unset($bins[7]);
+unset($bins);
+ls(JVHeliosLearningStore::compareSeasons($oneMonth)['status']
+    ==='ZU_WENIGE_VERGLEICHBARE_MONATSDATEN',
+    'One summer month cannot be treated as a full long-term season');
+$oneRoom=$seasons;
+unset($oneRoom['Referenzraum 1'],$oneRoom['Referenzraum 2']);
+ls(JVHeliosLearningStore::compareSeasons($oneRoom)['status']
+    ==='ZU_WENIGE_VERGLEICHBARE_MONATSDATEN',
+    'Too few common rooms cannot produce a whole-house seasonal comparison');
+$noWinter=$seasons;
+foreach($noWinter as &$bins)unset($bins[1],$bins[12]);
+unset($bins);
+ls(JVHeliosLearningStore::compareSeasons($noWinter)['status']
+    ==='ZU_WENIGE_VERGLEICHBARE_MONATSDATEN',
+    'Missing winter or summer samples remain unknown; no fabricated history');
+$unmatched=$seasons;
+$unmatched['Only summer']=[6=>[1000,240000,240,240,1000,50000,150000],
+                         7=>[1000,240000,240,240,1000,50000,150000]];
+$second=JVHeliosLearningStore::compareSeasons($unmatched);
+ls($second['common_rooms']===3 &&
+    $second['summer_mean_gap_k']===$seasonView['summer_mean_gap_k'],
+    'Unmatched high-frequency summer-only room cannot distort comparable common-room means');
+$encoded=JVHeliosLearningStore::encode([], $seasons,$now);
+ls(JVHeliosLearningStore::compareSeasons(
+    JVHeliosLearningStore::decode($encoded)['seasonal']
+)['summer_vs_winter_gap_k']===-9.0,
+ 'Summer and winter evidence survives compact storage roundtrip and restarts');
+ls(!isset($encoded['years']) && !isset($encoded['summer'])
+    && !isset($encoded['winter']),
+    'Seasonal analysis uses fixed month buckets only, no new files or stored series');
 $st=$compact;$start=$now;
 // Simulate 30 years: never create 360 growing year/month series.
 // One genuine 2h support point per day; all twelve month-of-year bins remain
