@@ -506,7 +506,17 @@ class HeliosSmart extends IPSModule
                     $supplyAge=(int)floor(max(0,$now-$updated)/60);
             }
             $supply=$readNative($supplyId);
-            $intake=$readNative($intakeId);
+            $intakeAge=null;
+            if($intakeId>0 && IPS_VariableExists($intakeId)) {
+                $updated=(int)(IPS_GetVariable($intakeId)['VariableUpdated']??0);
+                if($updated>0 && $updated<=$now+120)
+                    $intakeAge=(int)floor(max(0,$now-$updated)/60);
+            }
+            // This device sensor sees air AFTER the ground-loop EWT, not
+            // independent outdoor weather. Never display an undated old
+            // device register as a current learning measurement.
+            $intake=$intakeAge!==null && $intakeAge<=20
+                ?$readNative($intakeId):null;
             $baseline=[
                 'weather_quality'=>'NICHT_ABGEFRAGT_NUR_LERNBERICHT',
                 'fan_level'=>$fan,
@@ -515,6 +525,7 @@ class HeliosSmart extends IPSModule
                 'supply_temperature'=>$supplyAge!==null && $supplyAge<=20?$supply:null,
                 'supply_age_minutes'=>$supplyAge,
                 'intake_after_ewt'=>$intake,
+                'intake_age_minutes'=>$intakeAge,
                 'outside_temperature'=>null,
                 'outside_dewpoint'=>null,
                 'comfort_classification'=>'NUR_MESSWERTE',
