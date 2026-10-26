@@ -40,9 +40,22 @@ Der Bericht nennt dabei die Grenzen explizit: Die beobachtete Temperaturveraende
 - Keine automatischen API-Aufrufe an ChatGPT, keine zusatzliche Datenuebertragung.
 - Die bereitstehenden Offline-Simulationsmodelle bleiben weiterhin nicht mit der produktiven Regelung verkoppelt.
 
+## Korrektur vom 26.10.2026 – Variable zeigt in Symcon 'Nie'
+
+Beim Erstellen einer neuen Variablen kann die vorherige volle Modulauswertung bereits vor dem Anlegen der Variablen erfolgt sein. Deshalb war `LernDiagnose` in einem Screenshot der Helios-Instanz #52187 als **#40745** sichtbar, aber der Wert hatte noch nie einen Schreibzeitpunkt, obwohl `Status` und `DecisionJSON` bereits Zeitstempel trugen.
+
+Das ist jetzt abgesichert:
+- `ApplyChanges()` ruft **nur `RefreshLearningReport()`** auf und füllt die Stringvariable unmittelbar nach dem Update mit einem lesenden ersten Bericht. Die vollständige `Evaluate()` wird bei der Installation **nicht** zusätzlich gestartet.
+- Im Instanz-Konfigurationsdialog gibt es neu den sicheren Button **'Nur Lerndiagnose aktualisieren (keine Schaltung)'**. Sein Befehl ist `JVHS_RefreshLearningReport($id)`. Er berührt **keine** Helios-Party-, Programm-, Bypass- oder LCN-Schaltfunktion.
+- Bei regulären Auswertungen wird die Lerndiagnose VOR dem gesamten Geräte- und Party-Ausführungsabschnitt geschrieben. Ein späterer Fehler kann die schon fertige Diagnose nicht verhindern.
+- Ein neuer Lauf ohne neue Temperaturzeitstempel überschreibt die internen Lernpunkte nicht unnötig. Der Diagnosetext selbst darf weiterhin aktualisiert werden.
+- Wenn Daten fehlen, wird ein verständlicher Teilbericht mit verfügbaren Werten erstellt statt dauerhaft 'Nie' anzuzeigen.
+
+Die Integrationsregression prueft jetzt das Vorhandensein des Diagnosetexts **direkt nach `ApplyChanges()`** und die komplette Befehlsfreiheit des manuellen Diagnosebuttons selbst bei gesetztem `EnableControl`.
+
 ## Benutzung
 
-1. Im Symcon Module Control das GitHub-Modul `HeliosSmart` aktualisieren, dann die Modulkonfiguration von **HELIOS SMART #52187** uebernehmen.
+1. Im Symcon Module Control das GitHub-Modul `HeliosSmart` aktualisieren, dann die Modulkonfiguration von **HELIOS SMART #52187** uebernehmen. Der erste Diagnosebericht wird dabei sofort geschrieben. Alternativ im Modul-Konfigurationsdialog **Nur Lerndiagnose aktualisieren (keine Schaltung)** anklicken.
 2. Unter der Instanz die neue Stringvariable **`Lernprogramm – Diagnose fuer ChatGPT`** oeffnen.
 3. Den kompletten Inhalt markieren/kopieren und hier in den Chat einfuegen.
 4. Danach kann ChatGPT Quelle und Messalter kontrollieren, fehlende Werte erkennen und den Lernbeobachter gezielt weiter verbessern. Es muessen **keine** separaten Skripte installiert werden.
