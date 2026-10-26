@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__.'/LearningPatterns.php';
+require_once __DIR__.'/LearningStore.php';
 /**
  * Passive room-temperature observer. One bounded instance attribute holds
  * original temperature CHANGE/UPDATE evidence; one user-visible diagnostic.
@@ -66,8 +67,29 @@ final class JVHeliosLearningDiagnostics
 
     public static function update(array $prior, array $rooms, array $snapshot, int $now):array
     {
-        $state=['rooms'=>[],'last_report_at'=>(int)($prior['last_report_at']??0)];
-        $priorRooms=is_array($prior['rooms']??null)?$prior['rooms']:[];
+        $expanded=JVHeliosLearningStore::decode($prior);
+        $state=['rooms'=>[],
+            'last_report_at'=>(int)($expanded['last_report_at']??0),
+            'seasonal'=>(array)($expanded['seasonal']??[])];
+        $priorRooms=(array)($expanded['rooms']??[]);
+        // Preserve and migrate historical data on the first update from
+        // legacy v1 format. On subsequent v2 runs, never count it twice.
+        if (!isset($prior['v']) && !isset($prior['seasonal'])) {
+            foreach($priorRooms as $oldName=>$oldRoom) {
+                $deduplicated=[];
+                foreach((array)($oldRoom['samples']??[]) as $original) {
+                    if(!isset($original['at'],$original['c']))continue;
+                    $at=(int)$original['at'];
+                    $slot=intdiv($at,7200);
+                    if(!isset($deduplicated[$slot]) ||
+                        $at<(int)$deduplicated[$slot]['at'])
+                        $deduplicated[$slot]=$original;
+                }
+                $state['seasonal']=JVHeliosLearningStore::record(
+                    $state['seasonal'],(string)$oldName,
+                    array_values($deduplicated),$now);
+            }
+        }
         $lines=[];
         $changed=0;
         $freshTemperature=0;
@@ -116,6 +138,7 @@ final class JVHeliosLearningDiagnostics
             }
             ksort($history,SORT_NUMERIC);
             $last=$history?end($history):null;
+            $newMonthlyEvidence=[];
             if($temperatureOK && $tStamp>=(int)($last['at']??0)
                 && $tStamp>=$now-2*3600) {
                 $slot=intdiv($tStamp,7200);
@@ -152,9 +175,13 @@ final class JVHeliosLearningDiagnostics
                         'context'=>$context,
                     ],static fn($value)=>$value!==null);
                     ksort($history,SORT_NUMERIC);
+                    $newMonthlyEvidence[]=$history[$slot];
                     $changed++;
                 }
             }
+            if($newMonthlyEvidence)
+                $state['seasonal']=JVHeliosLearningStore::record(
+                    $state['seasonal'],$name,$newMonthlyEvidence,$now);
             $history=array_slice(array_values($history),-84);
             $state['rooms'][$name]=['samples'=>$history];
             $n=count($history);
@@ -185,6 +212,7 @@ final class JVHeliosLearningDiagnostics
                     $nights['average_night_delta_c'].'C)':'');
         }
         $state['rooms']=array_intersect_key($state['rooms'],$seen);
+        $state['seasonal']=array_intersect_key($state['seasonal'],$seen);
         if ($changed>0 || $state['last_report_at']<=0) $state['last_report_at']=$now;
         $fmt=static function($value,int $digits=1):string {
             return is_numeric($value)&&is_finite((float)$value)
@@ -197,6 +225,7 @@ final class JVHeliosLearningDiagnostics
             :'BEOBACHTUNG_DATEN_TEILWEISE_FEHLEN';
         $date=(new DateTimeImmutable('@'.$now))
             ->setTimezone(new DateTimeZone('Europe/Berlin'))->format('d.m.Y H:i:s');
+        $seasonalTotals=JVHeliosLearningStore::totals($state['seasonal']);
         $measuredSpan=0;
         $enoughForDay=0;
         $longerTrend=0;
@@ -226,6 +255,9 @@ final class JVHeliosLearningDiagnostics
                 .' | Luecken '.$gaps.' | passende Wetter/Zuluft-Snapshots '.$paired,
             'Nachtmuster: mindestens 3 gueltige Naechte in '.$nightRooms.'/'.count($seen)
                 .' Raeumen | vergleichbare Aussenwetter-Nachtpaare '.$nightWeatherPairs,
+            'Langzeit-Speicher: '.$seasonalTotals['observations']
+                .' echte 2h-Stuetzpunkte zu 12 wiederkehrenden Kalendermonaten'
+                .' | letzte 7 Tage im Detail | keine unbegrenzt wachsende Historie',
             'Grund: Luftmengen, solare/interne Lasten und Zuluftfeuchte nicht gemessen',
             'Helios: Stufe '.($snapshot['fan_level']??'?')
                 .' | Modus '.($snapshot['mode']??'?')
@@ -260,6 +292,9 @@ final class JVHeliosLearningDiagnostics
         $report=implode("\n",array_merge($header,$lines,$footer));
         return [
             'state'=>$state,
+            'compact_state'=>JVHeliosLearningStore::encode($state['rooms'],
+                $state['seasonal'],$state['last_report_at']),
+            'seasonal_totals'=>$seasonalTotals,
             'report'=>$report,
             'fresh_temperature_rooms'=>$freshTemperature,
             'fresh_humidity_rooms'=>$freshHumidity,
