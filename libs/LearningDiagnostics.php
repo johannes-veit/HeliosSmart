@@ -230,6 +230,9 @@ final class JVHeliosLearningDiagnostics
         $date=(new DateTimeImmutable('@'.$now))
             ->setTimezone(new DateTimeZone('Europe/Berlin'))->format('d.m.Y H:i:s');
         $seasonalTotals=JVHeliosLearningStore::totals($state['seasonal']);
+        $month=(int)(new DateTimeImmutable('@'.$now))
+            ->setTimezone(new DateTimeZone('Europe/Berlin'))->format('n');
+        $seasonalClimate=JVHeliosLearningStore::seasonalSummary($state['seasonal'],$month);
         $measuredSpan=0;
         $enoughForDay=0;
         $longerTrend=0;
@@ -262,6 +265,14 @@ final class JVHeliosLearningDiagnostics
             'Langzeit-Speicher: '.$seasonalTotals['observations']
                 .' echte 2h-Stuetzpunkte zu 12 wiederkehrenden Kalendermonaten'
                 .' | letzte 7 Tage im Detail | keine unbegrenzt wachsende Historie',
+            'Monats-Wettervergleich: '.($seasonalClimate['mean_indoor_outdoor_gap_k']===null
+                ?'NOCH_NICHT_BEWERTBAR ('.$seasonalClimate['paired_samples'].' passende Messwerte)'
+                :'Innen minus Aussen '.number_format(
+                    $seasonalClimate['mean_indoor_outdoor_gap_k'],1,'.',''). 'K'
+                    .' | mittlerer Aussen-Taupunkt '.number_format(
+                    $seasonalClimate['mean_outside_dewpoint_c'],1,'.','').'C'
+                    .' ('.$seasonalClimate['paired_samples'].' Messwerte)')
+                .' | keine Aussage zur Helios-Wirkung',
             'Grund: Luftmengen, solare/interne Lasten und Zuluftfeuchte nicht gemessen',
             'Helios: Stufe '.($snapshot['fan_level']??'?')
                 .' | Modus '.($snapshot['mode']??'?')
@@ -289,6 +300,7 @@ final class JVHeliosLearningDiagnostics
             'Wetter/Zuluft-Kontext ist nur eine Momentaufnahme, KEIN Nachweis einer konstanten Helios-Stufe.',
             'Nachtabkuehlung: echte Abend-/Morgen-Messpunkte, keine Prognose und kein Beleg fuer Helios-Effekt.',
             'Vergleichbares Aussenwetter ist nicht gleichbedeutend mit gleichem Sonnen-/FBH-/Fensterzustand.',
+            'Monatsmittel enthalten Beobachtungen verschiedener Jahre; kein Vergleich einzelner Kalenderjahre.',
             'Kein Nachweis einer Ursache durch Helios; FBH, Sonne, geoeffnete Tueren/Fenster koennen mitwirken.',
             'Gleiche Temperatur bedeutet weder Sensorfehler noch fehlenden Update; kein erzwungener Stundenwert.',
             'Bitte diesen gesamten Diagnose-Text in ChatGPT einfuegen; kein automatisches Senden.',
@@ -299,6 +311,7 @@ final class JVHeliosLearningDiagnostics
             'compact_state'=>JVHeliosLearningStore::encode($state['rooms'],
                 $state['seasonal'],$state['last_report_at'],$state['last_diag_at']),
             'seasonal_totals'=>$seasonalTotals,
+            'seasonal_climate'=>$seasonalClimate,
             'report'=>$report,
             'fresh_temperature_rooms'=>$freshTemperature,
             'fresh_humidity_rooms'=>$freshHumidity,
