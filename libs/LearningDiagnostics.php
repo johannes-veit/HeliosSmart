@@ -4,6 +4,7 @@ require_once __DIR__.'/LearningStore.php';
 require_once __DIR__.'/LearningOverheat.php';
 require_once __DIR__.'/LearningNightOpportunity.php';
 require_once __DIR__.'/LearningStageStudy.php';
+require_once __DIR__.'/LearningEvidenceGate.php';
 /**
  * Passive room-temperature observer. One bounded instance attribute holds
  * original temperature CHANGE/UPDATE evidence; one user-visible diagnostic.
@@ -106,6 +107,7 @@ final class JVHeliosLearningDiagnostics
         $nightOpportunities=[];
         $stageStudies=[];
         $weeklyStats=[];
+        $evidenceReviews=[];
         foreach($rooms as $room) {
             if(!is_array($room))continue;
             $name=trim((string)($room['name']??''));
@@ -219,6 +221,8 @@ final class JVHeliosLearningDiagnostics
             $nightOpportunities[$name]=$nightReview;
             $stageStudy=JVHeliosLearningStageStudy::analyze($history,$now,$name);
             $stageStudies[$name]=$stageStudy;
+            $evidenceReviews[$name]=JVHeliosLearningEvidenceGate::review(
+                $name,$trend,$nights,$stageStudy,$weekly,$now);
             $tText=$temperatureOK?number_format((float)$t,1,'.','').'C':'?';
             $rhText=$humidityOK?number_format((float)$rh,0,'.','').'%':'?';
             $lines[]=$name.': T '.$tText.' (Alter '.($tAge===null?'?':$tAge.'m')
@@ -328,6 +332,18 @@ final class JVHeliosLearningDiagnostics
             if($w['status']==='WIDERSPRUECHLICHE_WOCHEN_STUFENBEOBACHTUNGEN')
                 $multiweekContradictions++;
         }
+        $reviewDaily=0;$reviewNight=0;$reviewMulti=0;$reviewStage=0;
+        $reviewBlocks=[];
+        foreach($evidenceReviews as $roomName=>$e) {
+            if($e['daily']==='BESCHREIBUNG_ZULAESSIG')$reviewDaily++;
+            if($e['night']==='BESCHREIBUNG_ZULAESSIG')$reviewNight++;
+            if($e['multiweek']==='BESCHREIBUNG_ZULAESSIG')$reviewMulti++;
+            if($e['stage']==='WIEDERHOLTE_KORRELATION_NUR_FORSCHUNG')
+                $reviewStage++;
+            else if(!in_array($e['status'],[
+                'NUR_RAUMBEOBACHTUNG','WIDERSPRUECHLICHE_WOCHEN',
+            ],true))$reviewBlocks[]=$roomName.': '.$e['next_data'];
+        }
         $measuredSpan=0;
         $enoughForDay=0;
         $longerTrend=0;
@@ -394,6 +410,14 @@ final class JVHeliosLearningDiagnostics
                 .$multiweekStagesOK.' Raeume mit wiederholter Stufenassoziation | '
                 .$multiweekContradictions.' Raeume mit Wochen-Widerspruechen'
                 .' | kein Wirkungsnachweis',
+            'Lern-Auswertungsfreigabe (NUR LESEN): Tagestrend '.$reviewDaily
+                .' | Nachtmuster '.$reviewNight
+                .' | Mehrwochenvergleich '.$reviewMulti
+                .' | Stufen-Korrelation fuer Forschung '.$reviewStage
+                .' Raeume | PHYSIKALISCHE_KALIBRIERUNG_GESPERRT',
+            'Naechste Lernbelege (max. 3 Raeume): '.(count($reviewBlocks)>0
+                ?implode('; ',array_slice($reviewBlocks,0,3))
+                :'aktuell keine fehlenden Belege in beruecksichtigten Wohnraeumen'),
             'Langzeit-Speicher: '.$seasonalTotals['observations']
                 .' echte 2h-Stuetzpunkte zu 12 wiederkehrenden Kalendermonaten'
                 .' | letzte 7 Tage im Detail | keine unbegrenzt wachsende Historie',
@@ -500,6 +524,11 @@ final class JVHeliosLearningDiagnostics
             'per_room_night_review'=>$nightOpportunities,
             'per_room_stage_study'=>$stageStudies,
             'per_room_multiweek_quality'=>$weeklyStats,
+            'per_room_evidence_gates'=>$evidenceReviews,
+            'daily_description_rooms'=>$reviewDaily,
+            'night_description_rooms'=>$reviewNight,
+            'multiweek_description_rooms'=>$reviewMulti,
+            'research_stage_correlation_rooms'=>$reviewStage,
             'multiweek_room_quality_rooms'=>$multiweekRoomOK,
             'multiweek_weather_quality_rooms'=>$multiweekWeatherOK,
             'multiweek_stage_repeat_rooms'=>$multiweekStagesOK,
