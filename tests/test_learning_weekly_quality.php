@@ -136,6 +136,11 @@ $packed=JVHeliosLearningStore::encode(
 wq(strlen(json_encode($packed))<8000
     &&count($packed['q'])===11,
     'Four compact fingerprints for all 11 rooms cost only a few KB and do not grow with years');
+$allRoomDetails=[];
+for($i=0;$i<11;$i++)$allRoomDetails['Room '.$i]=['samples'=>$first];
+$fullBound=JVHeliosLearningStore::encode($allRoomDetails,[],$now,0,$many);
+wq(strlen(json_encode($fullBound))<50000,
+    'Full 11-room 84-point weather/supply observations PLUS four weekly footprints per room remain below 50KB in synthetic payload');
 $diagnostic=JVHeliosLearningDiagnostics::update(
     ['v'=>2,'t'=>$now,'d'=>0,'r'=>['EG Wohnen'=>array_map(
         static fn($p)=>[$p['at'],(int)round($p['c']*100),[
