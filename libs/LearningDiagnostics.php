@@ -87,7 +87,7 @@ final class JVHeliosLearningDiagnostics
                 ?number_format((float)$value,$digits,'.',''):'?';
         };
         $weather=(string)($snapshot['weather_quality']??'UNBEKANNT');
-        $status=($snapshot['weather_quality']??'')==='VERIFIED'
+        $status=in_array(($snapshot['weather_quality']??''),['VERIFIED','DWD_ONLY'],true)
             && $freshTemperature>=3 && $freshHumidity>=3
             ?'BEOBACHTUNG_MIT_AUSREICHEND_AKTUELLEN_MESSWERTEN'
             :'BEOBACHTUNG_DATEN_TEILWEISE_FEHLEN';
