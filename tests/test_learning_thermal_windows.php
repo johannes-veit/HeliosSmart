@@ -133,7 +133,7 @@ tw(array_keys(array_intersect_key(
     'New thermal analysis adds zero persistent keys beyond existing optional q weeks, under 50KB synthetic storage, no actuation');
 for($i=0;$i<140;$i++){
     $variant=$cool;$wet=$i%7===0;
-    $outside=14+$i*0.10;$dew=$wet?outside+2:3+$i*.08;
+    $outside=14+$i*0.10;$dew=$wet?$outside+2:3+$i*.08;
     foreach($variant as &$v){
         $v['context']['outside_c']=$outside;
         $v['context']['outside_dewpoint_c']=$dew;
