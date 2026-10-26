@@ -480,7 +480,7 @@ class HeliosSmart extends IPSModule
                     $this->SendDebug('LearningWeather',substr($e->getMessage(),0,120),0);
                 }
             }
-            $this->WriteLearningReport($rooms,$weatherInfo,$now);
+            $this->WriteLearningReport($rooms,$weatherInfo,$now,true);
         } catch (Throwable $e) {
             $this->SendDebug('LearningDiagnosis',substr($e->getMessage(),0,120),0);
             $this->SetValue('LernDiagnose','HELIOS SMART – LERNDIAGNOSE | LESEFEHLER: '.
@@ -488,7 +488,7 @@ class HeliosSmart extends IPSModule
         }
     }
 
-    private function WriteLearningReport(array $rooms,array $extra,int $now):void
+    private function WriteLearningReport(array $rooms,array $extra,int $now,bool $force=false):void
     {
         try {
             $readNative=static function(int $id) {
@@ -521,15 +521,25 @@ class HeliosSmart extends IPSModule
                 'candidate_kind'=>'NICHT_BEWERTET',
             ];
             $snapshot=array_replace($baseline,$extra);
-            $old=json_decode($this->ReadAttributeString('LearningObservationState'),true);
-            $learning=JVHeliosLearningDiagnostics::update(
-                is_array($old)?$old:[],$rooms,$snapshot,$now);
-            $new=json_encode($learning['state'],JSON_UNESCAPED_UNICODE);
+            $previousJson=$this->ReadAttributeString('LearningObservationState');
+            $old=json_decode($previousJson,true);
+            $old=is_array($old)?$old:[];
+            $learning=JVHeliosLearningDiagnostics::update($old,$rooms,$snapshot,$now);
+            $packed=$learning['compact_state'];
+            // One copy-ready diagnostic only every 2 hours by default.
+            // Each automatic 5-minute Evaluate may still collect a TRUE new
+            // support point, but must not rewrite a large changing text
+            // variable 288 times a day, especially if users archive it.
+            // Safe manual button and ApplyChanges always refresh immediately.
+            $lastDiagnosis=(int)($old['d']??$old['last_diag_at']??0);
+            $emit=$force || $lastDiagnosis<=0 || $now-$lastDiagnosis>=7200;
+            if($emit) $packed['d']=$now;
+            $new=json_encode($packed,JSON_UNESCAPED_UNICODE);
             if(!is_string($new)) throw new RuntimeException('Lernzustand nicht kodierbar');
-            // Avoid unnecessary 5-minute writes to the durable attribute.
-            if($new!==$this->ReadAttributeString('LearningObservationState'))
+            if($new!==$previousJson)
                 $this->WriteAttributeString('LearningObservationState',$new);
-            $this->SetValue('LernDiagnose',$learning['report']);
+            if($emit && ($force || $this->GetValue('LernDiagnose')!==$learning['report']))
+                $this->SetValue('LernDiagnose',$learning['report']);
         } catch(Throwable $e) {
             $this->SendDebug('LearningDiagnosis',substr($e->getMessage(),0,120),0);
             $this->SetValue('LernDiagnose','HELIOS SMART – LERNDIAGNOSE | DIAGNOSEFEHLER: '.
