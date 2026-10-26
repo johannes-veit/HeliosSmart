@@ -95,8 +95,8 @@ final class JVHeliosLearningStore
             }
             if($rows)$packed['r'][$name]=$rows;
         }
-        foreach($seasonal as $name=>$bins) {
-            if(!isset($rooms[$name])||!is_array($bins))continue;
+        foreach(array_slice($seasonal,0,20,true) as $name=>$bins) {
+            if(!is_string($name)||!is_array($bins))continue;
             $ret=[];
             foreach($bins as $m=>$v) {
                 if((int)$m<1||(int)$m>12||!is_array($v)||count($v)<4)continue;
