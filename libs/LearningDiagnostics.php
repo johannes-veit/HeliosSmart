@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__.'/LearningPatterns.php';
 require_once __DIR__.'/LearningStore.php';
+require_once __DIR__.'/LearningOverheat.php';
 /**
  * Passive room-temperature observer. One bounded instance attribute holds
  * original temperature CHANGE/UPDATE evidence; one user-visible diagnostic.
@@ -98,6 +99,7 @@ final class JVHeliosLearningDiagnostics
         $seen=[];
         $roomStats=[];
         $nightStats=[];
+        $overheatStats=[];
         foreach($rooms as $room) {
             if(!is_array($room))continue;
             $name=trim((string)($room['name']??''));
@@ -196,6 +198,12 @@ final class JVHeliosLearningDiagnostics
             $nights=JVHeliosLearningPatterns::analyze($history,$now);
             $roomStats[$name]=$trend;
             $nightStats[$name]=$nights;
+            $recentHeat=JVHeliosLearningOverheat::recent($name,$history,$now);
+            $historicHeat=JVHeliosLearningOverheat::summerProfile(
+                $name,(array)($state['seasonal'][$name]??[]));
+            $overheatStats[$name]=[
+                'recent'=>$recentHeat,'historical'=>$historicHeat,
+            ];
             $tText=$temperatureOK?number_format((float)$t,1,'.','').'C':'?';
             $rhText=$humidityOK?number_format((float)$rh,0,'.','').'%':'?';
             $lines[]=$name.': T '.$tText.' (Alter '.($tAge===null?'?':$tAge.'m')
@@ -210,7 +218,13 @@ final class JVHeliosLearningDiagnostics
                 .($trend['jumps_gt_3c']>0?', SPRUNG_PRUEFEN '.$trend['jumps_gt_3c']:'')
                 .($nights['valid_nights']>0?', Naechte '.$nights['valid_nights'].
                     ' (Mittel '.($nights['average_night_delta_c']>0?'+':'').
-                    $nights['average_night_delta_c'].'C)':'');
+                    $nights['average_night_delta_c'].'C)':'')
+                .(in_array($recentHeat['status'],[
+                    'WIEDERHOLT_UEBER_REFERENZ',
+                    'MEHRERE_AKTUELLE_WARME_MESSWERTE',
+                ],true)?', Sommer-Waermehinweis: '.$recentHeat['status']:'')
+                .($historicHeat['status']==='MEHRERE_SOMMERMONATE_HOHES_MITTEL'
+                    ?', Langzeit: SOMMERMONATSMITTEL_ERHOEHT':'');
         }
         // The 7-day detail buffer may drop absent rooms, but the tiny
         // 12-month long-term summary must survive a temporary missing sensor
@@ -234,6 +248,16 @@ final class JVHeliosLearningDiagnostics
             ->setTimezone(new DateTimeZone('Europe/Berlin'))->format('n');
         $seasonalClimate=JVHeliosLearningStore::seasonalSummary($state['seasonal'],$month);
         $seasonCompare=JVHeliosLearningStore::compareSeasons($state['seasonal']);
+        $recentHeatRooms=0;
+        $seasonHeatRooms=0;
+        foreach($overheatStats as $v) {
+            if(in_array($v['recent']['status'],[
+                'WIEDERHOLT_UEBER_REFERENZ',
+                'MEHRERE_AKTUELLE_WARME_MESSWERTE',
+            ],true))$recentHeatRooms++;
+            if($v['historical']['status']==='MEHRERE_SOMMERMONATE_HOHES_MITTEL')
+                $seasonHeatRooms++;
+        }
         $measuredSpan=0;
         $enoughForDay=0;
         $longerTrend=0;
@@ -280,6 +304,9 @@ final class JVHeliosLearningDiagnostics
                     number_format($seasonCompare['winter_mean_gap_k'],1,'.','').'K'
                 :'NOCH_ZU_WENIG_WETTERPAARE ('.$seasonCompare['common_rooms'].' gemeinsame Raeume)')
                 .' | nur Langzeitbeobachtung, keine Helios-Wirkung',
+            'Sommer-Ueberwaermung: aktuelle Messhinweise in '.$recentHeatRooms.' Raeumen'
+                .' | erhoehte langjaehrige Sommermonatsmittel in '.$seasonHeatRooms.' Raeumen'
+                .' | keine Prognose/keine Schaltung',
             'Grund: Luftmengen, solare/interne Lasten und Zuluftfeuchte nicht gemessen',
             'Helios: Stufe '.($snapshot['fan_level']??'?')
                 .' | Modus '.($snapshot['mode']??'?')
@@ -308,6 +335,7 @@ final class JVHeliosLearningDiagnostics
             'Nachtabkuehlung: echte Abend-/Morgen-Messpunkte, keine Prognose und kein Beleg fuer Helios-Effekt.',
             'Vergleichbares Aussenwetter ist nicht gleichbedeutend mit gleichem Sonnen-/FBH-/Fensterzustand.',
             'Monatsmittel enthalten Beobachtungen verschiedener Jahre; kein Vergleich einzelner Kalenderjahre.',
+            'Sommer-Waermehinweis nur bei echten warmen Originalpunkten, nicht wegen Einzelspitze oder Feuchtraum.',
             'Kein Nachweis einer Ursache durch Helios; FBH, Sonne, geoeffnete Tueren/Fenster koennen mitwirken.',
             'Gleiche Temperatur bedeutet weder Sensorfehler noch fehlenden Update; kein erzwungener Stundenwert.',
             'Bitte diesen gesamten Diagnose-Text in ChatGPT einfuegen; kein automatisches Senden.',
@@ -330,6 +358,9 @@ final class JVHeliosLearningDiagnostics
             'paired_context_points'=>$paired,
             'per_room_observation'=>$roomStats,
             'per_room_night_patterns'=>$nightStats,
+            'per_room_overheating_evidence'=>$overheatStats,
+            'recent_overheating_rooms'=>$recentHeatRooms,
+            'historical_high_summer_means_rooms'=>$seasonHeatRooms,
             'night_pattern_rooms'=>$nightRooms,
             'similar_weather_night_pairs'=>$nightWeatherPairs,
             'learning_calibrated'=>false,
