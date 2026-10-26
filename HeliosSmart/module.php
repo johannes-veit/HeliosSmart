@@ -445,7 +445,39 @@ class HeliosSmart extends IPSModule
         $now=time();
         try {
             [$rooms]=$this->ReadRooms($now);
-            $this->WriteLearningReport($rooms,[], $now);
+            $weatherInfo=[
+                'weather_quality'=>'KEINE_VERIFIZIERTE_AUSSENMESSUNG',
+                'outside_temperature'=>null,
+                'outside_dewpoint'=>null,
+            ];
+            // Read-only snapshot of the same WeatherZentrale that the normal
+            // HELIOS decision uses. Never start a forecast refresh or alter
+            // the weather module. Stale/model-only sources are not verified.
+            [$weatherId]=$this->FindWeatherCenter();
+            if($weatherId>0 && function_exists('JVWC_Snapshot')) {
+                try {
+                    $raw=JVWC_Snapshot($weatherId);
+                    $w=json_decode((string)$raw,true);
+                    $current=is_array($w['current']??null)?$w['current']:null;
+                    $quality=(string)($w['quality']??'UNAVAILABLE');
+                    if($current!==null && in_array($quality,['VERIFIED','DWD_ONLY'],true)
+                        && JVWeatherLogic::isFresh($current,$now,2700)
+                        && is_numeric($current['temperature']??null)
+                        && is_numeric($current['dewpoint']??null)) {
+                        $weatherInfo=[
+                            'weather_quality'=>$quality,
+                            'outside_temperature'=>(float)$current['temperature'],
+                            'outside_dewpoint'=>(float)$current['dewpoint'],
+                        ];
+                    } else {
+                        $weatherInfo['weather_quality']=$quality.'_NICHT_AKTUELL_ODER_UNBESTAETIGT';
+                    }
+                } catch(Throwable $e) {
+                    $weatherInfo['weather_quality']='WETTER_SNAPSHOT_FEHLER';
+                    $this->SendDebug('LearningWeather',substr($e->getMessage(),0,120),0);
+                }
+            }
+            $this->WriteLearningReport($rooms,$weatherInfo,$now);
         } catch (Throwable $e) {
             $this->SendDebug('LearningDiagnosis',substr($e->getMessage(),0,120),0);
             $this->SetValue('LernDiagnose','HELIOS SMART – LERNDIAGNOSE | LESEFEHLER: '.
