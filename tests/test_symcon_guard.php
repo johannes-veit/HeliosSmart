@@ -79,7 +79,7 @@ a(str_contains($learningText,'HELIOS SMART')
 a(str_contains($learningText,'Keine automatische Uebertragung'),
   'Kein ungewollter externer ChatGPT-Versand durch Lernprogramm');
 $sampled=json_decode($hs->ReadAttributeString('LearningObservationState'),true);
-a(is_array($sampled) && is_array($sampled['rooms']??null),
+a(is_array($sampled) && ($sampled['v']??0)===2 && is_array($sampled['r']??null),
   'Lernmesspunkte intern im Attribut statt weiteren sichtbaren Variablen');
 $hs->Evaluate();
 a(count($GLOBALS['calls'])===0,
