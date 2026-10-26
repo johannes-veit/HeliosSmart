@@ -56,6 +56,21 @@ eg($r['stage']==='SPERRE_AKTUELLE_WIDERSPRUECHE'
     &&$r['status']==='WIDERSPRUECHLICHE_NACHTPAARE',
     'Contradictory current nighttime evidence overrules even four agreeing historical weeks');
 
+$noDay=$trend;$noDay['delta_24h_c']=null;
+$r=JVHeliosLearningEvidenceGate::review(
+    'EG Wohnen',$noDay,$nights,$stage,$weekly,$now);
+eg($r['stage']==='SPERRE_AKTUELLE_QUELLEN_ODER_NAECHTE'
+    &&$r['multiweek']==='BESCHREIBUNG_ZULAESSIG',
+    'Historic week evidence cannot override missing current 24h room-source trend');
+
+$oldOnly=$nights;
+foreach($oldOnly['night_history'] as &$item)$item['at_morning']=$now-6*86400;
+unset($item);
+$r=JVHeliosLearningEvidenceGate::review(
+    'EG Wohnen',$trend,$oldOnly,$stage,$weekly,$now);
+eg($r['stage']==='SPERRE_AKTUELLE_QUELLEN_ODER_NAECHTE',
+    'Three historical summer stage weeks do not unlock current stage review when nights are stale');
+
 $unreliable=$trend;$unreliable['jumps_gt_3c']=1;
 $r=JVHeliosLearningEvidenceGate::review(
     'EG Wohnen',$unreliable,$nights,$stage,$weekly,$now);
