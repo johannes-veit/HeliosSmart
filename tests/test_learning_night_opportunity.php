@@ -123,6 +123,33 @@ nr($staleReview['status']==='NACHTVERGLEICHE_NICHT_AKTUELL'
 nr($a['recent_nights_with_weather']>=2
     &&$a['older_nights_ignored']>=1,
     'Recent matched nights drive the composite signal; older ones remain historical only');
+// Recent nights determine current learning priority: do not average
+// away a new cooling improvement with very old weak-cooling nights.
+$recentlyBetter=scenario($start,$now);
+foreach($recentlyBetter as &$p) {
+    $local=(new DateTimeImmutable('@'.$p['at']))->setTimezone($tz);
+    if((int)$local->format('G')>=5
+        &&(int)$local->format('G')<=9
+        &&$local->format('Y-m-d')>='2026-07-16')
+        $p['c']=25.0;
+}unset($p);
+$better=review('EG Wohnen',$recentlyBetter,$now);
+nr($better['recent_observed_nights']>=2
+    &&$better['recent_mean_night_delta_c']!==null
+    &&$better['status']==='NACHTABKUEHLUNG_BEREITS_BEOBACHTET',
+    'Recent strong nighttime cooling can replace an older weak pattern without false high priority');
+$recentlyWorse=scenario($start,$now);
+foreach($recentlyWorse as &$p) {
+    $local=(new DateTimeImmutable('@'.$p['at']))->setTimezone($tz);
+    if((int)$local->format('G')>=5
+        &&(int)$local->format('G')<=9
+        &&$local->format('Y-m-d')<='2026-07-13')
+        $p['c']=25.0;
+}unset($p);
+$worse=review('EG Wohnen',$recentlyWorse,$now);
+nr($worse['recent_mean_night_delta_c']>=-0.2
+    &&$worse['review_priority']==='HOHE_PRIORITAET_FUER_REINEN_DATENVERGLEICH',
+    'Recent weak cooling is not concealed by earlier strongly cooling nights');
 // Full-house synthetic integration: rank only actually supported warm
 // rooms, never a bathroom, a cool room, a wet-outside night or warm air.
 $names=[
