@@ -5,6 +5,7 @@ require_once __DIR__.'/LearningOverheat.php';
 require_once __DIR__.'/LearningNightOpportunity.php';
 require_once __DIR__.'/LearningStageStudy.php';
 require_once __DIR__.'/LearningEvidenceGate.php';
+require_once __DIR__.'/LearningThermalWindows.php';
 /**
  * Passive room-temperature observer. One bounded instance attribute holds
  * original temperature CHANGE/UPDATE evidence; one user-visible diagnostic.
@@ -108,6 +109,7 @@ final class JVHeliosLearningDiagnostics
         $stageStudies=[];
         $weeklyStats=[];
         $evidenceReviews=[];
+        $thermalWindows=[];
         foreach($rooms as $room) {
             if(!is_array($room))continue;
             $name=trim((string)($room['name']??''));
@@ -221,6 +223,8 @@ final class JVHeliosLearningDiagnostics
             $nightOpportunities[$name]=$nightReview;
             $stageStudy=JVHeliosLearningStageStudy::analyze($history,$now,$name);
             $stageStudies[$name]=$stageStudy;
+            $thermalWindows[$name]=JVHeliosLearningThermalWindows::analyze(
+                $history,$now,$name);
             $evidenceReviews[$name]=JVHeliosLearningEvidenceGate::review(
                 $name,$trend,$nights,$stageStudy,$weekly,$now);
             $tText=$temperatureOK?number_format((float)$t,1,'.','').'C':'?';
@@ -344,6 +348,20 @@ final class JVHeliosLearningDiagnostics
                 'NUR_RAUMBEOBACHTUNG','WIDERSPRUECHLICHE_WOCHEN',
             ],true))$reviewBlocks[]=$roomName.': '.$e['next_data'];
         }
+        $thermalCooling=0;$thermalStable=0;$thermalContradict=0;
+        $thermalRooms=[];
+        $thermalMissing=0;
+        foreach($thermalWindows as $roomName=>$v) {
+            if($v['status']==='WIEDERHOLT_RAUMLUFT_ABGEKUEHLT_BEI_KUEHLER_AUSSENLUFT')
+                $thermalCooling++;
+            elseif($v['status']==='WIEDERHOLT_RAUMLUFT_KAUM_ABGEKUEHLT'){
+                $thermalStable++;
+                $thermalRooms[]=$roomName;
+            }elseif($v['status']==='WIDERSPRUECHLICHE_THERMISCHE_FENSTER')
+                $thermalContradict++;
+            elseif($v['status']!=='NEBENRAUM_NICHT_BEWERTET')
+                $thermalMissing++;
+        }
         $measuredSpan=0;
         $enoughForDay=0;
         $longerTrend=0;
@@ -418,6 +436,14 @@ final class JVHeliosLearningDiagnostics
             'Naechste Lernbelege (max. 3 Raeume): '.(count($reviewBlocks)>0
                 ?implode('; ',array_slice($reviewBlocks,0,3))
                 :'aktuell keine fehlenden Belege in beruecksichtigten Wohnraeumen'),
+            'Thermische 6h-Nachtfenster: Abkuehlung wiederholt '.$thermalCooling
+                .' Raeume | geringe Abkuehlung '.$thermalStable
+                .' | widerspruechlich '.$thermalContradict
+                .' | noch nicht belastbar '.$thermalMissing
+                .' | KEINE GEBAEUDETRAeGHEIT_KALIBRIERT',
+            'Thermische Beobachtungsraeume (max. 3): '.(count($thermalRooms)>0
+                ?implode(', ',array_slice($thermalRooms,0,3))
+                :'noch kein wiederholt traeger Raum belastbar erkennbar'),
             'Langzeit-Speicher: '.$seasonalTotals['observations']
                 .' echte 2h-Stuetzpunkte zu 12 wiederkehrenden Kalendermonaten'
                 .' | letzte 7 Tage im Detail | keine unbegrenzt wachsende Historie',
@@ -525,6 +551,11 @@ final class JVHeliosLearningDiagnostics
             'per_room_stage_study'=>$stageStudies,
             'per_room_multiweek_quality'=>$weeklyStats,
             'per_room_evidence_gates'=>$evidenceReviews,
+            'per_room_thermal_windows'=>$thermalWindows,
+            'thermal_cooling_rooms'=>$thermalCooling,
+            'thermal_stable_rooms'=>$thermalStable,
+            'thermal_contradictory_rooms'=>$thermalContradict,
+            'thermal_more_evidence_rooms'=>$thermalMissing,
             'daily_description_rooms'=>$reviewDaily,
             'night_description_rooms'=>$reviewNight,
             'multiweek_description_rooms'=>$reviewMulti,
