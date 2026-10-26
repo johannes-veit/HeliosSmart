@@ -526,13 +526,13 @@ class HeliosSmart extends IPSModule
             $old=is_array($old)?$old:[];
             $learning=JVHeliosLearningDiagnostics::update($old,$rooms,$snapshot,$now);
             $packed=$learning['compact_state'];
-            // One copy-ready diagnostic only every 2 hours by default.
-            // Each automatic 5-minute Evaluate may still collect a TRUE new
-            // support point, but must not rewrite a large changing text
-            // variable 288 times a day, especially if users archive it.
+            // Diagnostic text is for manual sharing, not a five-minute log:
+            // automatically refresh at most TWICE daily. Each 5-minute
+            // Evaluate may still collect a real new 2h support point.
             // Safe manual button and ApplyChanges always refresh immediately.
+            // This greatly reduces writes if the text variable is archived.
             $lastDiagnosis=(int)($old['d']??$old['last_diag_at']??0);
-            $emit=$force || $lastDiagnosis<=0 || $now-$lastDiagnosis>=7200;
+            $emit=$force || $lastDiagnosis<=0 || $now-$lastDiagnosis>=12*3600;
             if($emit) $packed['d']=$now;
             $new=json_encode($packed,JSON_UNESCAPED_UNICODE);
             if(!is_string($new)) throw new RuntimeException('Lernzustand nicht kodierbar');
