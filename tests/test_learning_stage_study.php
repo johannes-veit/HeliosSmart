@@ -59,6 +59,10 @@ ss($conflict['matched_weather_stage_pairs']>=2
     &&$conflict['status']==='WIDERSPRUECHLICHE_STUFENBEOBACHTUNGEN'
     &&$conflict['data_gap']==='STOEREINFLUESSE_UNBEKANNT',
     'Conflicting observed stage outcomes suppress misleading average and name unknown confounders');
+$unexpected=JVHeliosLearningStageStudy::analyze($conflicting,$now);
+ss($unexpected['pair_directions_disagree']
+    &&$unexpected['data_gap']==='STOEREINFLUESSE_UNBEKANNT',
+    'Mixed results yield explicit confounder warning instead of numeric recommendation');
 $all2=$samples;
 foreach($all2 as &$p)$p['context']['fan_level']=2;
 unset($p);
@@ -162,8 +166,9 @@ $learn=JVHeliosLearningDiagnostics::update([
 ],$now);
 ss($learn['observed_stage_study_pairs']>=2
     &&str_contains($learn['report'],'Stufen-Lernvergleich:')
-    &&str_contains($learn['report'],'STUFEN_NUR_MOMENTAUFNAHMEN'),
-    'Existing ChatGPT diagnosis explains preliminary stage observations');
+    &&str_contains($learn['report'],'STUFEN_NUR_MOMENTAUFNAHMEN')
+    &&str_contains($learn['report'],'Stufen-Messluecken (max. 3 Raeume):'),
+    'Existing ChatGPT diagnosis explains preliminary stage observations and any missing evidence');
 ss(!isset($learn['compact_state']['study'])
     &&!isset($learn['compact_state']['stage_study'])
     &&!isset($learn['compact_state']['stage_pairs'])
