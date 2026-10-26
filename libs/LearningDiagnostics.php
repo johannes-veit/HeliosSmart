@@ -211,7 +211,7 @@ final class JVHeliosLearningDiagnostics
             $nightReview=JVHeliosLearningNightOpportunity::analyze(
                 $name,$recentHeat,$nights,$historicHeat,$now);
             $nightOpportunities[$name]=$nightReview;
-            $stageStudy=JVHeliosLearningStageStudy::analyze($history,$now);
+            $stageStudy=JVHeliosLearningStageStudy::analyze($history,$now,$name);
             $stageStudies[$name]=$stageStudy;
             $tText=$temperatureOK?number_format((float)$t,1,'.','').'C':'?';
             $rhText=$humidityOK?number_format((float)$rh,0,'.','').'%':'?';
@@ -302,7 +302,10 @@ final class JVHeliosLearningDiagnostics
             $missingStageEvidence+=(int)$v['missing_context_nights'];
             $stageSupplyWarm+=(int)$v['supply_not_cooler_nights'];
             if($v['pair_directions_disagree'])$stageConflicts++;
-            if($v['status']!=='AUSSERHALB_SOMMERSTUDIE'
+            if(!in_array($v['status'],[
+                'AUSSERHALB_SOMMERSTUDIE',
+                'KEIN_WOHN_ODER_SCHLAFRAUM',
+            ],true)
                 &&$v['data_gap']!=='KAUSALITAET_BYPASS_FBH_FENSTER_NICHT_BELEGT')
                 $stageNextGaps[]=$roomName.': '.$v['data_gap'];
         }
