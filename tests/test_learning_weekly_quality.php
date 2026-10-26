@@ -31,6 +31,10 @@ function sampleWeek(int $start,int $direction=-1,bool $context=true):array {
     }
     return $rows;
 }
+$empty=JVHeliosLearningWeeklyQuality::capture(
+    [],[],'EG Wohnen',wStart('2026-07-13 00:05:00'));
+wq($empty===[],
+    'New installation without a previous-week original sensor record creates no unnecessary persistent weekly marker');
 $week=wStart('2026-07-06 00:00:00');
 $now=wStart('2026-07-13 00:05:00');
 $first=sampleWeek($week);
@@ -43,6 +47,23 @@ wq($captured[0][1]===3 &&$captured[0][2]===84
     'Full original sample coverage, trusted paired outdoor/supply and coherent stage observations yield grade 3');
 wq(JVHeliosLearningWeeklyQuality::capture($captured,$first,'EG Wohnen',$now+300)===$captured,
     'Repeated five-minute Evaluate within same ISO week never creates duplicate week or persistence change');
+$tooFew=JVHeliosLearningWeeklyQuality::capture(
+    [],array_slice($first,0,11),'EG Wohnen',$now);
+wq($tooFew===[],
+    'A failed sensor with fewer than twelve historical originals creates no dummy week and saves flash writes');
+$dstStart=wStart('2026-10-19 00:00:00');
+$dstEnd=wStart('2026-10-26 00:00:00');
+$dstRows=[];
+for($t=$dstStart;$t<$dstEnd;$t+=7200)
+    $dstRows[]=['at'=>$t,'c'=>21.5,
+        'context'=>['simultaneous_only'=>true,
+            'outside_c'=>10.0,'outside_dewpoint_c'=>7.0,
+            'supply_c'=>19.0,'fan_level'=>2]];
+$dstWeek=JVHeliosLearningWeeklyQuality::capture(
+    [],$dstRows,'EG Wohnen',$dstEnd+300);
+wq(count($dstRows)===85 &&$dstWeek[0][1]===2
+    &&$dstWeek[0][2]===84 &&$dstWeek[0][3]===84,
+    'Berlin October time change includes true extra hour without creating an 85th stored count or fake weekly time interval');
 $legacy=['v'=>2,'t'=>$now,'d'=>$now,'r'=>[],'m'=>[]];
 $decoded=JVHeliosLearningStore::decode($legacy);
 wq($decoded['weekly']===[],'Old v2 learning state without optional weekly quality field decodes without inventing previous history');
