@@ -10,7 +10,7 @@ final class JVHeliosLearningEvidenceGate
 {
     public static function review(
         string $roomName,array $trend,array $nights,array $stage,
-        array $weeks,int $now
+        array $weeks,int $now,array $thermal=[]
     ):array {
         $w=JVHeliosLearningWeeklyQuality::assess($weeks);
         $result=[
@@ -21,6 +21,8 @@ final class JVHeliosLearningEvidenceGate
             'multiweek'=>'SPERRE_WOCHEN',
             'stage'=>'SPERRE_STUFENBELEGE',
             'physical_model'=>'SPERRE_NICHT_KALIBRIERT',
+            'thermal_repeatability'=>'SPERRE_NOCH_ZU_WENIGE_WOCHEN',
+            'thermal_historical_status'=>$w['thermal_status'],
             'next_data'=>'ECHTE_TEMPERATUR_ZEITPUNKTE_SAMMELN',
             'historical_context_only'=>true,
             'learning_may_change_fan'=>false,
@@ -32,8 +34,29 @@ final class JVHeliosLearningEvidenceGate
             'effect_proven'=>false,
         ];
         if($now<=0)return $result;
+        // A repeating *thermal observation* is never a calibrated model.
+        // Historical three-week signals require agreement with a CURRENT
+        // complete original six-hour window, not just retained counters.
+        if($w['thermal_status']==='THERMIKWOCHEN_WIDERSPRUECHLICH')
+            $result['thermal_repeatability']='SPERRE_WIDERSPRUECHLICHE_WOCHEN';
+        elseif(in_array($w['thermal_status'],[
+            'MEHRWOECHIG_RAUMLUFT_ABGEKUEHLT',
+            'MEHRWOECHIG_RAUMLUFT_STABIL',
+        ],true)) {
+            $expected=$w['thermal_status']==='MEHRWOECHIG_RAUMLUFT_ABGEKUEHLT'
+                ?'WIEDERHOLT_RAUMLUFT_ABGEKUEHLT_BEI_KUEHLER_AUSSENLUFT'
+                :'WIEDERHOLT_RAUMLUFT_KAUM_ABGEKUEHLT';
+            $recent=is_numeric($thermal['newest_window_age_h']??null)
+                &&(float)$thermal['newest_window_age_h']<=96;
+            if(!$recent)$result['thermal_repeatability']='SPERRE_AKTUELLE_MESSFENSTER_FEHLEN';
+            elseif(($thermal['status']??'')===$expected)
+                $result['thermal_repeatability']='WIEDERHOLT_BEOBACHTBAR_NICHT_KALIBRIERT';
+            else
+                $result['thermal_repeatability']='SPERRE_AKTUELL_ANDERER_VERLAUF';
+        }
         if(preg_match('/bad|wc|flur|ankleide|hwr/ui',$roomName)){
             $result['status']='NUR_RAUMBEOBACHTUNG';
+            $result['thermal_repeatability']='NEBENRAUM_NICHT_BEWERTET';
             $result['next_data']='KEIN_STUFENEXPERIMENT_IN_NEBENRAEUMEN';
             return $result;
         }
