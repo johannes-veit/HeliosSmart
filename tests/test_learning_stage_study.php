@@ -174,4 +174,44 @@ ss(!isset($learn['compact_state']['study'])
     &&!isset($learn['compact_state']['stage_pairs'])
     &&strlen(json_encode($learn['compact_state']))<50000,
     'Added multi-stage analysis creates no new long-term keys or memory growth');
+$wetRoom=JVHeliosLearningStageStudy::analyze($samples,$now,'EG Bad');
+ss($wetRoom['status']==='KEIN_WOHN_ODER_SCHLAFRAUM'
+    &&$wetRoom['matched_weather_stage_pairs']===0,
+    'Bathroom cannot be counted as a living-room stage comparison even with synthetic stage contrasts');
+$roomNames=[
+    'EG Wohnen','OG Schlafen 1','OG Schlafen 2',
+    'EG Büro','EG Küche','EG Schlafen',
+    'EG Bad','OG Bad','EG Gäste WC','OG Flur','OG Ankleide/HWR',
+];
+$historical=[];$current=[];
+foreach($roomNames as $name){
+    $isEligible=in_array($name,['EG Wohnen','OG Schlafen 1','OG Schlafen 2'],true);
+    $history=$isEligible?$samples:
+        ($name==='EG Küche'?$wet:$all2);
+    // Secondary rooms deliberately have otherwise good synthetic evidence:
+    // only room-type gating is allowed to exclude their false positives.
+    if(in_array($name,['EG Bad','OG Bad','EG Gäste WC','OG Flur','OG Ankleide/HWR'],true))
+        $history=$samples;
+    $historical[$name]=['samples'=>$history];
+    $current[]=['name'=>$name,'temperature'=>26.5,'rh'=>48,
+        'temperature_observed_at'=>$now,'humidity_observed_at'=>$now];
+}
+$whole=JVHeliosLearningDiagnostics::update(
+    ['rooms'=>$historical],$current,[
+        'weather_quality'=>'UNAVAILABLE','fan_level'=>3,'mode'=>0,'program'=>3
+    ],$now);
+ss($whole['stage_study_rooms']===3
+    &&$whole['observed_stage_study_pairs']>=6,
+    'Eleven-room rehearsal counts exactly three eligible living/bedrooms with naturally matched levels');
+$gaps=implode(' ', $whole['stage_next_data_gaps']);
+ss(!str_contains($gaps,'Bad')&&!str_contains($gaps,'Flur')
+    &&!str_contains($gaps,'Ankleide')&&!str_contains($gaps,'WC'),
+    'Missing-evidence prompts never ask for an experimental bathroom or hallway fan comparison');
+$compact=$whole['compact_state'];
+ss(strlen(json_encode($compact))<50000
+    &&count($compact['r'])===11
+    &&array_keys($compact)===['v','t','d','r','m'],
+    'Eleven-room stage-quality learning fits existing compact v2 state below 50 KB without new attributes');
+ss(!$whole['control_authorized']&&!$whole['learning_calibrated'],
+    'Even whole-house paired evidence does not unlock automatic ventilation control');
 echo "PASSIVE SUMMER FAN-STAGE STUDY TESTS PASSED\n";
