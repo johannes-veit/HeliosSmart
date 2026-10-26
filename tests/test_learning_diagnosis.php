@@ -112,8 +112,8 @@ ld($flat['trend_24h']==='NAHEZU_GLEICH'
  && $flat['delta_24h_c']===0.0,
  'Constant verified room temperature is stable, not a sensor-failure diagnosis');
 $gapped=$twoDay;
-$gapped=array_values(array_filter($gapped,static fn($v)=>$v['at']<$now+16*3600
-    ||$v['at']>$now+50*3600));
+$gapped=array_values(array_filter($gapped,static fn($v)=>$v['at']<$now+40*3600
+    ||$v['at']>$now+62*3600));
 $gap=JVHeliosLearningDiagnostics::describeHistory($gapped,$now+72*3600);
 ld($gap['gaps_gt_3h']>=1 && $gap['trend_24h']==='NOCH_NICHT_MESSBAR',
  'Big missing daily interval is reported, not interpolated into a trend');
