@@ -7,6 +7,7 @@ require_once __DIR__ . '/../libs/DailyStrategy.php';
 require_once __DIR__ . '/../libs/ComfortAdvisor.php';
 require_once __DIR__ . '/../libs/SeasonalAdvisor.php';
 require_once __DIR__ . '/../libs/VentilationNeed.php';
+require_once __DIR__ . '/../libs/NightStrategy.php';
 require_once __DIR__ . '/../libs/WetroomEvents.php';
 require_once __DIR__ . '/../libs/CookingAdvisor.php';
 require_once __DIR__ . '/../libs/CookingEvents.php';
@@ -763,6 +764,8 @@ class HeliosSmart extends IPSModule
         $candidate=JVHeliosBoostCoordinator::propose(
             $decision,$cooking['advice'],(int)GetValue($fanID),
             $this->ReadPropertyBoolean('EnableHighPowerParty'));
+        $decision['night_strategy']=JVHeliosNightStrategy::plan(
+            array_replace($decision,['party_candidate'=>$candidate]),(int)GetValue($fanID),$now);
         // Lernbeobachtung vor jeder moeglichen Geraeteausfuehrung schreiben.
         // Ein spaeterer Fehler in Safety/Party/JSON darf die Meldung nicht blockieren.
         $this->WriteLearningReport($rooms,[
