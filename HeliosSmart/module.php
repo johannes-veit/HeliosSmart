@@ -756,6 +756,9 @@ class HeliosSmart extends IPSModule
             'supply_temperature'=>$supply,
             'supply_age_minutes'=>$supplyAge,
         ],$now);
+        // Read-only S1/S2 base-stage planning, never changes manufacturer weekly program.
+        $decision['base_ventilation']=JVHeliosVentilationNeed::baseStage(
+            $decision,$cooking['advice'],(int)GetValue($fanID),false);
         $decision['summer_airflow']=JVHeliosSummerAirflow::advise($decision);
         $candidate=JVHeliosBoostCoordinator::propose(
             $decision,$cooking['advice'],(int)GetValue($fanID),
