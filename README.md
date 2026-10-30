@@ -1,5 +1,9 @@
 # HELIOS SMART v0.12.0 – WetterZentrale & begrenzte Party-Automatik
 
+## Build 26 – Stufe 1 rund um die Uhr bei geringem Bedarf (30.10.2026)
+
+Stufe 1 ist nicht länger auf 23:00–06:00 begrenzt: Die Software empfiehlt zeitbegrenzten leisen oder energiesparenden Ruhebetrieb auch tagsüber und bei gemeldeter Bewohner-Abwesenheit, sofern mindestens 9 Temperatur- und 8 Feuchtesignale aktuell sind und kein Kühl-, Feuchte-, Koch- oder Intensivlüftungskandidat vorliegt. Die Telefonmeldung dient nur als Anlass für einen Sparvorschlag, nicht als Beweis eines leeren Hauses. Heizenergie, Strom und Geräusch werden nicht als gemessene Einsparung behauptet. Unverändert: maximal 30 Minuten pro geräteeigenem Ruhebetrieb, frühestens 120 Minuten nach dem vorherigen Start, automatische Rückkehr zum Herstellerwochenplan und getrennte Freigaben (standardmäßig AUS). Damit bleibt Platz für normale Durchlüftung, ohne eine erreichte Mindestlüftung oder Tagesluftmenge vorzutäuschen. Szenarien für Tag/Abwesenheit/Kühlvorrang sind in den Tests ergänzt; Voll-CI und echte SymBox-Abnahme noch offen.
+
 ## Build 25 – Geräuscharme Nacht, alle vier Stufen berücksichtigt (30.10.2026)
 
 Die neue reine Entscheidungslogik `libs/NightStrategy.php` ordnet von 23:00 bis 06:00 einen leisen S1-Nachtbetrieb zu, sofern aktuelle T/RH-Daten vorliegen und **kein** Kühl-, Feuchte- oder Kochbedarf, kein Boost und kein Signalfehler vorliegt. Tagesgrundbetrieb bleibt S2 nach dem Helios-Wochenprogramm; S3/S4 weiterhin über die bestehenden, separat freizugebenden Party-Aufträge. Die Luftmenge S1 (~80 m³/h nach unbestätigtem Modell) ist niedriger als die normale rechnerische Referenz; daher nur 30 Minuten am Stück und maximal ein Start innerhalb von 120 Minuten. S1 ist keine nachgewiesene hygienische Mindestlüftung.
