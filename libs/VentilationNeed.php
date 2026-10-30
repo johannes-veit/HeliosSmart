@@ -95,7 +95,37 @@ final class JVHeliosVentilationNeed
             ($canSuggestOne?'Nur theoretischer S1-Sparvorschlag bei dokumentierter Mindestluftmenge':
             ($quality!=='GOOD'?'Sensorlage unvollstaendig: Wochenprogramm nicht absenken':
             'Kein nachgewiesener Zusatzbedarf: Wochenprogramm beibehalten'));
+        // Historical building model: 242 m2, approx. 760 m3.
+        // These are unverified model airflow estimates, not manufacturer-
+        // guaranteed flow at installed system pressure.
+        $volume=760.0;
+        $supply=[1=>80.0,2=>220.0,3=>290.0,4=>360.0];
+        $ach=[];
+        foreach($supply as $stage=>$flow)$ach[$stage]=round($flow/$volume,3);
+        $referenceNormal=round(0.30*$volume,1);
+        $referenceReduced=round(0.20*$volume,1);
+        $theoreticalNormalStage=null;
+        foreach($supply as $stage=>$flow) {
+            if($flow >= $referenceNormal) {$theoreticalNormalStage=$stage;break;}
+        }
+        $theoreticalReducedStage=null;
+        foreach($supply as $stage=>$flow) {
+            if($flow >= $referenceReduced) {$theoreticalReducedStage=$stage;break;}
+        }
         return [
+            'building_volume_m3'=>$volume,
+            'building_area_m2'=>242,
+            'supply_flow_model_m3h'=>$supply,
+            'air_changes_per_hour_model'=>$ach,
+            'normal_0_30_ach_reference_m3h'=>$referenceNormal,
+            'reduced_0_20_ach_reference_m3h'=>$referenceReduced,
+            'theoretical_stage_at_0_30_ach'=>$theoreticalNormalStage,
+            'theoretical_stage_at_0_20_ach'=>$theoreticalReducedStage,
+            'normal_reference_is_not_din_design'=>true,
+            'flow_model_is_measured'=>false,
+            'flow_model_is_manufacturer_guarantee'=>false,
+            'installed_pressure_loss_known'=>false,
+            'theoretical_flow_does_not_validate_hygienic_minimum'=>true,
             'status'=>'READ_ONLY_BASELINE_ADVICE',
             'candidate_stage'=>$candidate,
             'candidate_is_not_device_command'=>true,
