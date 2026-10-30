@@ -44,7 +44,6 @@ final class JVHeliosBoostCoordinator
                 $bathMinutes=15;
                 if ((float)$rh>=75.0 && (float)$gradient>=4.0)
                     $bathHighPower=true;
-                break;
             }
         }
         if ($mode==='HUMIDITY_BOOST' && $bathConfirmed && ($decision['weather_usable_for_advice']??false)) {
