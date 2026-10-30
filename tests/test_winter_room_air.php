@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__.'/../libs/WinterRoomAir.php';
+require_once __DIR__.'/../libs/VentilationNeed.php';
 require_once __DIR__.'/../libs/BoostCoordinator.php';
 require_once __DIR__.'/../libs/WeatherMath.php';
 function wr(bool $yes,string $why):void {
@@ -26,6 +27,27 @@ $d=['weather_quality'=>'VERIFIED','season_signal'=>'POSSIBLE_HEATING',
     'outside_temperature'=>12,'outside_dewpoint'=>7.1,'outside_age_minutes'=>4,
     'supply_temperature'=>19.6,'supply_age_minutes'=>0];
 $a=JVHeliosWinterRoomAir::analyze($rooms,$d,$now);
+$baseCtx=['winter_room_air'=>$a,'occupancy_advice'=>['status'=>'BOTH_AWAY_REPORTED'],
+    'ventilation_need'=>['classification'=>'NO_DEMONSTRATED_ADDITIONAL_NEED']];
+$baseline=JVHeliosVentilationNeed::baseStage($baseCtx,[],2,false);
+wr($baseline['candidate_stage']===2 && !$baseline['can_reduce_weekly_program']
+    && !$baseline['validated_minimum_stage_one'],
+ 'Without measured hygienic minimum S1 never selected and weekly program never reduced');
+$baseCtx['winter_room_air']['current_dry_rooms']=['EG Buero','OG Schlafen 1'];
+$baseCtx['winter_room_air']['humidity_rooms_current']=11;
+$dryBase=JVHeliosVentilationNeed::baseStage($baseCtx,[],2,true);
+wr($dryBase['candidate_stage']===1 && !$dryBase['can_reduce_weekly_program'],
+ 'Even validated S1 remains a non-actuating suggestion');
+$baseCtx['winter_room_air']['current_humid_rooms']=['OG Bad'];
+$humidBase=JVHeliosVentilationNeed::baseStage($baseCtx,[],2,true);
+wr($humidBase['candidate_stage']===2 && $humidBase['additional_demand'],
+ 'Fresh wet room vetoes S1 saving suggestion');
+$baseCtx['winter_room_air']['current_humid_rooms']=[];
+$baseCtx['winter_room_air']['humidity_rooms_current']=2;
+$partialBase=JVHeliosVentilationNeed::baseStage($baseCtx,[],2,true);
+wr($partialBase['candidate_stage']===2 && $partialBase['measurement_quality']==='PARTIAL',
+ 'Missing fresh humidity prevents S1 even when flow has been validated');
+
 wr($a['outside_absolute_humidity_gm3']>7.0
    && $a['outside_absolute_humidity_gm3']<9.0
    && count($a['rooms_with_drying_potential'])>=1,
