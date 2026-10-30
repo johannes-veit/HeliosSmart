@@ -9,6 +9,7 @@ require_once __DIR__ . '/../libs/SeasonalAdvisor.php';
 require_once __DIR__ . '/../libs/VentilationNeed.php';
 require_once __DIR__ . '/../libs/NightStrategy.php';
 require_once __DIR__ . '/../libs/OccupancyLearning.php';
+require_once __DIR__ . '/../libs/PatternLearning.php';
 require_once __DIR__ . '/../libs/WetroomEvents.php';
 require_once __DIR__ . '/../libs/CookingAdvisor.php';
 require_once __DIR__ . '/../libs/CookingEvents.php';
@@ -60,6 +61,7 @@ class HeliosSmart extends IPSModule
         $this->RegisterAttributeString('RoomHistory', '{}');
         $this->RegisterAttributeString('LearningObservationState', '{}');
         $this->RegisterAttributeString('OccupancyLearningState', '{}');
+        $this->RegisterAttributeString('CalendarPatternState', '{}');
         $this->RegisterAttributeString('SeasonalAdviceState', '{}');
         $this->RegisterAttributeString('WetroomEventState', '{}');
         $this->RegisterAttributeString('CookingAdviceState', '{}');
@@ -646,6 +648,17 @@ class HeliosSmart extends IPSModule
             $occJson=json_encode($occLearning['state'],JSON_UNESCAPED_UNICODE);
             if(is_string($occJson) && $occJson!==$this->ReadAttributeString('OccupancyLearningState'))
                 $this->WriteAttributeString('OccupancyLearningState',$occJson);
+            $oldPatterns=json_decode($this->ReadAttributeString('CalendarPatternState'),true);
+            $calendar=JVHeliosPatternLearning::update(
+                is_array($oldPatterns)?$oldPatterns:[],
+                $occupancy,[
+                    'fan'=>$snapshot['fan_level']??null,
+                    'weather'=>$snapshot['weather_quality']??'UNKNOWN',
+                    'climate'=>$snapshot['climate_mode']??'UNKNOWN',
+                ],$now);
+            $patternJson=json_encode($calendar['state'],JSON_UNESCAPED_UNICODE);
+            if(is_string($patternJson) && $patternJson!==$this->ReadAttributeString('CalendarPatternState'))
+                $this->WriteAttributeString('CalendarPatternState',$patternJson);
             $learning=JVHeliosLearningDiagnostics::update($old,$rooms,$snapshot,$now);
             $packed=$learning['compact_state'];
             // Diagnostic text is for manual sharing, not a five-minute log:
@@ -668,6 +681,7 @@ class HeliosSmart extends IPSModule
                     ." | Statuswechsel: ".$oc['observed_status_changes']."\n"
                     ."Verteilung: ".json_encode($oc['counts_by_reported_status'],JSON_UNESCAPED_UNICODE)."\n"
                     ."Luefterstufen nach gemeldetem Status: ".json_encode($oc['fan_samples_by_status'],JSON_UNESCAPED_UNICODE)."\n"
+                    ."Kalendermuster: ".json_encode($calendar['advice'],JSON_UNESCAPED_UNICODE)."\n"
                     ."NUR BEOBACHTUNG: Telefonstatus beweist weder Anwesenheit noch leeres Haus; "
                     ."Stichproben belegen keine Dauer und keinen kausalen Lueftungseffekt.";
                 $this->SetValue('LernDiagnose',$learning['report'].$line);
@@ -883,12 +897,21 @@ class HeliosSmart extends IPSModule
         $candidate=JVHeliosBoostCoordinator::propose(
             $decision,$cooking['advice'],(int)GetValue($fanID),
             $this->ReadPropertyBoolean('EnableHighPowerParty'));
+        $calendarState=json_decode($this->ReadAttributeString('CalendarPatternState'),true);
+        $decision['calendar_learning']=JVHeliosPatternLearning::update(
+            is_array($calendarState)?$calendarState:[],
+            (array)($decision['occupancy_advice']??[]),[
+                'fan'=>(int)GetValue($fanID),
+                'weather'=>$decision['weather_quality']??'UNKNOWN',
+                'climate'=>$decision['season_signal']??'UNKNOWN',
+            ],$now)['advice'];
         $decision['night_strategy']=JVHeliosNightStrategy::plan(
             array_replace($decision,['party_candidate'=>$candidate]),(int)GetValue($fanID),$now);
         // Lernbeobachtung vor jeder moeglichen Geraeteausfuehrung schreiben.
         // Ein spaeterer Fehler in Safety/Party/JSON darf die Meldung nicht blockieren.
         $this->WriteLearningReport($rooms,[
             'occupancy_advice'=>$decision['occupancy_advice']??[],
+            'climate_mode'=>$decision['season_signal']??'UNKNOWN',
             'weather_quality'=>$decision['weather_quality']??'UNAVAILABLE',
             'outside_temperature'=>in_array(($decision['weather_quality']??''),['VERIFIED','DWD_ONLY'],true)
                 ?($decision['outside_temperature']??null):null,
