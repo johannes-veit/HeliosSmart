@@ -660,8 +660,18 @@ class HeliosSmart extends IPSModule
             if(!is_string($new)) throw new RuntimeException('Lernzustand nicht kodierbar');
             if($new!==$previousJson)
                 $this->WriteAttributeString('LearningObservationState',$new);
-            if($emit)
-                $this->SetValue('LernDiagnose',$learning['report']);
+            if($emit) {
+                $oc=$occLearning['diagnosis'];
+                $line="\n--- ANWESENHEIT / LUEFTER – LERNBEOBACHTUNG ---\n"
+                    ."SHADOW: ".$oc['status_now']." | Quellen frisch: ".($oc['source_fresh']?'JA':'NEIN')
+                    ." | 2h-Stichproben: ".$oc['snapshot_count']
+                    ." | Statuswechsel: ".$oc['observed_status_changes']."\n"
+                    ."Verteilung: ".json_encode($oc['counts_by_reported_status'],JSON_UNESCAPED_UNICODE)."\n"
+                    ."Luefterstufen nach gemeldetem Status: ".json_encode($oc['fan_samples_by_status'],JSON_UNESCAPED_UNICODE)."\n"
+                    ."NUR BEOBACHTUNG: Telefonstatus beweist weder Anwesenheit noch leeres Haus; "
+                    ."Stichproben belegen keine Dauer und keinen kausalen Lueftungseffekt.";
+                $this->SetValue('LernDiagnose',$learning['report'].$line);
+            }
         } catch(Throwable $e) {
             $this->SendDebug('LearningDiagnosis',substr($e->getMessage(),0,120),0);
             $this->SetValue('LernDiagnose','HELIOS SMART – LERNDIAGNOSE | DIAGNOSEFEHLER: '.
