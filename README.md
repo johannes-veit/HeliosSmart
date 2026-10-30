@@ -1,5 +1,9 @@
 # HELIOS SMART v0.12.0 – WetterZentrale & begrenzte Party-Automatik
 
+## Build 24 – Theoretisches Gebäudeluftstrommodell (30.10.2026)
+
+Vorliegende Gebäudedaten: rund 242 m² und 760 m³. Bisherige, **nicht gemessene** Zuluftmodellwerte S1/S2/S3/S4: 80/220/290/360 m³/h, entsprechend rechnerisch 0,105/0,289/0,382/0,474 h-1. Die modellinternen Vergleichswerte 0,20 und 0,30 h-1 entsprechen 152 und 228 m³/h; es handelt sich ausdrücklich **nicht** um eine abgeschlossene DIN-1946-6-Auslegung oder um garantierte Herstellerleistungen am vorhandenen Kanalnetz. `base_ventilation` liefert diese Diagnosedaten im bestehenden DecisionJSON ohne zusätzliche Variablen. Absenkung unter das Hersteller-Wochenprogramm bleibt bis zum Nachweis der nötigen Mindestlüftung gesperrt. Der reale Volumenstrom hängt von Kanalwiderstand, Filtern und Einregulierung ab.
+
 ## Build 23 – Bedarfsabhaengige Grundlueftung S1/S2 (30.10.2026)
 
 Neu: `JVHeliosVentilationNeed::baseStage()` bewertet aktuelle Original-Raumdaten, Kochhinweise, Feuchtraeume, Winterbedingungen und Sensorqualitaet. Die bestehende `DecisionJSON` zeigt den rein informativen Abschnitt `base_ventilation`. Ohne gemessenen und dokumentiert freigegebenen S1-Mindestvolumenstrom gibt es **keine Empfehlung zur Absenkung auf S1**. Selbst bei formal validiertem Stufe-1-Volumenstrom wird kein Wochenprogramm geaendert: dazu fehlt noch ein freigegebener, getesteter Hersteller-Rueckfall- und Wochenplan-Schreibpfad. Telefon-Abwesenheit allein belegt kein leeres Haus. Bestehende produktive S3-/S4-Partyautomatik und alle Freigaben bleiben unveraendert. Simulationen zur S1/S2-Beratung im bestehenden `tests/test_winter_room_air.php`; reale SymBox-/Gesamt-CI-Abnahme ausstehend.
