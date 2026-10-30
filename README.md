@@ -1,5 +1,9 @@
 # HELIOS SMART v0.12.0 – WetterZentrale & begrenzte Party-Automatik
 
+## Build 22 – Bedarfsabhängige Zusatzstufen und Laufzeiten (30.10.2026)
+
+Der bestehende BoostCoordinator wählt statt pauschaler 15 Minuten für S3 jetzt **5/10/15 Minuten**: 5 Minuten bei nur noch historischem Kochsignal, 10 Minuten bei moderatem Kochsignal, Heizwetter-Kochen oder mäßiger verifizierter Badfeuchte, 15 Minuten bei starkem frischem Bad-Entfeuchtungsgradienten oder bestätigtem Kochen außerhalb der Heizbedingungen. **S4/30** nur bei separat freigeschaltetem Hochleistungsbetrieb und schwerem Badfeuchtesignal (RH mindestens 75 %, Gradient mindestens 4 g/m³), aktuell stark belegtem Kochen oder unabhängig zugelassenem Sommer-Wetterfenster. Trend allein nutzt S3/10. Stufe 1/2 verbleibt beim Herstellerwochenplan; keine automatische Absenkung, Verlängerung oder Übernahme vorhandener Party. Unveränderte Safety-Gates prüfen jeden einzelnen Auftrag. Aktualisierte Regressionstests in `tests/test_party_commissioning.php`. Noch keine Live-SymBox-Abnahme.
+
 ## Build 21 – Verifiziertes Entfeuchtungspotenzial (30.10.2026)
 
 Der Winter-Raumluft-Beobachter berechnet nun aus original frischen Temperatur-/RH-Paaren der 11 Räume die absolute Luftfeuchte und vergleicht sie mit dem aktuellen verifizierten Außentaupunkt. Im bestehenden `DecisionJSON` erscheinen `outside_absolute_humidity_gm3` und `rooms_with_drying_potential` (mindestens 2 g/m³ Unterschied). Ungültiges/fehlendes Wetter erzeugt keine Entfeuchtungsbehauptung. Dies ist eine **rein lesende Diagnose**, keine automatische Stufenanhebung, keine Änderung der Wochenprogramm-Untergrenze und keine Erlaubnis, die Sicherheitsfreigaben zu umgehen. Der Taupunkt der Helios-Geräteeintrittsluft nach EWT wird nicht mit echter Außenluft verwechselt. Tests: `tests/test_winter_room_air.php`.
