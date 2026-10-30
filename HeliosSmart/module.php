@@ -408,8 +408,17 @@ class HeliosSmart extends IPSModule
                 return ['status'=>'STATE_CHANGED','attempted'=>false];
             $ok=HELIOS_OperatingMode_Whisper_Set(
                 $this->ReadPropertyInteger('HeliosInstance'),false,1,5);
-            return ['status'=>$ok===false?'RETURN_UNCERTAIN':'RETURN_REQUESTED',
-                'attempted'=>true];
+            if ($ok===false) return ['status'=>'RETURN_UNCERTAIN','attempted'=>true];
+            $after=$this->ReadHeliosLive();
+            if ($after===null || $after['mode']!==0)
+                return ['status'=>'RETURN_PENDING','attempted'=>true];
+            // Emergency demand may start on the next evaluation. Keep the
+            // dedicated 120-min night cooldown, not a false party cooldown.
+            if ($this->OptionalAttributeInt('LastCommandAt')===$started)
+                $this->WriteAttributeInteger('LastCommandAt',0);
+            $this->WriteAttributeInteger('OwnedPartyExpiresAt',0);
+            $this->WriteAttributeInteger('OwnedPartyLevel',0);
+            return ['status'=>'AUTO_CONFIRMED','attempted'=>true];
         } catch(Throwable $e) {
             return ['status'=>'RETURN_UNCERTAIN','attempted'=>true];
         }
