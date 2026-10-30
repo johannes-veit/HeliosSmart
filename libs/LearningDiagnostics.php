@@ -6,6 +6,7 @@ require_once __DIR__.'/LearningNightOpportunity.php';
 require_once __DIR__.'/LearningStageStudy.php';
 require_once __DIR__.'/LearningEvidenceGate.php';
 require_once __DIR__.'/LearningThermalWindows.php';
+require_once __DIR__.'/WinterRoomAir.php';
 /**
  * Passive room-temperature observer. One bounded instance attribute holds
  * original temperature CHANGE/UPDATE evidence; one user-visible diagnostic.
@@ -272,6 +273,7 @@ final class JVHeliosLearningDiagnostics
             :'BEOBACHTUNG_DATEN_TEILWEISE_FEHLEN';
         $date=(new DateTimeImmutable('@'.$now))
             ->setTimezone(new DateTimeZone('Europe/Berlin'))->format('d.m.Y H:i:s');
+        $winterAir=JVHeliosWinterRoomAir::analyze($rooms,$snapshot,$now);
         $seasonalTotals=JVHeliosLearningStore::totals($state['seasonal']);
         $month=(int)(new DateTimeImmutable('@'.$now))
             ->setTimezone(new DateTimeZone('Europe/Berlin'))->format('n');
@@ -498,6 +500,10 @@ final class JVHeliosLearningDiagnostics
                 ?implode(', ',array_slice($highNightRooms,0,3))
                     .(count($highNightRooms)>3?', weitere '.(count($highNightRooms)-3):'')
                 :'noch keiner ausreichend belegt'),
+            'Heizbetrieb-Raumluft: '.$winterAir['summary'],
+            'Heizluft-Qualitaet: RH veraltet/fehlend '.$winterAir['humidity_rooms_old_or_missing']
+                .' | Frische Raumfeuchte-Signale nicht mit dauerhaftem Hygienebedarf verwechseln'
+                .' | kein CO2-Sensor, keine Freigabe fuer Unterschreitung des Wochenplans',
             'Grund: Luftmengen, solare/interne Lasten und Zuluftfeuchte nicht gemessen',
             'Helios: Stufe '.($snapshot['fan_level']??'?')
                 .' | Modus '.($snapshot['mode']??'?')
@@ -599,6 +605,7 @@ final class JVHeliosLearningDiagnostics
             'historical_high_summer_means_rooms'=>$seasonHeatRooms,
             'night_pattern_rooms'=>$nightRooms,
             'similar_weather_night_pairs'=>$nightWeatherPairs,
+            'winter_room_air'=>$winterAir,
             'learning_calibrated'=>false,
             'control_authorized'=>false,
         ];
