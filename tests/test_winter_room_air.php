@@ -23,9 +23,19 @@ foreach($src as $row)$rooms[]=[
     'humidity_observed_at'=>$now-$row[3]*60,
 ];
 $d=['weather_quality'=>'VERIFIED','season_signal'=>'POSSIBLE_HEATING',
-    'outside_temperature'=>12,'outside_age_minutes'=>4,
+    'outside_temperature'=>12,'outside_dewpoint'=>7.1,'outside_age_minutes'=>4,
     'supply_temperature'=>19.6,'supply_age_minutes'=>0];
 $a=JVHeliosWinterRoomAir::analyze($rooms,$d,$now);
+wr($a['outside_absolute_humidity_gm3']>7.0
+   && $a['outside_absolute_humidity_gm3']<9.0
+   && count($a['rooms_with_drying_potential'])>=1,
+ 'Verified outside dewpoint identifies potential moisture removal for fresh T/RH pairs only');
+$noDp=$d;unset($noDp['outside_dewpoint']);
+$nd=JVHeliosWinterRoomAir::analyze($rooms,$noDp,$now);
+wr($nd['outside_absolute_humidity_gm3']===null
+   && count($nd['rooms_with_drying_potential'])===0,
+ 'Missing dewpoint prevents speculative moisture difference');
+
 wr($a['heating_active'] && $a['heating_basis']==='MEASURED_COLD_OCT_APR',
  'Trusted Oct cold weather is a provisional heating condition, not FBH actuation proof');
 wr($a['temperature_rooms_current']===11 &&
