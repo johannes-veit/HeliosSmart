@@ -55,6 +55,7 @@ class HeliosSmart extends IPSModule
         $this->RegisterPropertyBoolean('CombustionSafetyValidated',false);
         $this->RegisterPropertyBoolean('DevicePartyReturnValidated',false);
         $this->RegisterPropertyBoolean('EnableProgramSwitch',false);
+        $this->RegisterPropertyBoolean('EnableNightQuiet',false);
         $this->RegisterAttributeString('RoomHistory', '{}');
         $this->RegisterAttributeString('LearningObservationState', '{}');
         $this->RegisterAttributeString('SeasonalAdviceState', '{}');
@@ -63,6 +64,7 @@ class HeliosSmart extends IPSModule
         $this->RegisterAttributeString('CookingEventState', '{}');
         $this->RegisterAttributeInteger('LastCommandAt',0);
         $this->RegisterAttributeInteger('LastProgramAt',0);
+        $this->RegisterAttributeInteger('LastNightQuietAt',0);
         $this->RegisterAttributeInteger('OwnedPartyExpiresAt',0);
         $this->RegisterAttributeInteger('OwnedPartyLevel',0);
         $this->RegisterAttributeInteger('OwnedPartyProgram',0);
@@ -379,6 +381,58 @@ class HeliosSmart extends IPSModule
         } catch (Throwable $e) {
             $this->SendDebug('PartyLiveRead',substr($e->getMessage(),0,160),0);
             return null;
+        }
+    }
+
+
+    /**
+     * User-authorized, time-limited quiet night exception to the weekly plan.
+     * Helios itself returns to AUTO after 30 min. No permanent manual mode.
+     * Requires an additional opt-in because S1 airflow is modelled only.
+     */
+    private function TryNightQuiet(array $plan,array $candidate,array $device,int $now):array
+    {
+        $ret=['status'=>'BLOCKED','attempted'=>false];
+        if (!$this->ReadPropertyBoolean('EnableControl')
+            || !$this->ReadPropertyBoolean('EnableNightQuiet')
+            || !$this->ReadPropertyBoolean('AllowEstimatedAirflowLimitedParty')
+            || !$this->ReadPropertyBoolean('CombustionSafetyValidated')
+            || !$this->ReadPropertyBoolean('DevicePartyReturnValidated')) return $ret;
+        if (($plan['quiet_eligible']??false)!==true
+            || ($candidate['kind']??'')!=='KEEP_WEEKLY'
+            || ($device['module_verified']??false)!==true
+            || ($device['mode']??null)!==0
+            || !in_array($device['program']??null,[3,4],true)
+            || ($device['fan']??0)<2
+            || !$device['mode_fresh'] || !$device['fan_fresh'] || !$device['program_fresh']
+            || $this->OptionalAttributeInt('OwnedPartyExpiresAt')>$now) return $ret;
+        if ($this->OptionalAttributeInt('LastNightQuietAt')>$now-120*60
+            || $this->OptionalAttributeInt('LastCommandAt')>$now-120*60) return $ret;
+        if (!function_exists('HELIOS_OperatingMode_Whisper_Set')
+            || !function_exists('IPS_SemaphoreEnter') || !function_exists('IPS_SemaphoreLeave'))
+            return ['status'=>'FUNCTION_UNAVAILABLE','attempted'=>false];
+        $lock='JVHeliosParty_'.$this->InstanceID;
+        if (!IPS_SemaphoreEnter($lock,1000))
+            return ['status'=>'BUSY','attempted'=>false];
+        try {
+            $live=$this->ReadHeliosLive();
+            if ($live===null || $live['mode']!==0
+                || $live['fan']<2 || !in_array($live['program'],[3,4],true))
+                return ['status'=>'PREFLIGHT_CHANGED','attempted'=>false];
+            // Persist BEFORE RPC: even a timeout must not cause an immediate retry.
+            $this->WriteAttributeInteger('LastNightQuietAt',$now);
+            $this->WriteAttributeInteger('LastCommandAt',$now);
+            $this->WriteAttributeInteger('OwnedPartyExpiresAt',$now+32*60);
+            $this->WriteAttributeInteger('OwnedPartyLevel',1);
+            $this->WriteAttributeInteger('OwnedPartyProgram',$live['program']);
+            $result=HELIOS_OperatingMode_Whisper_Set($this->ReadPropertyInteger('HeliosInstance'),true,1,30);
+            return ['status'=>$result===false?'WRITE_UNCERTAIN':'WHISPER_SENT',
+                'attempted'=>true,'duration_minutes'=>30,
+                'device_automatic_return_expected'=>true];
+        } catch (Throwable $e) {
+            return ['status'=>'IO_UNCERTAIN','attempted'=>true];
+        } finally {
+            IPS_SemaphoreLeave($lock);
         }
     }
 
@@ -842,6 +896,8 @@ class HeliosSmart extends IPSModule
         $decision['device_status_check']=$deviceStatus;
         $execution=$this->TryOwnParty($candidate,$deviceStatus,$approvals,$now);
         $decision['party_execution']=$execution;
+        $decision['night_quiet_execution']=$this->TryNightQuiet(
+            $decision['night_strategy'],$candidate,$deviceStatus,$now);
         // After a successful/uncertain write this diagnostic is based on new
         // durable ownership; subsequent ticks only observe its state.
         if (($execution['attempted']??false)===true) {
