@@ -41,6 +41,7 @@ php tests/test_party_monitor.php
 php tests/test_comfort_controller.php
 php tests/test_winter_room_air.php
 php tests/test_night_strategy.php
+php tests/test_occupancy_learning.php
 php tests/test_moisture_comfort.php
 php tests/test_summer_airflow.php
 
