@@ -1,5 +1,14 @@
 # HELIOS SMART v0.12.0 – WetterZentrale & begrenzte Party-Automatik
 
+## Build 20 – Raumklima und Heizbetriebs-Effizienz (30.10.2026)
+
+**GitHub-Version zur spaeteren Aktualisierung:** Alle elf aktuellen Raumtemperaturen werden nun unabhaengig von der Frische ihrer RH-Quellen fuer die Winter-Raumluftbilanz beruecksichtigt. Nur originale RH-Meldungen bis 45 Minuten gelten als aktuell. Der neue reine Lesebaustein `libs/WinterRoomAir.php` ergaenzt den bestehenden Status, `DecisionJSON` und die ChatGPT-Lerndiagnose: Heizbedingungen, Raumtemperaturspanne, aktuelle Feuchteraeume und die **ausschliesslich normierte** fuehlbare Zuluftwirkung bei 100 m³/h.
+
+**Winterschutz:** Unter plausiblen bzw. bestaetigten Heizbedingungen keine zusatzliche wetterbedingte S4-Party. Echte unabhaengige Bad-/Kochereignisse bleiben unter den unveraenderten Sicherheits- und Nutzerfreigaben moeglich. Kein Senken des Herstellerwochenplans, kein Ueberschreiben bestehender Party oder manueller Betriebsart, keine Bypass-/Wochenprogramm-Aenderung. Ohne CO2 oder gemessene Luftmenge wird keine nachgewiesene Luftqualitaet oder echte Heizleistungsersparnis behauptet. Die mehrjaehrige Lernhistorie bleibt **rein beobachtend** und speicherschonend.
+
+Details und Pruefung: `docs/HEIZBETRIEB_RAUMKLIMA_2026.md`, `tests/test_winter_room_air.php` sowie der vollstaendige GitHub-CI-Lauf.
+
+
 ## v0.12.0 Build 18 – Installierbare, begrenzte Zusatzlüftung (25.10.2026)
 
 **Neu:** Die bisherige harte Ausgabesperre ist durch einen vollstaendigen, absichtlich standardmaessig AUS geschalteten Produktivpfad ersetzt worden. Nach ausdruecklicher Entscheidung am Geraet darf HELIOS SMART bei bestaetigtem Koch-/Badfeuchtebedarf **eine einzige Party auf Stufe 3 fuer hoechstens 15 Minuten** starten. Die Kuehl-/Saison-Automatik und Stufe 4 bleiben in dieser Erstfreigabe gesperrt. Der Helios-Herstellerwochenplan bleibt unveraendert. Niemals automatische Absenkung, nie fremde Party/manuelle Betriebsart abbrechen.
