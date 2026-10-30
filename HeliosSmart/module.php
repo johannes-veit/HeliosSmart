@@ -17,6 +17,7 @@ require_once __DIR__ . '/../libs/WeatherFlush.php';
 require_once __DIR__ . '/../libs/BoostCoordinator.php';
 require_once __DIR__ . '/../libs/SummerAirflow.php';
 require_once __DIR__ . '/../libs/ComfortController.php';
+require_once __DIR__ . '/../libs/WinterRoomAir.php';
 require_once __DIR__ . '/../libs/LearningDiagnostics.php';
 require_once __DIR__ . '/../libs/PartySafety.php';
 require_once __DIR__ . '/../libs/PartyProtocol.php';
@@ -738,6 +739,22 @@ class HeliosSmart extends IPSModule
         // Komfortentscheidung wird auch im produktiven Boost-Gate verwendet.
         $decision['comfort_control']=JVHeliosComfortController::analyze(
             $decision,(array)($tracking['rooms']??[]),$now);
+        // Winter: all 11 recent room temperatures remain usable even when
+        // some native LCN RH values have not changed for hours. This adds
+        // no variables, persistent history, or device operations.
+        $outsideAge=isset($weather['current']['observed_at'])
+            ?max(0,(int)floor(($now-(int)$weather['current']['observed_at'])/60)):null;
+        $supplyAge=$supplyFresh
+            ?max(0,(int)floor(($now-(int)(IPS_GetVariable($supplyID)['VariableUpdated']??0))/60))
+            :null;
+        $decision['winter_room_air']=JVHeliosWinterRoomAir::analyze($rooms,[
+            'season_signal'=>$decision['season_signal'],
+            'weather_quality'=>$decision['weather_quality'],
+            'outside_temperature'=>$decision['outside_temperature']??null,
+            'outside_age_minutes'=>$outsideAge,
+            'supply_temperature'=>$supply,
+            'supply_age_minutes'=>$supplyAge,
+        ],$now);
         $decision['summer_airflow']=JVHeliosSummerAirflow::advise($decision);
         $candidate=JVHeliosBoostCoordinator::propose(
             $decision,$cooking['advice'],(int)GetValue($fanID),
@@ -857,6 +874,11 @@ class HeliosSmart extends IPSModule
             .' | Bedarf: '.$decision['ventilation_need']['summary']
             .' | Behaglichkeit: '.($decision['comfort_control']['classification']??'UNBEKANNT')
                 .' / '.($decision['comfort_control']['requested_improvement']??'KEINE_DATEN')
+            .' | Winterraumluft: '.($decision['winter_room_air']['room_air_need']??'UNBEKANNT')
+                .' (T '.($decision['winter_room_air']['temperature_rooms_current']??0)
+                .', RH frisch '.($decision['winter_room_air']['humidity_rooms_current']??0)
+                .', Zuluftwirkung '.($decision['winter_room_air']['sensible_heat_w_per_100m3h']??'?')
+                .' W/100m3h)'
             .' | Kochen: '.$decision['cooking_advice']['summary']
             .' | Party: '.$decision['execution_status'].' / '.($guard['command_allowed']?'FREIGABE':'GESPERRT'). ' ('.($guard['airflow_basis']??'NO_AIRFLOW').')'
             .(!empty($decision['occupancy_advice']['away_status_reports'])
