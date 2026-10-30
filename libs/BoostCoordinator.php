@@ -31,11 +31,23 @@ final class JVHeliosBoostCoordinator
                 }
             }
         }
+        // Stage 3 duration adapts to fresh evidence, never exceeds the existing
+        // safety-approved 15 minute scope; stage 4 remains fixed at 30 minutes.
+        $bathMinutes=10;
+        foreach ($wetrooms as $wet) {
+            if (!is_array($wet) || ($wet['boost_recommended']??false)!==true) continue;
+            $rh=$wet['relative_humidity']??null;
+            $gradient=$wet['gradient_to_outside_gm3']??null;
+            if (is_numeric($rh) && (float)$rh>=65.0
+                && is_numeric($gradient) && (float)$gradient>=2.5) {
+                $bathMinutes=15;break;
+            }
+        }
         if ($mode==='HUMIDITY_BOOST' && $bathConfirmed && ($decision['weather_usable_for_advice']??false)) {
-            $choices[]=['source'=>'BATH_HUMIDITY','rank'=>3,'level'=>$highPower?4:max(3,$requested),'minutes'=>$highPower?30:15];
+            $choices[]=['source'=>'BATH_HUMIDITY','rank'=>3,'level'=>$highPower?4:max(3,$requested),'minutes'=>$highPower?30:$bathMinutes];
         }
         if (!$bathConfirmed && $trendSupported) {
-            $choices[]=['source'=>'BATH_HUMIDITY','rank'=>3,'level'=>$highPower?4:3,'minutes'=>$highPower?30:15];
+            $choices[]=['source'=>'BATH_HUMIDITY','rank'=>3,'level'=>$highPower?4:3,'minutes'=>$highPower?30:10];
         }
         if (($cooking['potential_odor_boost']??false)===true
             && in_array(($cooking['classification']??''),
@@ -47,9 +59,13 @@ final class JVHeliosBoostCoordinator
             $activityEvidence=($cooking['moderate_activity_based']??false)===true
                 || in_array(($cooking['classification']??''),
                     ['COOKING_ACTIVITY_LIKELY','COOKING_ACTIVITY_RECENT'],true);
+            $recent=in_array(($cooking['classification']??''),
+                ['COOKING_RECENTLY_LIKELY','COOKING_ACTIVITY_RECENT'],true);
+            $winter=($decision['winter_room_air']['heating_active']??false)===true;
+            $cookingMinutes=$recent?5:($activityEvidence?10:($winter?10:15));
             $choices[]=['source'=>'COOKING','rank'=>2,
                 'level'=>$activityEvidence?3:($highPower?4:(int)$cooking['suggested_fan_level']),
-                'minutes'=>$activityEvidence?15:($highPower?30:20)];
+                'minutes'=>($highPower && !$activityEvidence)?30:$cookingMinutes];
         }
         // The legacy COOLING proposal was intrinsically rejected by PartySafety.
         // Keep passive-cooling interpretation in the decision diagnostics, but
@@ -95,6 +111,7 @@ final class JVHeliosBoostCoordinator
             'fan_actual'=>$fan,'never_reduce_weekly'=>true,
             'weekly_program_change'=>false,
             'hardware_authorized'=>false,
+            'duration_policy'=>'S3 evidence-based 5/10/15 min; S4 always 30 min; no extension',
             'reason'=>$pick===null?'Kein ausreichend belegter Zusatzbedarf'
                 :($useful?'Zeitbegrenzte Party als Kandidat; separater Sicherheitsentscheid erforderlich'
                     :'Aktuelle Lüfterstufe erreicht oder uebertrifft die Zusatzempfehlung'),
