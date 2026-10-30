@@ -67,7 +67,13 @@ final class JVHeliosBoostCoordinator
             $weatherDecision['indoor_absolute_humidity']=(float)$comfort['living_average_absolute_humidity_gm3'];
         }
         $flush=JVHeliosWeatherFlush::analyze($weatherDecision);
-        if ($highPower && $flush['eligible']) {
+        // Heating season: discretionary weather-only S4 is not a substitute
+        // for a demonstrated humidity/CO2 need. Keep the manufacturer's
+        // minimum weekly plan and still allow separately proven bath/cooking
+        // needs through their existing independent PartySafety gates.
+        $winterHeating=($decision['winter_room_air']['heating_active']??false)===true;
+        $winterWeatherVeto=$winterHeating && $highPower && ($flush['eligible']??false)===true;
+        if ($highPower && $flush['eligible'] && !$winterHeating) {
             $choices[]=['source'=>'WEATHER_OPTIMAL','rank'=>1.5,'level'=>4,'minutes'=>30];
         }
         usort($choices,static fn($a,$b)=>($b['rank']<=>$a['rank']));
@@ -82,6 +88,8 @@ final class JVHeliosBoostCoordinator
             'suggested_minutes'=>$useful?$minutes:0,
             'candidate_sources'=>array_column($choices,'source'),
             'weather_flush'=>$flush,
+            'winter_weather_boost_veto'=>$winterWeatherVeto,
+            'winter_bath_cooking_exceptions_untouched'=>true,
             'wetroom_trend_confirmed'=>$trendSupported,
             'multiple_demands'=>count($choices)>1,
             'fan_actual'=>$fan,'never_reduce_weekly'=>true,
