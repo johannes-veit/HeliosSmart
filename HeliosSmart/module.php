@@ -147,7 +147,7 @@ class HeliosSmart extends IPSModule
     {
         return json_encode([
             'elements'=>[
-                ['type'=>'Label','caption'=>'v0.13: Standard S3/15 Minuten. OPTIONAL S4/30 Minuten ausschliesslich fuer bestaetigte Badfeuchte/Kochen nach eigener Hochleistungsfreigabe und gemessenen Luftmengen. Wochenprogramm bleibt erhalten.'],
+                ['type'=>'Label','caption'=>'Vier-Stufen-Strategie: S1 optional als 30-min-Nacht-Ruhebetrieb (23-06), S2 im Wochenprogramm, S3 nach Bedarf, S4 nur mit Freigabe. Nacht-S1 ist wegen ungesicherter Luftmenge standardmaessig AUS.'],
                 ['type'=>'NumberSpinner','name'=>'HeliosInstance','caption'=>'Helios-Instanz'],
                 ['type'=>'NumberSpinner','name'=>'WeatherCenterInstance','caption'=>'WetterZentrale-Instanz (0 = automatisch erkennen)'],
                 ['type'=>'NumberSpinner','name'=>'ClimateControlInstance','caption'=>'LCNClimateControl (nur lesend)'],
@@ -164,7 +164,8 @@ class HeliosSmart extends IPSModule
                 ['type'=>'NumberSpinner','name'=>'CookingPowerThresholdW','caption'=>'Leistungsschwelle W (Standard 2000)'],
                 ['type'=>'ValidationTextBox','name'=>'Rooms','caption'=>'Raumsensoren JSON'],
                 ['type'=>'CheckBox','name'=>'EnableControl','caption'=>'Automatische Zusatzlueftung AKTIVIEREN (zuvor alle Sicherheitsbedingungen pruefen)'],
-                ['type'=>'CheckBox','name'=>'AllowEstimatedAirflowLimitedParty','caption'=>'Modellbetrieb bewusst akzeptieren: Luftmengen NICHT gemessen; NUR Stufe 3 / max. 15 min'],
+                ['type'=>'CheckBox','name'=>'EnableNightQuiet','caption'=>'OPTIONAL: Nacht 23-06 Stufe 1 fuer 30 min mit Helios-Ruhebetrieb und Auto-Rueckfall (Modellluftmenge; Standard AUS)'],
+                ['type'=>'CheckBox','name'=>'AllowEstimatedAirflowLimitedParty','caption'=>'Modellbetrieb akzeptieren: Luftmengen NICHT gemessen; S3 max. 15 min oder separat freigegebener Nacht-Ruhebetrieb S1/30'],
                 ['type'=>'CheckBox','name'=>'MinimumVentilationValidated','caption'=>'Alternativ: reale Luftmengen fachlich eingemessen (nur bei vorhandenem Nachweis)'],
                 ['type'=>'CheckBox','name'=>'CombustionSafetyValidated','caption'=>'Feuerstaette / Dunstabzug / Lueftung gemeinsam sicher betrieben und entsprechend freigegeben'],
                 ['type'=>'CheckBox','name'=>'EnableHighPowerParty','caption'=>'Optional: bei Badfeuchte/Kochen S4 fuer 30 Minuten (Standard AUS)'],
