@@ -74,7 +74,7 @@ wr($hw['heating_active'] && !$hw['discretionary_weather_boost_allowed'],
  'Established 24-hour heating season remains protected when instant weather is missing');
 
 $decision=[
- 'weather_quality'=>'VERIFIED','trusted_weather'=>true,
+ 'weather_quality'=>'VERIFIED','trusted_weather'=>true,'weather_usable_for_advice'=>true,
  'fresh_room_count'=>11,'fresh_humidity_room_count'=>11,
  'indoor_temperature'=>26.0,'indoor_absolute_humidity'=>11.5,
  'outside_temperature'=>11.0,'outside_dewpoint'=>8.0,
