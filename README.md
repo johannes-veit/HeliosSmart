@@ -1,5 +1,13 @@
 # HELIOS SMART v0.12.0 – WetterZentrale & begrenzte Party-Automatik
 
+## Build 25 – Geräuscharme Nacht, alle vier Stufen berücksichtigt (30.10.2026)
+
+Die neue reine Entscheidungslogik `libs/NightStrategy.php` ordnet von 23:00 bis 06:00 einen leisen S1-Nachtbetrieb zu, sofern aktuelle T/RH-Daten vorliegen und **kein** Kühl-, Feuchte- oder Kochbedarf, kein Boost und kein Signalfehler vorliegt. Tagesgrundbetrieb bleibt S2 nach dem Helios-Wochenprogramm; S3/S4 weiterhin über die bestehenden, separat freizugebenden Party-Aufträge. Die Luftmenge S1 (~80 m³/h nach unbestätigtem Modell) ist niedriger als die normale rechnerische Referenz; daher nur 30 Minuten am Stück und maximal ein Start innerhalb von 120 Minuten. S1 ist keine nachgewiesene hygienische Mindestlüftung.
+
+Das zusätzliche Opt-in `EnableNightQuiet` ist **standardmäßig AUS**. Bei ausdrücklicher Freigabe von `EnableControl`, `EnableNightQuiet`, `AllowEstimatedAirflowLimitedParty`, `CombustionSafetyValidated` und `DevicePartyReturnValidated` nutzt HELIOS SMART `HELIOS_OperatingMode_Whisper_Set(instance,true,1,30)`. Die Helios-Gerätesteuerung kehrt nach 30 Minuten autonom zum Wochenprogramm zurück. Keine dauerhafte manuelle Stufe, keine Programmänderung. Vor dem Schreiben erfolgt eine frische Geräteabfrage; unbekannte / fremde Betriebsarten bleiben unberührt. Neu erkannte Kühl-/Feuchte-/Kochprioritäten können ausschließlich **einen vom Modul selbst initiierten** S1-Ruhebetrieb vorzeitig auf Auto zurücksetzen. Erst ein bestätigter Auto-Readback gibt die normale Party-Prioritätsprüfung auf der nächsten Evaluation wieder frei.
+
+Tests in `tests/test_night_strategy.php` sind in `tests/run_all.sh` aufgenommen. CI und reale SymBox-Inbetriebnahme sind noch nicht bestätigt. Die geringe Nachtluftmenge muss im Betrieb hinsichtlich Luftqualität, Feuchteschutz und ggf. Feuerstättensicherheit fachlich bewertet werden.
+
 ## Build 24 – Theoretisches Gebäudeluftstrommodell (30.10.2026)
 
 Vorliegende Gebäudedaten: rund 242 m² und 760 m³. Bisherige, **nicht gemessene** Zuluftmodellwerte S1/S2/S3/S4: 80/220/290/360 m³/h, entsprechend rechnerisch 0,105/0,289/0,382/0,474 h-1. Die modellinternen Vergleichswerte 0,20 und 0,30 h-1 entsprechen 152 und 228 m³/h; es handelt sich ausdrücklich **nicht** um eine abgeschlossene DIN-1946-6-Auslegung oder um garantierte Herstellerleistungen am vorhandenen Kanalnetz. `base_ventilation` liefert diese Diagnosedaten im bestehenden DecisionJSON ohne zusätzliche Variablen. Absenkung unter das Hersteller-Wochenprogramm bleibt bis zum Nachweis der nötigen Mindestlüftung gesperrt. Der reale Volumenstrom hängt von Kanalwiderstand, Filtern und Einregulierung ab.
