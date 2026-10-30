@@ -8,6 +8,7 @@ require_once __DIR__ . '/../libs/ComfortAdvisor.php';
 require_once __DIR__ . '/../libs/SeasonalAdvisor.php';
 require_once __DIR__ . '/../libs/VentilationNeed.php';
 require_once __DIR__ . '/../libs/NightStrategy.php';
+require_once __DIR__ . '/../libs/OccupancyLearning.php';
 require_once __DIR__ . '/../libs/WetroomEvents.php';
 require_once __DIR__ . '/../libs/CookingAdvisor.php';
 require_once __DIR__ . '/../libs/CookingEvents.php';
@@ -58,6 +59,7 @@ class HeliosSmart extends IPSModule
         $this->RegisterPropertyBoolean('EnableNightQuiet',false);
         $this->RegisterAttributeString('RoomHistory', '{}');
         $this->RegisterAttributeString('LearningObservationState', '{}');
+        $this->RegisterAttributeString('OccupancyLearningState', '{}');
         $this->RegisterAttributeString('SeasonalAdviceState', '{}');
         $this->RegisterAttributeString('WetroomEventState', '{}');
         $this->RegisterAttributeString('CookingAdviceState', '{}');
@@ -630,6 +632,20 @@ class HeliosSmart extends IPSModule
             $previousJson=$this->ReadAttributeString('LearningObservationState');
             $old=json_decode($previousJson,true);
             $old=is_array($old)?$old:[];
+            $occupancy=(array)($snapshot['occupancy_advice']??[]);
+            if(!$occupancy) {
+                // Manual learning refresh also queries SHADOW without mutating
+                // the separate cooking detector's evidence state.
+                $signals=$this->ReadCookingSignals($now);
+                $presence=JVHeliosCookingAdvisor::analyze($signals,$now,[]);
+                $occupancy=(array)($presence['advice']['occupancy']??[]);
+            }
+            $occPrevious=json_decode($this->ReadAttributeString('OccupancyLearningState'),true);
+            $occLearning=JVHeliosOccupancyLearning::update(
+                is_array($occPrevious)?$occPrevious:[],$occupancy,$snapshot,$now);
+            $occJson=json_encode($occLearning['state'],JSON_UNESCAPED_UNICODE);
+            if(is_string($occJson) && $occJson!==$this->ReadAttributeString('OccupancyLearningState'))
+                $this->WriteAttributeString('OccupancyLearningState',$occJson);
             $learning=JVHeliosLearningDiagnostics::update($old,$rooms,$snapshot,$now);
             $packed=$learning['compact_state'];
             // Diagnostic text is for manual sharing, not a five-minute log:
@@ -862,6 +878,7 @@ class HeliosSmart extends IPSModule
         // Lernbeobachtung vor jeder moeglichen Geraeteausfuehrung schreiben.
         // Ein spaeterer Fehler in Safety/Party/JSON darf die Meldung nicht blockieren.
         $this->WriteLearningReport($rooms,[
+            'occupancy_advice'=>$decision['occupancy_advice']??[],
             'weather_quality'=>$decision['weather_quality']??'UNAVAILABLE',
             'outside_temperature'=>in_array(($decision['weather_quality']??''),['VERIFIED','DWD_ONLY'],true)
                 ?($decision['outside_temperature']??null):null,
