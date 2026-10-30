@@ -28,6 +28,12 @@ ns(!JVHeliosNightStrategy::plan($d,2,$night)['quiet_eligible'],
  'Stale humidity does not justify S1');
 $d['winter_room_air']['humidity_rooms_current']=11;
 $day=(new DateTimeImmutable('2026-10-31 12:00:00',new DateTimeZone('Europe/Berlin')))->getTimestamp();
-ns(JVHeliosNightStrategy::plan($d,2,$day)['target_stage']===2,
- 'Day retains S2 manufacturer baseline');
+ns(JVHeliosNightStrategy::plan($d,2,$day)['target_stage']===1,
+ 'Daytime low demand may use short S1 interval');
+$d['occupancy_advice']=['status'=>'BOTH_AWAY_REPORTED'];
+ns(JVHeliosNightStrategy::plan($d,2,$day)['target_stage']===1,
+ 'Reported nonhome occupants do not prevent low-demand S1');
+$d['mode']='PASSIVE_COOLING';
+ns(JVHeliosNightStrategy::plan($d,2,$day)['target_stage']!==1,
+ 'Summer cooling overrides daytime absence and quiet optimization');
 echo "NIGHT STRATEGY TESTS PASSED\n";
