@@ -1,5 +1,9 @@
 # HELIOS SMART v0.12.0 – WetterZentrale & begrenzte Party-Automatik
 
+## Build 23 – Bedarfsabhaengige Grundlueftung S1/S2 (30.10.2026)
+
+Neu: `JVHeliosVentilationNeed::baseStage()` bewertet aktuelle Original-Raumdaten, Kochhinweise, Feuchtraeume, Winterbedingungen und Sensorqualitaet. Die bestehende `DecisionJSON` zeigt den rein informativen Abschnitt `base_ventilation`. Ohne gemessenen und dokumentiert freigegebenen S1-Mindestvolumenstrom gibt es **keine Empfehlung zur Absenkung auf S1**. Selbst bei formal validiertem Stufe-1-Volumenstrom wird kein Wochenprogramm geaendert: dazu fehlt noch ein freigegebener, getesteter Hersteller-Rueckfall- und Wochenplan-Schreibpfad. Telefon-Abwesenheit allein belegt kein leeres Haus. Bestehende produktive S3-/S4-Partyautomatik und alle Freigaben bleiben unveraendert. Simulationen zur S1/S2-Beratung im bestehenden `tests/test_winter_room_air.php`; reale SymBox-/Gesamt-CI-Abnahme ausstehend.
+
 ## Build 22 – Bedarfsabhängige Zusatzstufen und Laufzeiten (30.10.2026)
 
 Der bestehende BoostCoordinator wählt statt pauschaler 15 Minuten für S3 jetzt **5/10/15 Minuten**: 5 Minuten bei nur noch historischem Kochsignal, 10 Minuten bei moderatem Kochsignal, Heizwetter-Kochen oder mäßiger verifizierter Badfeuchte, 15 Minuten bei starkem frischem Bad-Entfeuchtungsgradienten oder bestätigtem Kochen außerhalb der Heizbedingungen. **S4/30** nur bei separat freigeschaltetem Hochleistungsbetrieb und schwerem Badfeuchtesignal (RH mindestens 75 %, Gradient mindestens 4 g/m³), aktuell stark belegtem Kochen oder unabhängig zugelassenem Sommer-Wetterfenster. Trend allein nutzt S3/10. Stufe 1/2 verbleibt beim Herstellerwochenplan; keine automatische Absenkung, Verlängerung oder Übernahme vorhandener Party. Unveränderte Safety-Gates prüfen jeden einzelnen Auftrag. Aktualisierte Regressionstests in `tests/test_party_commissioning.php`. Noch keine Live-SymBox-Abnahme.
