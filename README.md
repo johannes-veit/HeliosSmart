@@ -1,5 +1,9 @@
 # HELIOS SMART v0.12.0 – WetterZentrale & begrenzte Party-Automatik
 
+## Build 21 – Verifiziertes Entfeuchtungspotenzial (30.10.2026)
+
+Der Winter-Raumluft-Beobachter berechnet nun aus original frischen Temperatur-/RH-Paaren der 11 Räume die absolute Luftfeuchte und vergleicht sie mit dem aktuellen verifizierten Außentaupunkt. Im bestehenden `DecisionJSON` erscheinen `outside_absolute_humidity_gm3` und `rooms_with_drying_potential` (mindestens 2 g/m³ Unterschied). Ungültiges/fehlendes Wetter erzeugt keine Entfeuchtungsbehauptung. Dies ist eine **rein lesende Diagnose**, keine automatische Stufenanhebung, keine Änderung der Wochenprogramm-Untergrenze und keine Erlaubnis, die Sicherheitsfreigaben zu umgehen. Der Taupunkt der Helios-Geräteeintrittsluft nach EWT wird nicht mit echter Außenluft verwechselt. Tests: `tests/test_winter_room_air.php`.
+
 ## Build 20 – Raumklima und Heizbetriebs-Effizienz (30.10.2026)
 
 **GitHub-Version zur spaeteren Aktualisierung:** Alle elf aktuellen Raumtemperaturen werden nun unabhaengig von der Frische ihrer RH-Quellen fuer die Winter-Raumluftbilanz beruecksichtigt. Nur originale RH-Meldungen bis 45 Minuten gelten als aktuell. Der neue reine Lesebaustein `libs/WinterRoomAir.php` ergaenzt den bestehenden Status, `DecisionJSON` und die ChatGPT-Lerndiagnose: Heizbedingungen, Raumtemperaturspanne, aktuelle Feuchteraeume und die **ausschliesslich normierte** fuehlbare Zuluftwirkung bei 100 m³/h.
