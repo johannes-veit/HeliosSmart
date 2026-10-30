@@ -386,6 +386,35 @@ class HeliosSmart extends IPSModule
     }
 
 
+    /** Abort ONLY our own whisper on a newly detected higher-priority need. */
+    private function EndOwnNightQuietIfNeeded(array $plan,array $live,int $now):array
+    {
+        $r=['status'=>'NO_ACTION','attempted'=>false];
+        if (($plan['quiet_eligible']??false)===true
+            || ($plan['priority_cooling']??false)!==true
+                && ($plan['priority_humidity']??false)!==true
+                && ($plan['priority_cooking']??false)!==true) return $r;
+        $started=$this->OptionalAttributeInt('LastNightQuietAt');
+        if ($started<=0 || $now-$started>32*60 || $now<$started
+            || $this->OptionalAttributeInt('OwnedPartyLevel')!==1
+            || ($live['mode']??null)!==3
+            || ($live['fan']??null)!==1
+            || !$this->ReadPropertyBoolean('EnableControl')
+            || !$this->ReadPropertyBoolean('EnableNightQuiet')
+            || !function_exists('HELIOS_OperatingMode_Whisper_Set')) return $r;
+        try {
+            $again=$this->ReadHeliosLive();
+            if ($again===null || $again['mode']!==3 || $again['fan']!==1)
+                return ['status'=>'STATE_CHANGED','attempted'=>false];
+            $ok=HELIOS_OperatingMode_Whisper_Set(
+                $this->ReadPropertyInteger('HeliosInstance'),false,1,5);
+            return ['status'=>$ok===false?'RETURN_UNCERTAIN':'RETURN_REQUESTED',
+                'attempted'=>true];
+        } catch(Throwable $e) {
+            return ['status'=>'RETURN_UNCERTAIN','attempted'=>true];
+        }
+    }
+
     /**
      * User-authorized, time-limited quiet night exception to the weekly plan.
      * Helios itself returns to AUTO after 30 min. No permanent manual mode.
@@ -897,6 +926,8 @@ class HeliosSmart extends IPSModule
         $decision['device_status_check']=$deviceStatus;
         $execution=$this->TryOwnParty($candidate,$deviceStatus,$approvals,$now);
         $decision['party_execution']=$execution;
+        $decision['night_quiet_priority_return']=$this->EndOwnNightQuietIfNeeded(
+            $decision['night_strategy'],$deviceStatus,$now);
         $decision['night_quiet_execution']=$this->TryNightQuiet(
             $decision['night_strategy'],$candidate,$deviceStatus,$now);
         // After a successful/uncertain write this diagnostic is based on new
