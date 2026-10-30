@@ -30,6 +30,7 @@ final class JVHeliosWinterRoomAir
             && (float)$external<=12.0 && $season!=='SUMMER_HEAT';
         $heating=$confirmed || $likely;
         $temp=[];$currentRh=[];$indicative=0;$stale=0;$wet=[];$dry=[];
+        $humidityDetails=[];
         $validNames=[];
         foreach($rooms as $r) {
             if(!is_array($r))continue;
@@ -56,8 +57,29 @@ final class JVHeliosWinterRoomAir
             $currentRh[]=(float)$h;
             if((float)$h<35)$dry[]=$name;
             if((float)$h>=60)$wet[]=$name;
+            // Absolute moisture is evaluated only for a fresh T/RH pair.
+            $sat=6.112*exp(17.62*$t/(243.12+$t));
+            $absolute=216.7*($sat*((float)$h/100.0))/($t+273.15);
+            $humidityDetails[]=['name'=>$name,'absolute_gm3'=>$absolute,'rh'=>(float)$h];
         }
         $count=count($temp);$rhCount=count($currentRh);
+        $outsideDewpoint=$context['outside_dewpoint']??null;
+        $outsideAH=null;
+        if($verified && is_numeric($outsideDewpoint)
+            && is_finite((float)$outsideDewpoint)
+            && (float)$outsideDewpoint>=-50 && (float)$outsideDewpoint<=35) {
+            $dp=(float)$outsideDewpoint;
+            $vapor=6.112*exp(17.62*$dp/(243.12+$dp));
+            $outsideAH=216.7*$vapor/((float)$external+273.15);
+        }
+        $moisture=[];
+        if($outsideAH!==null)foreach($humidityDetails as $rhRoom) {
+            $difference=$rhRoom['absolute_gm3']-$outsideAH;
+            if($difference>=2.0)$moisture[]=[
+                'name'=>$rhRoom['name'],
+                'gradient_gm3'=>round($difference,2),
+            ];
+        }
         $mean=$count?array_sum(array_column($temp,'c'))/$count:null;
         $min=$count?min(array_column($temp,'c')):null;
         $max=$count?max(array_column($temp,'c')):null;
@@ -88,6 +110,9 @@ final class JVHeliosWinterRoomAir
             'humidity_rooms_indicative'=>$indicative,
             'humidity_rooms_old_or_missing'=>$stale,
             'current_dry_rooms'=>$dry,'current_humid_rooms'=>$wet,
+            'outside_absolute_humidity_gm3'=>$outsideAH!==null?round($outsideAH,2):null,
+            'rooms_with_drying_potential'=>$moisture,
+            'drying_potential_is_only_observation'=>true,
             'room_air_need'=>$need,
             'supply_is_current'=>$supplyOK,
             'sensible_heat_w_per_100m3h'=>$impact,
@@ -103,6 +128,7 @@ final class JVHeliosWinterRoomAir
                 .' | RH frisch '.$rhCount.'/'.count($validNames)
                 .' | RH indikativ '.$indicative
                 .' | lokale Feuchtehinweise '.count($wet)
+                .' | Entfeuchtungspotenzial '.count($moisture)
                 .' | Zuluftwirkung '.($impact!==null?($impact>0?'+':'').$impact.' W/100m3h':'unbekannt'),
         ];
     }
