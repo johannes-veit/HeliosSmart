@@ -32,7 +32,7 @@ $wet['wetrooms']=[['boost_recommended'=>true]];
 $bw=JVHeliosBoostCoordinator::propose($wet,$cook,2);
 pc($bw['source']==='BATH_HUMIDITY','Bad hat Vorrang vor Kochen');
 pc($bw['multiple_demands']===true,'Gleichzeitige Bedarfe werden protokolliert');
-pc($bw['suggested_minutes']===15,'Keine Summierung von 15 und 20 Minuten');
+pc($bw['suggested_minutes']===10,'Bei unbeziffertem Badbedarf konservativ 10 Minuten, keine Summierung');
 pc(count($bw['candidate_sources'])===2,'Zwei Bedarfsquellen erhalten');
 $wet['wetrooms']=[['boost_recommended'=>false]];
 pc(JVHeliosBoostCoordinator::propose($wet,$none,2)['kind']==='KEEP_WEEKLY',
@@ -42,8 +42,19 @@ $spike['wetrooms']=[['name'=>'OG Bad','relative_humidity'=>57,
  'gradient_to_outside_gm3'=>3.0,'boost_recommended'=>false]];
 $spike['wetroom_trend']=['observed_rises'=>['OG Bad']];
 $spikeYes=JVHeliosBoostCoordinator::propose($spike,$none,2,true);
-pc($spikeYes['source']==='BATH_HUMIDITY' && $spikeYes['suggested_level']===4,
- 'Multiple real bath RH rises can trigger S4 below static 60 pct');
+pc($spikeYes['source']==='BATH_HUMIDITY' && $spikeYes['suggested_level']===3
+ && $spikeYes['suggested_minutes']===10,
+ 'Moderate confirmed bath RH rise stays S3 for 10 minutes, no unnecessary S4');
+$wetSevere=$wet;$wetSevere['wetrooms']=[['boost_recommended'=>true,
+ 'relative_humidity'=>78,'gradient_to_outside_gm3'=>4.5]];
+$severe=JVHeliosBoostCoordinator::propose($wetSevere,$none,2,true);
+pc($severe['suggested_level']===4 && $severe['suggested_minutes']===30,
+ 'Severe verified bath moisture may propose separately gated S4/30');
+$recentCook=['classification'=>'COOKING_RECENTLY_LIKELY','potential_odor_boost'=>true,
+ 'suggested_fan_level'=>3];
+$recent=JVHeliosBoostCoordinator::propose($weekly,$recentCook,2,true);
+pc($recent['suggested_level']===3 && $recent['suggested_minutes']===5,
+ 'Historical cooking tail never triggers S4 and is limited to five minutes');
 $spikeBad=$spike;$spikeBad['wetrooms'][0]['gradient_to_outside_gm3']=0.5;
 pc(JVHeliosBoostCoordinator::propose($spikeBad,$none,2,true)['kind']==='KEEP_WEEKLY',
  'Confirmed RH rise cannot boost into humid outside air');
