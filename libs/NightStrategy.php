@@ -23,10 +23,16 @@ final class JVHeliosNightStrategy {
         $tempCount=(int)($winter['temperature_rooms_current']??0);
         $qualityOk=$rhCount>=8 && $tempCount>=9;
         $override=$coolDemand || $wet || $cook || ($candidate['kind']??'')==='PARTY_CANDIDATE';
-        $quiet=$night && !$override && $qualityOk;
+        $occupancy=(array)($d['occupancy_advice']??[]);
+        $reportedAway=in_array((string)($occupancy['status']??''),[
+            'BOTH_AWAY_REPORTED','BOTH_NONHOME_REPORTED'],true);
+        // Phone absence is not evidence of an empty house.
+        $quiet=!$override && $qualityOk;
+        $reasonBasis=$night?'NACHT_RUHE':($reportedAway?'ABWESENHEIT_GEMELDET':'GERINGER_BEDARF');
         $stage=$override?max(2,min(4,(int)($candidate['suggested_level']??2))):($quiet?1:2);
         return [
-          'target_stage'=>$stage,'night_quiet_window'=>$night,
+          'target_stage'=>$stage,'night_quiet_window'=>$night,'low_demand_reason'=>$reasonBasis,
+          'reported_away_is_not_empty_house_proof'=>true,
           'quiet_eligible'=>$quiet, 'priority_cooling'=>$coolDemand,
           'priority_humidity'=>$wet,'priority_cooking'=>$cook,
           'sensor_quality_ok'=>$qualityOk,
@@ -36,8 +42,8 @@ final class JVHeliosNightStrategy {
           'autonomous_weekly_fallback'=>true,
           'actual_stage'=>$fan,
           'reason'=>$override?'Kuehlung/Feuchte/Kochen hat Vorrang':
-            ($quiet?'Leiser Nachtbetrieb S1 fuer maximal 30 Minuten, nur nach expliziter Freigabe':
-            ($night?'Nacht ohne ausreichende Sensorqualitaet: S2/Wochenplan':'Tagsueber S2/Wochenplan')),
+            ($quiet?'Zeitbegrenzte S1 bei geringem Bedarf ('.$reasonBasis.'), nur nach Freigabe':
+            'Unzureichende Sensorlage: Wochenprogramm beibehalten'),
         ];
     }
 }
