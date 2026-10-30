@@ -79,11 +79,19 @@ $hs->Evaluate();
 a(count($GLOBALS['calls'])===0,'Standard Beobachtung: Null Gerätebefehle');
 a($GLOBALS['learnReportWrites']===$writesAfterInit,
   'Five-minute Evaluate does not rewrite large chat diagnostic text');
+$integrated=json_decode((string)$hs->value('DecisionJSON'),true);
+a(is_array($integrated) && is_array($integrated['winter_room_air']??null)
+  && ($integrated['winter_room_air']['hygienic_minimum_preserved']??false)===true
+  && ($integrated['winter_room_air']['learning_directly_selects_fan']??true)===false,
+  'Heating room-air decision is visible in existing DecisionJSON and preserves manufacturer weekly minimum');
 $learningText=(string)$hs->value('LernDiagnose');
 a(str_contains($learningText,'HELIOS SMART')
   && str_contains($learningText,'LERNDIAGNOSE FUER CHATGPT')
   && str_contains($learningText,'nicht gemessen'),
   'Eine Lerndiagnose-Textvariable mit Quellen und Grenzen vorhanden');
+a(str_contains($learningText,'Heizbetrieb-Raumluft:')
+  && str_contains($learningText,'Zuluftwirkung'),
+  'Existing ChatGPT diagnosis reports heating-room air context without any new visible variables');
 a(str_contains($learningText,'Keine automatische Uebertragung'),
   'Kein ungewollter externer ChatGPT-Versand durch Lernprogramm');
 $sampled=json_decode($hs->ReadAttributeString('LearningObservationState'),true);
