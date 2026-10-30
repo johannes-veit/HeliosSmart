@@ -751,6 +751,7 @@ class HeliosSmart extends IPSModule
             'season_signal'=>$decision['season_signal'],
             'weather_quality'=>$decision['weather_quality'],
             'outside_temperature'=>$decision['outside_temperature']??null,
+            'outside_dewpoint'=>$decision['outside_dewpoint']??null,
             'outside_age_minutes'=>$outsideAge,
             'supply_temperature'=>$supply,
             'supply_age_minutes'=>$supplyAge,
