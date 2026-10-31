@@ -52,6 +52,7 @@ class HeliosSmart extends IPSModule
         // Sole EWT in HELIOS outside-air intake. Do not reuse FBH cooling Shelly.
         $this->RegisterPropertyInteger('EWTPumpSwitchVariable',0);
         $this->RegisterPropertyInteger('EWTPumpPowerVariable',0);
+        $this->RegisterPropertyInteger('EWTSoleTemperatureVariable',0);
         $this->RegisterPropertyBoolean('EnableEWTPumpControl',false);
         $this->RegisterPropertyInteger('CookingPowerThresholdW',2000);
         $this->RegisterPropertyString('Rooms',json_encode(JVHeliosLCNRoomSources::SOURCES, JSON_UNESCAPED_UNICODE));
@@ -171,6 +172,7 @@ class HeliosSmart extends IPSModule
                 ['type'=>'Label','caption'=>'Separater Sole-EWT der Lueftung (NICHT die FBH-Taupunktwaechter-Pumpe): Bei Frost oder unsicherem Wetter immer EIN. Fuer unterbrechungsfreien Frostschutz separate Hardware-Sicherung und Shelly Power-on=EIN vorsehen.'],
                 ['type'=>'NumberSpinner','name'=>'EWTPumpSwitchVariable','caption'=>'Shelly Schaltvariable Sole-EWT-Lueftung (Boolean-ID, 0=keine Schaltung)'],
                 ['type'=>'NumberSpinner','name'=>'EWTPumpPowerVariable','caption'=>'Optional: Shelly Leistungswert Pumpe in Watt (0=unbekannt)'],
+                ['type'=>'NumberSpinner','name'=>'EWTSoleTemperatureVariable','caption'=>'Optional: GEMESSENE Soletemperatur am Helios-EWT (Symcon-Variablen-ID, 0=Monatsmodell)'],
                 ['type'=>'CheckBox','name'=>'EnableEWTPumpControl','caption'=>'Separaten EWT-Pumpenaktor nach Installation und Frostschutzpruefung freigeben (Standard AUS)'],
                 ['type'=>'NumberSpinner','name'=>'KitchenLightVariable','caption'=>'Kuechenlicht Status (Original #51009)'],
                 ['type'=>'NumberSpinner','name'=>'KitchenMotionVariable','caption'=>'Bewegung Wohnen / Kueche (#51040)'],
@@ -714,6 +716,8 @@ class HeliosSmart extends IPSModule
     {
         $plugId=$this->ReadPropertyInteger('EWTPumpSwitchVariable');
         $powerId=$this->ReadPropertyInteger('EWTPumpPowerVariable');
+        $soleId=$this->ReadPropertyInteger('EWTSoleTemperatureVariable');
+        $soleExists=$soleId>0 && IPS_VariableExists($soleId);
         $configured=$plugId>0 && IPS_VariableExists($plugId);
         $validType=$configured && (int)(IPS_GetVariable($plugId)['VariableType']??-1)===0;
         $state=json_decode($this->ReadAttributeString('EWTPumpControlState'),true);
@@ -736,6 +740,9 @@ class HeliosSmart extends IPSModule
             'intake_after_ewt'=>$intakeExists?GetValue($intakeId):null,
             'intake_updated_at'=>$intakeExists
                 ?(int)(IPS_GetVariable($intakeId)['VariableUpdated']??0):0,
+            'sole_temperature'=>$soleExists?GetValue($soleId):null,
+            'sole_updated_at'=>$soleExists
+                ?(int)(IPS_GetVariable($soleId)['VariableUpdated']??0):0,
             'indoor_temperature'=>$inside,
             'plug_on'=>$actual,
             'state'=>$state
@@ -791,6 +798,11 @@ class HeliosSmart extends IPSModule
             .' | Soll '.($plan['desired_on']?'EIN':'AUS')
             .' | Ist '.($actual===null?'UNBEKANNT':($actual?'EIN (gemeldet)':'AUS (gemeldet)'))
             .' | '.$plan['reason'].' | '.$command
+            .' | Sole '.($plan['sole_temperature_measured_c']!==null
+                ?number_format($plan['sole_temperature_measured_c'],1,',','.').' °C gemessen'
+                :number_format($plan['sole_temperature_reference']['low_c'],1,',','.')
+                    .'–'.number_format($plan['sole_temperature_reference']['high_c'],1,',','.')
+                    .' °C Monatsmodell (kein Messwert)')
             .' | '.($power!==null?number_format($power,1,',','.').' W':'Leistung nicht verifiziert');
         $this->SetValue('EWTPumpStatus',$status);
         return $plan;
