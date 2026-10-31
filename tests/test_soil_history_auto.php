@@ -123,4 +123,36 @@ $z->setProperty('EnableExternal',false);
 $z->ApplyChanges();
 testAuto($z->getTimer('SoilCurrentTick')===0,
     'disabling external weather stops live soil model HTTP timer');
+// Real module lifecycle: reloaded Create() must NOT invalidate a fresh
+// weather result, unlike the old unconditional SetValue(Quality, UNAVAILABLE).
+$z->SetValue('Quality','VERIFIED');
+$z->Create();
+testAuto($z->value('Quality')==='VERIFIED',
+    'Create after a module reload never overwrites weather quality as UNAVAILABLE');
+$z->setProperty('Latitude',49.9044);
+$z->setProperty('Longitude',6.9781);
+$latest=[
+    'issued_at'=>time()-60,
+    'quality'=>'VERIFIED',
+    'reason'=>'Lokale Station und nahe DWD-Messung stimmen ueberein',
+    'current'=>JVWeatherMath::readPair(7.0,89)+[
+        'observed_at'=>time()-90,'source'=>'PWS'],
+    'forecast'=>[],
+];
+$z->WriteAttributeString('Cache',json_encode(['snapshot'=>$latest]));
+$z->ApplyChanges();
+testAuto($z->value('Quality')==='VERIFIED',
+    'ApplyChanges restores current VERIFIED quality from cached weather snapshot');
+testAuto(json_decode($z->Snapshot(),true)['quality']==='VERIFIED',
+    'public weather snapshot remains VERIFIED after independent soil timers update');
+testAuto((float)json_decode($z->Snapshot(),true)['current']['temperature']===7.0,
+    'reloaded weather snapshot preserves measured temperature 7.0 C');
+$old=$latest;
+$old['current']['observed_at']=time()-50*60;
+$z->WriteAttributeString('Cache',json_encode(['snapshot'=>$old]));
+$z->ApplyChanges();
+testAuto($z->value('Quality')==='UNAVAILABLE',
+    'too-old weather observation must not restore VERIFIED quality');
+testAuto(json_decode($z->Snapshot(),true)['quality']==='UNAVAILABLE',
+    'public weather snapshot rejects stale measurement even with recent refresh time');
 echo "ERA5-Land background timer and staged import simulation OK\n";

@@ -52,12 +52,22 @@ class WetterZentrale extends IPSModule
             'Bodenmodell aktuell – Datenquelle und Zeitpunkt JSON', '', 140);
         $this->RegisterVariableString('SoilCurrentHistoryJSON',
             'Bodenmodell 6-h-Verlauf – letzte 90 Tage JSON', '', 150);
-        $this->SetValue('Quality', 'UNAVAILABLE');
+        // Do NOT reset Quality in Create(): Symcon invokes Create() again
+        // when a module is reloaded, even for an established instance.
+        // An unconditional UNAVAILABLE would overwrite a fresh VERIFIED
+        // result until the next 5-minute weather refresh.
     }
 
     public function ApplyChanges(): void
     {
         parent::ApplyChanges();
+        // Rebuild the visible quality from the *validated cached snapshot*
+        // without requiring another weather API call during a module update.
+        $cached=json_decode($this->ReadAttributeString('Cache'),true);
+        $cachedSnapshot=is_array($cached['snapshot']??null)
+            ?$cached['snapshot']:null;
+        $valid=JVWeatherLogic::validatedSnapshot($cachedSnapshot,time());
+        $this->SetValue('Quality',(string)$valid['quality']);
         $this->SetTimerInterval('WeatherTick', 5 * 60 * 1000);
         if (!$this->ReadPropertyBoolean('EnableExternal')
             || !$this->ReadPropertyBoolean('EnableSoilHistory')) {
@@ -499,10 +509,8 @@ class WetterZentrale extends IPSModule
     public function Snapshot(): string
     {
         $cache = json_decode($this->ReadAttributeString('Cache'), true);
-        $snapshot = $cache['snapshot'] ?? null;
-        if (!is_array($snapshot) || time() - (int)($snapshot['issued_at']??0)>35*60) {
-            return json_encode(['quality'=>'UNAVAILABLE','current'=>null,'forecast'=>[], 'reason'=>'WetterZentrale nicht aktuell']);
-        }
+        $snapshot = JVWeatherLogic::validatedSnapshot(
+            is_array($cache['snapshot']??null)?$cache['snapshot']:null,time());
         // Soil climatology is independent archival information, not current weather.
         // Never upgrade weather quality because the model exists.
         if($this->ReadPropertyBoolean('EnableExternal')
