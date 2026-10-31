@@ -2259,9 +2259,21 @@ class HeliosSmart extends IPSModule
             'high_power_safety'=>$this->ReadPropertyBoolean('HighPowerSafetyValidated'),
             'combustion_safe'=>$this->ReadPropertyBoolean('CombustionSafetyValidated'),
         ],$now);
+        $smartTimedStillPresent=!$smartEnabled
+            && (int)($smartState['sent_at']??0)>0
+            && (int)($smartState['until']??0)>=$now
+            && in_array((int)($smartState['mode']??0),[2,3],true);
         if($smartEnabled && ($seasonResult['attempted']??false)!==true)
             $smartExecution=$this->ExecuteSmartFanTakeover($smartPlan,$now);
-        else
+        elseif($smartTimedStillPresent){
+            // Disabling the control checkbox is an immediate *request* to
+            // return to AUTO, not an invitation for the legacy Party
+            // engine to replace our own last device-timed command.
+            $smartExecution=$this->ExecuteSmartFanTakeover([
+                'execute'=>false,'reason'=>'SMART_TAKEOVER_DISABLED',
+                'fallback_weekly'=>true,
+            ],$now);
+        }else
             $smartExecution=['status'=>($seasonResult['attempted']??false)
                 ?'SEASON_PROGRAM_CHANGE_FIRST':'SMART_DISABLED',
                 'attempted'=>false,'fallback_weekly'=>true];
@@ -2314,7 +2326,9 @@ class HeliosSmart extends IPSModule
         // programme change or a write with uncertain result.
         $nativeCanWrite=$nativeCanWrite
             && ($seasonResult['attempted']??false)!==true
-            && !$smartEnabled;
+            && !$smartEnabled
+            && !$smartTimedStillPresent
+            && ($smartExecution['attempted']??false)!==true;
         $execution=$nativeCanWrite
             ?$this->TryOwnParty($candidate,$deviceStatus,$approvals,$now)
             :['status'=>$smartEnabled?'SMART_FAN_TAKEOVER'
