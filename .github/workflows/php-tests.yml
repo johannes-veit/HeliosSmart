@@ -32,3 +32,7 @@ jobs:
           php -l libs/EWTPump.php
           php -l tests/test_ewt_pump.php
           php tests/test_ewt_pump.php
+          php -l libs/SoilClimatology.php
+          php -l WeatherZentrale/module.php
+          php -l tests/test_soil_climatology.php
+          php tests/test_soil_climatology.php

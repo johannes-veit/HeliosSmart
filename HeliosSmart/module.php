@@ -735,6 +735,8 @@ class HeliosSmart extends IPSModule
         $plan=JVHeliosEWTPump::decide([
             'now'=>$now,
             'weather_quality'=>$weather['quality']??'UNAVAILABLE',
+            'soil_climatology'=>is_array($weather['soil_climatology']??null)
+                ?$weather['soil_climatology']:null,
             'outside_temperature'=>$current['temperature']??null,
             'outside_observed_at'=>$current['observed_at']??0,
             'intake_after_ewt'=>$intakeExists?GetValue($intakeId):null,
@@ -798,6 +800,7 @@ class HeliosSmart extends IPSModule
             .' | Soll '.($plan['desired_on']?'EIN':'AUS')
             .' | Ist '.($actual===null?'UNBEKANNT':($actual?'EIN (gemeldet)':'AUS (gemeldet)'))
             .' | '.$plan['reason'].' | '.$command
+            .' | Referenz '.$plan['planning_source']
             .' | Sole '.($plan['sole_temperature_measured_c']!==null
                 ?number_format($plan['sole_temperature_measured_c'],1,',','.').' °C gemessen'
                 :number_format($plan['sole_temperature_reference']['low_c'],1,',','.')
