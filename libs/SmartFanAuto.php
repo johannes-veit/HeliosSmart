@@ -56,6 +56,19 @@ final class JVHeliosSmartFanAuto
         $highPower=(bool)($d['high_power_enabled']??false)
             && (bool)($d['high_power_safety']??false)
             && (bool)($d['combustion_safe']??false);
+        // A genuinely high native CO2/VOC sensor request must NOT be
+        // silently downgraded to S3 simply because S4 approval is absent.
+        // Keep the manufacturer's own sensor/weekly regulation in charge.
+        if($badAir && !$highPower){
+            $out['reason']='NATIVE_CO2_VOC_HIGH_NO_S4_APPROVAL';
+            return $out;
+        }
+        // Similarly never force a lower stage than the already measured
+        // S4 during an independently demonstrated strong wet/cooking event.
+        if(($strongWet || $strongCook) && !$highPower && $fan===4){
+            $out['reason']='HIGH_HUMIDITY_OR_COOKING_KEEP_DEVICE_S4';
+            return $out;
+        }
         // Safety-priority cases always beat energy savings or absence.
         if($strongWet || $strongCook || $badAir){
             $level=$highPower?4:3;
