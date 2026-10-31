@@ -183,3 +183,94 @@ Frostprüfung weiterhin im 5-Minuten-Takt ausgeführt.
 
 Wichtig: Statusmeldungen beruhen auf den über Symcon verfügbaren
 Shelly-Rückmeldungen, nicht auf einem separaten Durchflusssensor.
+
+
+## Shelly Erreichbarkeit, Rückmeldung und EWT-Lernen (31.10.2026)
+
+**Sicherheitsrelevante Erkenntnis:** Eine letzte MQTT-Meldung \`AUS\`
+beweist bei einem inzwischen offline gegangenen Shelly **keinen** weiterhin
+ausgeschalteten Ausgang. Ebenso wenig beweist \`EIN\` ohne Erreichbarkeit, dass
+die Pumpe läuft. Auch bei bestätigtem Online-Relais-Status kann ein physisches
+Relais oder der Pumpenmotor versagen. Ein echter Durchflusssensor wäre für den
+Pumpenlauf aussagekräftiger als ein Netzwerkzustand.
+
+**Zusätzliche Auswahlfelder in der HELIOS SMART Konfiguration:**
+- \`EWTPumpOnlineVariable\`: PFLICHT, boolsche Instanzvariable
+  „Online/Erreichbar“ desselben Shelly, idealerweise lokale MQTT-Availability
+  mit LWT; **nicht** das Internet-Cloud-Onlinesymbol.
+- \`EWTPumpHeartbeatVariable\`: optional, regelmäßig veröffentlichte
+  Status-/Leistungs-/Uptime-Variable desselben Shelly. Sinnvoll, wenn
+  \`Online=true\` als LWT-Status nur bei Verbindungswechsel aktualisiert
+  wird. Es genügt nicht, eine statuslose alte ON-Meldung zu verwenden.
+- \`EWTPumpSwitchVariable\`: bestehende Relais-Schaltvariable, muss vom
+  gleichen Shelly stammen, einschließlich eigenem \`RequestAction\`.
+- \`EWTPumpPowerVariable\`: optionaler Watt-Wert desselben Plug.
+
+**Erreichbarkeit:** \`Online=true\` UND aktuelles Verbindungs- bzw.
+Heartbeat-Signal (max. 240 s alt). Ausserdem muss die Relaismeldung
+höchstens 900 s alt sein und **nach** einem eventuellen MQTT-Reconnect
+aktualisiert worden sein. Nur dann wird \`AUS gemeldet\` bzw. \`EIN gemeldet\`
+als aktueller *Netzwerk-Istwert* klassifiziert. Falls eine Bedingung fehlt,
+ist der tatsächliche Zustand \`UNBEKANNT\`; die separate Bool-Kachel zeigt
+dann möglicherweise nur den **letzten** bekannten Wert, ist aber keine
+Zustandsbestätigung. \`EWTPumpActualStatus\` ist dafür maßgeblich,
+\`EWTPumpOnline\` zeigt die frische Online-Bestätigung und
+\`EWTPumpAlarm\` signalisiert Kommunikations-/Plausibilitätsprobleme.
+
+Eine neue Shelly-Schaltanforderung wird bei offline/stale oder
+widersprüchlicher Leistung unterbunden; auch manuelles Schalten ist dann
+nicht freigegeben. Befehle werden nicht ungeprüft vorgemerkt oder
+als ausgeführt angezeigt. Der 10-Sekunden-Rückmeldetimer bestätigt nur,
+wenn **nach** dem Schaltbefehl eine neue frische Ausgabe vom richtigen
+Shelly beobachtet wird. Nach 50 Sekunden ohne passende Rückmeldung
+erscheint ein Fehler. Beim nächsten regulären Lauf kann nach
+Wiederherstellung der Verbindung erneut bewertet werden.
+
+**Frostschutz:** Bei Frost oder unzuverlässiger Außentemperatur bleibt
+\`Soll EIN\` ungeachtet der Schiebeschalter; offline ist dieses \`Soll\`
+jedoch keine bestätigte reale Pumpenbewegung! Eine unabhängige
+elektrische/frosttechnische Absicherung sowie korrekter Frostschutz der
+Sole sind notwendig. Shelly Power-on Default EIN vermeidet nur manche
+Neustartzustände und ist keine Garantie.
+
+### EWT-Lernfunktion
+
+Die neue \`EWTPumpLearningState\` ist ein begrenztes Symcon-Attribut.
+Alle 30 Minuten werden **nur bei gültigen und frischen** Messwerten,
+bestätigtem Online-Schaltstatus und mindestens 15 Minuten unverändertem
+Pumpenzustand Lernbeobachtungen aufgenommen:
+
+- Unabhängig verifizierte echte Außentemperatur sowie Feuchte und Taupunkt.
+- EWT-Geräteeintritt **vor** der Helios-Wärmerückgewinnung (Sensor
+  \`#28581\`), nicht mit Heizungsrücklauf/Soleleitung verwechseln.
+- Jahreszeit, Monat, Tageszeit, fan stage, Bypass, Heiz-/Kühlmodus,
+  Raumtemperatur, Innen-/Außenfeuchte und Bewohnerstatus.
+- Eigene gemessene Soletemperatur, wenn vorhanden; sonst ERA5-Land-
+  100–255-cm-Mehjahresklima bzw. die vorläufige Brauneberg-Monatskurve.
+- Pumpenleistung aus dem Shelly (optional). Sonneneinstrahlung,
+  Niederschlag und Windgeschwindigkeit **nur**, wenn die Wetterdatenquelle
+  diese tatsächlich im Snapshot liefert – niemals erfundene Nullwerte.
+
+Gespeichert werden bis zu 48 jüngste 30-Minuten-Beobachtungen,
+12 Monatsaggregationen und maximal 360 vergleichbare
+Wetter-/Lüfter-/Bypass-Situationen. Die Statistik kann über Jahre
+weiterlernen, ohne jede einzelne halbstündige Probe dauerhaft
+aufzuheben. Bei fehlender Bestätigung, widersprüchlichem Energieverbrauch,
+veraltetem Sensor oder laufendem Schaltvorgang werden Lernproben
+verworfen und gezählt.
+
+Erst mindestens acht echte EIN- sowie acht AUS-Beobachtungen unter
+vergleichbarem Außenklima, gleicher Lüfterstufe und gleicher
+Bypass-Situation, verteilt über mindestens drei Tage je Zustand,
+liefern eine **vorsichtige beobachtende** Wirkungsabschätzung.
+\`EWTPumpLearningStatus\` und \`EWTPumpLearningJSON\` stellen Fortschritt,
+Messqualität und theoretische Nutzenrichtung dar. Der bisherige
+\`LernDiagnose\`-Text enthält eine zusätzliche EWT-Zusammenfassung.
+
+**Diese Beobachtungen beweisen keine ursächliche Pumpenwirkung:**
+Wetterwechsel, Erdreichtemperatur und Wärmerückgewinnung beeinflussen
+den Vergleich. Deshalb verändert Lernen zunächst keine automatischen
+Schaltgrenzen und darf niemals den Frostschutz übersteuern. Die
+historische Bewertung liefert die Grundlage für eine spätere validierte
+Optimierung der Schaltzeiten und Wirtschaftlichkeit. Ohne echte
+Luftmengenmessung ist eine exakte Netto-Strom-/Wärmebilanz nicht möglich.
