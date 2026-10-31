@@ -763,7 +763,8 @@ class HeliosSmart extends IPSModule
             if(!$plan['execute']){
                 // The only early cancel allowed is for our OWN verified
                 // timed command; never cancel a foreign Party/Whisper.
-                if($owned && $mode===(int)$state['mode']){
+                if($owned && $mode===(int)$state['mode']
+                    && ($live['fan']??null)===(int)($state['stage']??0)){
                     $fn=$mode===3?'HELIOS_OperatingMode_Whisper_Set'
                         :'HELIOS_OperatingMode_Party_Set';
                     if(function_exists($fn)){
@@ -790,6 +791,14 @@ class HeliosSmart extends IPSModule
             if($level<1 || $level>4)return $result;
             $desiredMode=$level===1?3:2;
             $since=$now-(int)($state['sent_at']??0);
+            if($owned && $mode===0 && $since>=0 && $since<10*60){
+                $result['status']='LAST_COMMAND_NOT_YET_CONFIRMED_WAIT';
+                return $result;
+            }
+            if((int)($state['error_retry_after']??0)>$now){
+                $result['status']='SMART_ACTUATOR_ERROR_BACKOFF';
+                return $result;
+            }
             if($owned && $mode===$desiredMode
                 && (int)($state['stage']??0)===$level
                 && $since>=0 && $since<10*60){
@@ -829,7 +838,9 @@ class HeliosSmart extends IPSModule
             $result['attempted']=true;
             $ok=$fn($instance,true,$level,15);
             if($ok===false || $ok===null){
-                $result['status']='NATIVE_TIMED_MODE_COMMAND_FAILED';
+                $state['error_retry_after']=$now+30*60;
+                $this->WriteAttributeString('SmartFanTakeoverState',json_encode($state));
+                $result['status']='NATIVE_TIMED_MODE_COMMAND_FAILED_BACKOFF_30MIN';
                 return $result; // device itself times out if command was accepted
             }
             $result['sent']=true;
@@ -2159,6 +2170,7 @@ class HeliosSmart extends IPSModule
             'mode'=>$deviceStatus['mode'],
             'actual_fan'=>$deviceStatus['fan'],
             'owned_mode'=>(int)($smartState['mode']??0),
+            'owned_stage'=>(int)($smartState['stage']??0),
             'owned_until'=>(int)($smartState['until']??0),
             'owned_last_at'=>(int)($smartState['sent_at']??0),
             'weather_quality'=>$decision['weather_quality']??'UNAVAILABLE',
