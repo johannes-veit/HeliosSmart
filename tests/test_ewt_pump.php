@@ -87,4 +87,13 @@ $measuredFrost=$plan(['outside_temperature'=>-3,
     'forecast'=>[['observed_at'=>$now+3600,'temperature'=>14,'confidence'=>'OK']]]);
 checkEwt($measuredFrost['desired_on']===true && $measuredFrost['frost_priority']===true,
     'forecast warmth cannot override real freezing air');
+$holdOn=$plan(['outside_temperature'=>14,'indoor_temperature'=>null,
+    'plug_on'=>true,'state'=>['last_on_at'=>$now-3600]]);
+checkEwt($holdOn['desired_on']===true
+    && $holdOn['reason']==='INDOOR_CONTEXT_MISSING_HOLD_REPORTED_STATE',
+    'stale indoor context cannot turn known running pump off');
+$holdOff=$plan(['outside_temperature'=>14,'indoor_temperature'=>null,
+    'plug_on'=>false,'state'=>['last_off_at'=>$now-3600]]);
+checkEwt($holdOff['desired_on']===false,
+    'stale indoor context does not gratuitously start an off pump');
 echo "EWTPump decision tests OK\n";
