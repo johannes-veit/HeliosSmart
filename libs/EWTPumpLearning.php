@@ -13,14 +13,26 @@ final class JVHeliosEWTPumpLearning
             'version'=>1,'last_sample_at'=>0,'samples'=>0,
             'rejected'=>[],'monthly'=>[],'contexts'=>[],'recent'=>[],
         ];
-        $reason=self::quality($x,$now);
         $last=(int)($state['last_sample_at']??0);
-        if($reason==='OK' && $last>0 && $now-$last<1800)$reason='INTERVAL_30_MIN';
+        // A sample already accepted less than 30 min ago is not due.
+        // Do NOT count a transient fan/pump quality warning every five
+        // minutes when no EWT sample should have been taken yet.
+        if($last>0 && $now>=$last && $now-$last<1800)
+            return ['state'=>$state,'diagnosis'=>self::diagnose(
+                $state,$x,'INTERVAL_30_MIN',$now)];
+        $reason=self::quality($x,$now);
         if($reason!=='OK'){
-            if($reason!=='INTERVAL_30_MIN'){
+            // Count a rejected CONDITIONS WINDOW, not each 5-minute tick.
+            // Historical counters from earlier releases are preserved,
+            // not rewritten, but new observations are debounced.
+            $counted=(array)($state['rejected_last_counted_at']??[]);
+            $previous=(int)($counted[$reason]??0);
+            if($previous<=0 || $now<$previous || $now-$previous>=1800){
                 $rejected=(array)($state['rejected']??[]);
                 $rejected[$reason]=min(1000000,(int)($rejected[$reason]??0)+1);
                 $state['rejected']=$rejected;
+                $counted[$reason]=$now;
+                $state['rejected_last_counted_at']=$counted;
             }
             return ['state'=>$state,'diagnosis'=>self::diagnose($state,$x,$reason,$now)];
         }
@@ -188,7 +200,16 @@ final class JVHeliosEWTPumpLearning
             'recent_count'=>count((array)($state['recent']??[])),
             'last_sample_at'=>(int)($state['last_sample_at']??0),
             'last_result'=>$lastReason,'rejected'=>$state['rejected']??[],
+            'rejection_counter_semantics'=>'BEFORE_UPDATE_TICK_COUNTS_NOW_MAX_1_PER_30MIN_PER_REASON',
             'paired_advice'=>$advice,
+            'comparison_progress'=>[
+                'matching_on_n'=>$advice['on_n']??0,
+                'matching_off_n'=>$advice['off_n']??0,
+                'minimum_each'=>8,
+                'minimum_separate_days_each'=>3,
+                'requires_natural_on_and_off_periods'=>true,
+                'do_not_force_pump_switch_for_training'=>true,
+            ],
             'storage_bounded'=>true,
             'learning_action'=>'OBSERVATION_ONLY_FROST_UNCHANGED',
             'missing_inputs'=>array_values(array_keys(array_filter([
