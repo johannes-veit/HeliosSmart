@@ -2242,6 +2242,9 @@ class HeliosSmart extends IPSModule
                     'actual_sole_c'=>$ewt['sole_temperature_measured_c']??null,
                 ],
                 'energy'=>[
+                    'smart_cooling_gate'=>$pick((array)($d['smart_cooling_gate']??[]),
+                        ['cooling_confirmed','reason','supply_gap_k',
+                        'moisture_confirmed','comfort_confirmed','room_cooling_floor_safe']),
                     'daily'=>$pick((array)($d['daily_strategy']??[]),
                         ['season_signal','summary','recommended_profile']),
                     'winter'=>$pick((array)($d['winter_room_air']??[]),
