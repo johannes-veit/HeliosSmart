@@ -92,6 +92,8 @@ final class JVHeliosEWTPumpLearning
             'outside_rh'=>$x['outside_rh']??null,
             'wind_speed'=>$x['wind_speed']??null,
             'rain'=>$x['rain']??null,'solar'=>$x['solar']??null,
+            'environment_quality'=>$x['environment_quality']??'UNAVAILABLE',
+            'environment_source'=>$x['environment_source']??'NONE',
             'soil_model_c'=>$x['soil_reference_c']??null,
             'soil_measured_c'=>$x['soil_measured_c']??null,
             'pump_power_w'=>$watts,
