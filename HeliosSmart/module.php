@@ -1161,6 +1161,8 @@ class HeliosSmart extends IPSModule
         $pump=(array)($decision['ewt_pump']??[]);
         $health=(array)($pump['connectivity']??[]);
         $recent=is_array($weather['current']??null)?$weather['current']:[];
+        $environment=is_array($weather['environment_context']??null)
+            ?$weather['environment_context']:[];
         $control=json_decode($this->ReadAttributeString('EWTPumpControlState'),true);
         if(!is_array($control))$control=[];
         $out=$pump['outside_c']??null;
@@ -1191,9 +1193,12 @@ class HeliosSmart extends IPSModule
             'outside_ah_gm3'=>$recent['absolute_humidity']??null,
             'outside_dewpoint_c'=>$recent['dewpoint']??null,
             'outside_rh'=>$recent['rh']??null,
-            'wind_speed'=>$recent['wind_speed']??$recent['wind_speed_10m']??null,
-            'rain'=>$recent['precipitation']??null,
-            'solar'=>$recent['shortwave_radiation']??null,
+            'wind_speed'=>$recent['wind_speed']??$recent['wind_speed_10m']
+                ??$environment['wind_speed_kmh']??null,
+            'rain'=>$recent['precipitation']??$environment['precipitation_mm']??null,
+            'solar'=>$recent['shortwave_radiation']??$environment['solar_wm2']??null,
+            'environment_source'=>$environment['source']??'NONE',
+            'environment_quality'=>$environment['quality']??'UNAVAILABLE',
             'soil_reference_c'=>$pump['sole_temperature_reference']['mean_c']??null,
             'soil_measured_c'=>$pump['sole_temperature_measured_c']??null,
             'climate'=>$decision['season_signal']??'UNKNOWN',
