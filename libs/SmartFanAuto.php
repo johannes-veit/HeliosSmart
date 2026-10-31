@@ -60,7 +60,15 @@ final class JVHeliosSmartFanAuto
         $nativeRh=$d['native_extract_rh']??null;
         $nativeHighRh=is_numeric($nativeRh)
             && (float)$nativeRh>=70.0;
-        if(($d['native_sensor_stale']??false)===true && $fan===4){
+        // At 60-70% extract RH the manufacturer's own humidity controller
+        // may demand a higher stage at any moment. Do not mask that control
+        // with a 15-minute SMART lower-stage Party/Whisper.
+        $nativeMoistureCaution=is_numeric($nativeRh)
+            && (float)$nativeRh>=60.0 && (float)$nativeRh<70.0;
+        // HELIOS Party/Whisper temporarily OVERRIDE native CO2/VOC/RH
+        // automatic regulation at *every* original stage, not only S4.
+        // Unknown sensor readings therefore prevent any SMART timed mode.
+        if(($d['native_sensor_stale']??false)===true){
             $out['reason']='NATIVE_SENSOR_READINGS_STALE_KEEP_OWN_DEMAND';
             return $out;
         }
@@ -78,7 +86,7 @@ final class JVHeliosSmartFanAuto
         // because its CO2/VOC or exhaust RH telemetry is absent. When a
         // controller is enabled but its measurement is not represented
         // in the SMART inputs, let the original regulator stay in charge.
-        if($fan===4 && ($d['native_sensor_control_unverified']??false)===true){
+        if(($d['native_sensor_control_unverified']??false)===true){
             $out['reason']='NATIVE_S4_SENSOR_DEMAND_UNVERIFIABLE';
             return $out;
         }
@@ -93,6 +101,10 @@ final class JVHeliosSmartFanAuto
         // A genuinely high native CO2/VOC sensor request must NOT be
         // silently downgraded to S3 simply because S4 approval is absent.
         // Keep the manufacturer's own sensor/weekly regulation in charge.
+        if($nativeMoistureCaution){
+            $out['reason']='NATIVE_EXTRACT_HUMIDITY_ELEVATED_KEEP_DEVICE';
+            return $out;
+        }
         if(($badAir || $nativeHighRh) && !$highPower){
             // Even if the manufacturer currently reports S2/S3, sending
             // a timed SMART S3 could lock out a forthcoming native
