@@ -13,12 +13,12 @@ $GLOBALS['calls']=[];
 function IPS_SemaphoreEnter($name,$timeout){return true;}
 function IPS_SemaphoreLeave($name){return true;}
 function IPS_InstanceExists($id){return in_array($id,[11842,16987,19285,17597,42,32969],true);}
-function IPS_GetInstance($id){return ['ModuleInfo'=>['ModuleID'=>$id===32969?'{D94700DB-96B0-490C-9F23-E6AE39677384}':($id===42?'{685106B4-47EC-43C9-9CA9-9BAE53E4B304}':($id===19285?'{889DFBC4-09A6-4D77-9928-738E5D494362}':'{OTHER-INSTANCE}'))]];}
+function IPS_GetInstance($id){return ['InstanceStatus'=>$id===19285?($GLOBALS['nativeStatus']??102):102,'ModuleInfo'=>['ModuleID'=>$id===32969?'{D94700DB-96B0-490C-9F23-E6AE39677384}':($id===42?'{685106B4-47EC-43C9-9CA9-9BAE53E4B304}':($id===19285?'{889DFBC4-09A6-4D77-9928-738E5D494362}':'{OTHER-INSTANCE}'))]];}
 function IPS_GetObjectIDByIdent($ident,$instance){return $instance===32969?(['JohannesPresence'=>60001,'CarinaPresence'=>60002,'EvidenceJSON'=>60003][$ident]??0):0;}
 function IPS_VariableExists($id){return array_key_exists($id,$GLOBALS['values']);}
 function IPS_GetVariable($id){return ['VariableUpdated'=>$GLOBALS['variableTime'],'VariableChanged'=>$GLOBALS['changedAt'][$id]??0];}
 function GetValue($id){return $GLOBALS['values'][$id];}
-function IPS_GetConfiguration($id){return json_encode(['Location'=>json_encode(['latitude'=>50,'longitude'=>7])]);}
+function IPS_GetConfiguration($id){return $id===19285 ? json_encode($GLOBALS['nativeConfig']??['notif_script_active'=>false,'notifscript_id'=>0,'timerinterval'=>61,'log_fanlevel'=>false]) : json_encode(['Location'=>json_encode(['latitude'=>50,'longitude'=>7])]);}
 function JVWC_Snapshot($id){return json_encode($GLOBALS['weatherForTest']??['quality'=>'VERIFIED','current'=>JVWeatherMath::readPair(5,100)+['observed_at'=>time()-120], 'forecast'=>[]]);}
 function HELIOS_WeekProgram_Set(...$args){$GLOBALS['calls'][]=['week',$args];return true;}
 function HELIOS_OperatingMode_Party_Set(...$args){
@@ -144,4 +144,38 @@ $h->Evaluate();
 $external=json_decode($h->value('DecisionJSON'),true);
 it(($external['fan_stage_attribution']['kind']??'')==='PARTY_NOT_OWNED',
     'Fremde aktive Party bei Stufe4 wird nicht als eigenes Wochenprogramm ausgegeben');
+// Vendor error 209 halts its Update_Data/Update_BasicInfo timers.
+$GLOBALS['nativeStatus']=209;
+$GLOBALS['nativeConfig']=[
+    'notif_script_active'=>true,
+    'notifscript_id'=>0,
+    'timerinterval'=>61,
+    'devicepassword'=>'SECRET_MUST_NEVER_LEAK_IN_STATUS',
+];
+$GLOBALS['deviceMode']=0;$GLOBALS['deviceFan']=2;$GLOBALS['deviceProgram']=4;
+$GLOBALS['values'][30441]=2;
+$h->setProperty('EnableControl',true);
+$h->setProperty('AllowEstimatedAirflowLimitedParty',true);
+$beforeError=count($GLOBALS['calls']);
+$h->Evaluate();
+$bad=json_decode($h->value('DecisionJSON'),true);
+it(($bad['native_helios_integration']['native_own_script_error']??false)===true,
+    'native Helios invalid notification script detected by HeliosSmart');
+it(($bad['native_helios_integration']['native_instance_status']??0)===209,
+    'native instance status 209 observed');
+it(($bad['party_execution']['status']??'')==='NATIVE_HELIOS_CONFIG_BLOCKED',
+    'no Party command when vendor original module setup fails');
+it(count($GLOBALS['calls'])===$beforeError,
+    'no new vendor HELIOS setters on invalid native configuration');
+it(!str_contains((string)$h->value('NativeHeliosJSON'),'SECRET_MUST_NEVER_LEAK'),
+    'native Helios password redacted from diagnostic output');
+it(str_contains((string)$h->value('NativeHeliosStatus'),'OWN_NOTIFICATION_SCRIPT_ENABLED_WITHOUT_SCRIPT'),
+    'operator receives actionable own-script error');
+$GLOBALS['nativeStatus']=102;
+$GLOBALS['nativeConfig']['notif_script_active']=false;
+$h->setProperty('EnableControl',false);
+$h->Evaluate();
+$good=json_decode($h->value('DecisionJSON'),true);
+it(($good['native_helios_integration']['write_allowed']??false)===true,
+    'valid original Helios 102 restoration is recognized without rewriting configuration');
 echo "ALLE $counter SYMCON-LIVE-INTEGRATIONSPRUEFUNGEN BESTANDEN\n";
