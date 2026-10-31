@@ -182,7 +182,30 @@ $frostWithSoil=$plan(['outside_temperature'=>-3.0,
 checkEwt($frostWithSoil['frost_priority']===true
     && $frostWithSoil['desired_on']===true,
     'soil model cannot disable outdoor frost protection');
-// Current-model field is ignored entirely when metadata is absent.
+// The real CurrentSoilModel producer emits model time and SOURCE,
+ // but no retrieved_at in its latest() output. A very fresh hour may
+ // still inform a conservative trial; missing provenance is explicit.
+ $noRetrieval=$model;
+ unset($noRetrieval['retrieved_at']);
+ $currentHour=$plan(['outside_temperature'=>11.0,
+     'soil_current_model'=>array_replace($noRetrieval,['time'=>$now-3600]),
+     'plug_on'=>false]);
+ checkEwt($currentHour['planning_source']==='ECMWF_IFS_100_255CM_RECENT_HOURLY_MODEL'
+     && $currentHour['planning_probe_margin_k']===2.5
+     && $currentHour['soil_model_provenance']
+         ==='MODEL_HOUR_RECENT_RETRIEVAL_TIMESTAMP_ABSENT',
+     'source-checked fresh hourly soil model without optional retrieval timestamp has stricter 2.5K trial');
+ $noRetrievalOld=$plan(['outside_temperature'=>11.0,
+     'soil_current_model'=>array_replace($noRetrieval,['time'=>$now-3*3600]),
+     'plug_on'=>false]);
+ checkEwt($noRetrievalOld['planning_source']==='SEASONAL_ESTIMATE',
+     'hourly soil without verified retrieval older than 2h does not authorize probe');
+ $noRetrievalSpoof=$plan(['outside_temperature'=>11.0,
+     'soil_current_model'=>array_replace($noRetrieval,['source'=>'WRONG','time'=>$now-60]),
+     'plug_on'=>false]);
+ checkEwt($noRetrievalSpoof['planning_source']==='SEASONAL_ESTIMATE',
+     'soil source metadata remains mandatory even for fallback hourly model');
+ // Current-model field is ignored entirely when metadata is absent.
 $spoof=$plan(['outside_temperature'=>11.0,
     'soil_current_model'=>['deep_c'=>15.5,'time'=>$now-60,'retrieved_at'=>$now-60]]);
 checkEwt($spoof['planning_source']==='SEASONAL_ESTIMATE',
