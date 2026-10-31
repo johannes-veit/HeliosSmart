@@ -47,6 +47,7 @@ php tests/test_moisture_comfort.php
 php tests/test_summer_airflow.php
 php tests/test_ewt_pump.php
 php tests/test_fan_attribution.php
+php tests/test_native_helios_coordination.php
 php tests/test_ewt_operator.php
 php tests/test_ewt_operator_integration.php
 php tests/test_ewt_health.php
