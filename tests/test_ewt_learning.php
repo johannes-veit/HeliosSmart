@@ -53,4 +53,19 @@ lcheck($out['state']['samples']===48,'offline pump never treated as ON/OFF evide
 $noPlug=JVHeliosEWTPumpLearning::update([],array_replace($offline,['shelly_online'=>false]),$now);
 lcheck($noPlug['diagnosis']['last_result']==='SHELLY_OFFLINE_OR_UNVERIFIED',
  'missing plug leaves learner in transparent observational pause');
+$pending=JVHeliosEWTPumpLearning::update([],
+    array_replace($x,['outside_at'=>$now-60,'intake_at'=>$now-40,
+    'last_pump_change_at'=>$now-3600,'command_pending'=>true]),$now);
+lcheck($pending['diagnosis']['last_result']==='SHELLY_COMMAND_NOT_ACKNOWLEDGED',
+    'unconfirmed Shelly operation is not used for learning');
+$fanTransition=JVHeliosEWTPumpLearning::update([],
+    array_replace($x,['outside_at'=>$now-60,'intake_at'=>$now-40,
+    'last_pump_change_at'=>$now-3600,'fan_changed_at'=>$now-100]),$now);
+lcheck($fanTransition['diagnosis']['last_result']==='FAN_LEVEL_NOT_STABLE_10_MIN',
+    'recent fan-stage changes cannot be misidentified as EWT pump effect');
+$fanStopped=JVHeliosEWTPumpLearning::update([],
+    array_replace($x,['outside_at'=>$now-60,'intake_at'=>$now-40,
+    'last_pump_change_at'=>$now-3600,'fan_stage'=>0]),$now);
+lcheck($fanStopped['diagnosis']['last_result']==='NO_VALID_AIRFLOW_STAGE',
+    'no EWT air-effect learning while ventilation airflow is stopped');
 echo "30-minute EWT learning and multi-year bounded contextual statistics tests OK\n";
