@@ -1,7 +1,9 @@
 <?php
 /** Offline EWT WebFront action test: fake Shelly is a readback-only test double. */
 define('VM_UPDATE',10603);
-$GLOBALS['variables']=[9001=>true,28581=>11.0];
+$GLOBALS['variables']=[9001=>true,9002=>true,9003=>15.0,28581=>11.0];
+$GLOBALS['variableTimes']=[];
+$GLOBALS['onlineChangedAt']=time()-3600;
 $GLOBALS['commands']=[];
 $GLOBALS['weather']=['quality'=>'VERIFIED',
     'current'=>['temperature'=>14.0,'observed_at'=>time()-30]];
@@ -9,7 +11,8 @@ $GLOBALS['sendActionSuccess']=true;
 function IPS_VariableExists($id){return array_key_exists($id,$GLOBALS['variables']);}
 function IPS_GetVariable($id){return [
     'VariableType'=>is_bool($GLOBALS['variables'][$id])?0:2,
-    'VariableUpdated'=>time()-60,'VariableChanged'=>time()-60
+    'VariableUpdated'=>$GLOBALS['variableTimes'][$id]??time()-60,
+    'VariableChanged'=>$id===9002?$GLOBALS['onlineChangedAt']:time()-3600,
 ];}
 function GetValue($id){return $GLOBALS['variables'][$id];}
 function IPS_InstanceExists($id){return $id===42;}
@@ -63,6 +66,8 @@ a(isset($hs->GetActions()['EWTPumpModeManual'])
 a($hs->value('EWTPumpModeManual')===false,'auto is the initial mode');
 a(count($GLOBALS['commands'])===0,'module installation never switches real plug');
 $hs->setProperty('EWTPumpSwitchVariable',9001);
+$hs->setProperty('EWTPumpOnlineVariable',9002);
+$hs->setProperty('EWTPumpHeartbeatVariable',9003);
 $hs->setProperty('WeatherCenterInstance',42);
 // The factory default actuator release is still disabled.
 $hs->RequestAction('EWTPumpModeManual',true);
@@ -83,6 +88,7 @@ a($hs->value('EWTPumpSwitch')===true,
     'manual OFF does not fake feedback while Shelly still reports ON');
 a($hs->timer('EWTPumpFeedbackTick')===10000,'pending command activates 10 second feedback');
 $GLOBALS['variables'][9001]=false;
+$GLOBALS['variableTimes'][9001]=time()+1;
 $hs->CheckEWTPumpFeedback();
 a($hs->value('EWTPumpSwitch')===false,'feedback mirrors real OFF state');
 a($hs->timer('EWTPumpFeedbackTick')===0,'feedback timer stops after confirmation');
@@ -90,6 +96,7 @@ $hs->RequestAction('EWTPumpSwitch',true);
 a(count($GLOBALS['commands'])===2
   && $GLOBALS['commands'][1]['value']===true,'manual ON sends Shelly ON');
 $GLOBALS['variables'][9001]=true;
+$GLOBALS['variableTimes'][9001]=time()+2;
 $hs->CheckEWTPumpFeedback();
 a($hs->value('EWTPumpSwitch')===true,'physical ON feedback mirrored');
 // OFF under frost must be blocked even with manual mode selected.
@@ -120,6 +127,8 @@ $GLOBALS['sendActionSuccess']=false;
 $failure=new HeliosSmart();
 $failure->Create();
 $failure->setProperty('EWTPumpSwitchVariable',9001);
+$failure->setProperty('EWTPumpOnlineVariable',9002);
+$failure->setProperty('EWTPumpHeartbeatVariable',9003);
 $failure->setProperty('WeatherCenterInstance',42);
 $failure->setProperty('EnableEWTPumpControl',true);
 $failure->RequestAction('EWTPumpModeManual',true);
@@ -134,6 +143,8 @@ $GLOBALS['variables'][9001]=false;
 $learning=new HeliosSmart();
 $learning->Create();
 $learning->setProperty('EWTPumpSwitchVariable',9001);
+$learning->setProperty('EWTPumpOnlineVariable',9002);
+$learning->setProperty('EWTPumpHeartbeatVariable',9003);
 $learning->setProperty('WeatherCenterInstance',42);
 $learning->setProperty('EnableEWTPumpControl',true);
 $GLOBALS['weather']=['quality'=>'VERIFIED',
@@ -153,4 +164,34 @@ $method->invoke($learning,$GLOBALS['weather'],time(),25.0);
 a(count($GLOBALS['commands'])===$before+1
     && $GLOBALS['commands'][$before]['value']===true,
     'periodic frost safety forces ON even in manual OFF');
+// Offline: stale boolean relay state is NOT a known pump state.
+$offline=new HeliosSmart();
+$offline->Create();
+$offline->setProperty('EWTPumpSwitchVariable',9001);
+$offline->setProperty('EWTPumpOnlineVariable',9002);
+$offline->setProperty('EWTPumpHeartbeatVariable',9003);
+$offline->setProperty('WeatherCenterInstance',42);
+$offline->setProperty('EnableEWTPumpControl',true);
+$GLOBALS['variables'][9002]=false;
+$offline->RequestAction('EWTPumpModeManual',true);
+a(str_contains((string)$offline->value('EWTPumpActualStatus'),'UNBEKANNT'),
+    'offline output is explicitly UNKNOWN');
+a($offline->value('EWTPumpAlarm')===true,
+    'offline while control released raises alarm');
+$before=count($GLOBALS['commands']);
+try{$offline->RequestAction('EWTPumpSwitch',false);a(false,'offline manual OFF permitted');}
+catch(Exception $e){}
+try{$offline->RequestAction('EWTPumpSwitch',true);a(false,'offline manual ON accepted');}
+catch(Exception $e){}
+a(count($GLOBALS['commands'])===$before,
+    'offline never sends Shelly commands');
+$GLOBALS['variables'][9002]=true;
+$GLOBALS['variableTimes'][9002]=time();
+$GLOBALS['onlineChangedAt']=time()-3600;
+// No new relay telemetry after a recent reconnect must remain UNKNOWN.
+$GLOBALS['onlineChangedAt']=time()+1;
+$offline->RequestAction('EWTPumpModeManual',true);
+a(str_contains((string)$offline->value('EWTPumpActualStatus'),'UNBEKANNT'),
+    'pre-reconnect output cannot certify actual relay state');
+$GLOBALS['onlineChangedAt']=time()-3600;
 echo "EWT WebFront controls and actuator safety integration OK\\n";
