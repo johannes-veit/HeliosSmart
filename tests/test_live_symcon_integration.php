@@ -230,19 +230,14 @@ $GLOBALS['deviceFan']=4;
 $GLOBALS['deviceProgram']=3;
 $GLOBALS['values'][30441]=4;
 $active->setProperty('EnableSmartFanTakeover',true);
+// Complete the original harness's intentionally partial (7 room) sensor
+// fixtures: a full autonomous takeover requires >=9 temperatures and 8 RH.
+foreach([14055=>22.2,19020=>50.0,15825=>21.5,16107=>52.0,
+         17837=>21.3,43385=>49.0,34232=>21.8,13394=>54.0] as $id=>$value)
+    $GLOBALS['values'][$id]=$value;
 $beforeSmart=count($GLOBALS['calls']);
 $active->Evaluate();
 $auto=json_decode($active->value('DecisionJSON'),true);
-echo "SMART_DEBUG ".json_encode([
-  'plan'=>$auto['smart_fan_takeover']??null,
-  'result'=>$auto['smart_fan_execution']??null,
-  'season'=>$auto['smart_profile_execution']??null,
-  'native'=>$auto['native_helios_integration']??null,
-  'room_temp'=>$auto['fresh_room_count']??null,
-  'room_rh'=>$auto['fresh_humidity_room_count']??null,
-  'quality'=>$auto['weather_quality']??null,
-  'daily_season'=>$auto['daily_strategy']['season_signal']??null,
-],JSON_UNESCAPED_UNICODE)."\n";
 it(($auto['smart_fan_takeover']['execute']??false)===true,
     'SMART fan overrides manufacturer weekly after fresh room and weather checks');
 it(($auto['smart_fan_takeover']['target_stage']??null)===3,
