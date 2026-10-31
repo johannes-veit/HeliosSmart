@@ -26,6 +26,7 @@ require_once __DIR__ . '/../libs/LearningDiagnostics.php';
 require_once __DIR__ . '/../libs/PartySafety.php';
 require_once __DIR__ . '/../libs/PartyProtocol.php';
 require_once __DIR__ . '/../libs/CookingSignalHealth.php';
+require_once __DIR__ . '/../libs/EWTPump.php';
 /** Vorhersagegestützter Beobachter; Aktor nur nach expliziter Freigabe. */
 class HeliosSmart extends IPSModule
 {
@@ -48,6 +49,10 @@ class HeliosSmart extends IPSModule
         $this->RegisterPropertyInteger('GroundFloorHallMotionVariable',39155);
         $this->RegisterPropertyInteger('HousePowerVariable',27700);
         $this->RegisterPropertyInteger('ResidentShadowInstance',32969);
+        // Sole EWT in HELIOS outside-air intake. Do not reuse FBH cooling Shelly.
+        $this->RegisterPropertyInteger('EWTPumpSwitchVariable',0);
+        $this->RegisterPropertyInteger('EWTPumpPowerVariable',0);
+        $this->RegisterPropertyBoolean('EnableEWTPumpControl',false);
         $this->RegisterPropertyInteger('CookingPowerThresholdW',2000);
         $this->RegisterPropertyString('Rooms',json_encode(JVHeliosLCNRoomSources::SOURCES, JSON_UNESCAPED_UNICODE));
         $this->RegisterPropertyBoolean('EnableControl',false);
@@ -64,6 +69,7 @@ class HeliosSmart extends IPSModule
         $this->RegisterAttributeString('OccupancyLearningState', '{}');
         $this->RegisterAttributeString('CalendarPatternState', '{}');
         $this->RegisterAttributeString('SeasonalAdviceState', '{}');
+        $this->RegisterAttributeString('EWTPumpControlState', '{}');
         $this->RegisterAttributeString('WetroomEventState', '{}');
         $this->RegisterAttributeString('CookingAdviceState', '{}');
         $this->RegisterAttributeString('CookingEventState', '{}');
@@ -78,6 +84,7 @@ class HeliosSmart extends IPSModule
         $this->RegisterVariableString('DecisionJSON','Letzte Empfehlung JSON','',20);
         $this->RegisterVariableBoolean('Monitoring','Nur beobachten','~Switch',30);
         $this->RegisterVariableString('LernDiagnose','Lernprogramm – Diagnose fuer ChatGPT','',40);
+        $this->RegisterVariableString('EWTPumpStatus','Sole-EWT Pumpe (Helios-Aussenluft)','',50);
         $this->SetValue('Monitoring',true);
     }
 
@@ -161,6 +168,10 @@ class HeliosSmart extends IPSModule
                 ['type'=>'NumberSpinner','name'=>'HeliosProgramVariable','caption'=>'Helios Wochenprogramm'],
                 ['type'=>'NumberSpinner','name'=>'HeliosSupplyTemperature','caption'=>'Helios Zulufttemperatur nach EWT und WRG'],
                 ['type'=>'NumberSpinner','name'=>'HeliosIntakeAfterEWT','caption'=>'Helios-Geräteeintritt NACH Sole-EWT'],
+                ['type'=>'Label','caption'=>'Separater Sole-EWT der Lueftung (NICHT die FBH-Taupunktwaechter-Pumpe): Bei Frost oder unsicherem Wetter immer EIN. Fuer unterbrechungsfreien Frostschutz separate Hardware-Sicherung und Shelly Power-on=EIN vorsehen.'],
+                ['type'=>'NumberSpinner','name'=>'EWTPumpSwitchVariable','caption'=>'Shelly Schaltvariable Sole-EWT-Lueftung (Boolean-ID, 0=keine Schaltung)'],
+                ['type'=>'NumberSpinner','name'=>'EWTPumpPowerVariable','caption'=>'Optional: Shelly Leistungswert Pumpe in Watt (0=unbekannt)'],
+                ['type'=>'CheckBox','name'=>'EnableEWTPumpControl','caption'=>'Separaten EWT-Pumpenaktor nach Installation und Frostschutzpruefung freigeben (Standard AUS)'],
                 ['type'=>'NumberSpinner','name'=>'KitchenLightVariable','caption'=>'Kuechenlicht Status (Original #51009)'],
                 ['type'=>'NumberSpinner','name'=>'KitchenMotionVariable','caption'=>'Bewegung Wohnen / Kueche (#51040)'],
                 ['type'=>'NumberSpinner','name'=>'GroundFloorHallMotionVariable','caption'=>'Bewegung EG Flur (#39155)'],
@@ -694,6 +705,97 @@ class HeliosSmart extends IPSModule
         }
     }
 
+    /**
+     * Dedicated air-EWT pump actuator, independent of the Helios fan/party gate.
+     * New installations remain read-only until a distinct Shelly variable and
+     * explicit opt-in have been configured. Missing weather => request ON.
+     */
+    private function EvaluateEWTPump(array $weather,int $now,?float $inside): array
+    {
+        $plugId=$this->ReadPropertyInteger('EWTPumpSwitchVariable');
+        $powerId=$this->ReadPropertyInteger('EWTPumpPowerVariable');
+        $configured=$plugId>0 && IPS_VariableExists($plugId);
+        $validType=$configured && (int)(IPS_GetVariable($plugId)['VariableType']??-1)===0;
+        $state=json_decode($this->ReadAttributeString('EWTPumpControlState'),true);
+        if(!is_array($state))$state=[];
+        $actual=$validType?(bool)GetValue($plugId):null;
+        if($actual!==null && (!array_key_exists('last_seen_on',$state)
+            || (bool)$state['last_seen_on']!==$actual)) {
+            // An already running pump is not treated as having just started.
+            $state[$actual?'last_on_at':'last_off_at']=isset($state['last_seen_on'])?$now:$now-900;
+            $state['last_seen_on']=$actual;
+        }
+        $current=is_array($weather['current']??null)?$weather['current']:[];
+        $intakeId=$this->ReadPropertyInteger('HeliosIntakeAfterEWT');
+        $intakeExists=$intakeId>0 && IPS_VariableExists($intakeId);
+        $plan=JVHeliosEWTPump::decide([
+            'now'=>$now,
+            'weather_quality'=>$weather['quality']??'UNAVAILABLE',
+            'outside_temperature'=>$current['temperature']??null,
+            'outside_observed_at'=>$current['observed_at']??0,
+            'intake_after_ewt'=>$intakeExists?GetValue($intakeId):null,
+            'intake_updated_at'=>$intakeExists
+                ?(int)(IPS_GetVariable($intakeId)['VariableUpdated']??0):0,
+            'indoor_temperature'=>$inside,
+            'plug_on'=>$actual,
+            'state'=>$state
+        ]);
+        $state=$plan['state'];
+        $enabled=$this->ReadPropertyBoolean('EnableEWTPumpControl');
+        $command='NO_COMMAND';
+        if(!$enabled) {
+            $command='READ_ONLY_NOT_RELEASED';
+        } elseif(!$validType) {
+            $command='NO_VALID_SHELLY_BOOLEAN';
+        } elseif($actual!==$plan['desired_on']) {
+            $lastRequest=(int)($state['last_request_at']??0);
+            $lastTarget=$state['last_request_target']??null;
+            if($lastTarget===$plan['desired_on'] && $now-$lastRequest<90) {
+                $command='WAIT_FOR_SHELLY_FEEDBACK';
+            } else {
+                try {
+                    // Native Symcon action on the already configured Shelly output.
+                    // Never manipulate a different pump or MQTT topic directly.
+                    RequestAction($plugId,(bool)$plan['desired_on']);
+                    $state['last_request_at']=$now;
+                    $state['last_request_target']=$plan['desired_on'];
+                    $command=$plan['desired_on']?'REQUEST_ON':'REQUEST_OFF';
+                } catch(Throwable $e) {
+                    $command='SHELLY_ACTION_ERROR';
+                    $this->SendDebug('EWTPumpAction',substr($e->getMessage(),0,250),0);
+                }
+            }
+        } else {
+            $command='SHELLY_STATE_MATCHES';
+        }
+        $power=null;$powerFresh=false;
+        if($powerId>0 && IPS_VariableExists($powerId)) {
+            $info=IPS_GetVariable($powerId);
+            $powerFresh=$now-(int)($info['VariableUpdated']??0)<=900;
+            $value=GetValue($powerId);
+            if($powerFresh && is_numeric($value) && (float)$value>=0
+                && (float)$value<5000) $power=round((float)$value,1);
+        }
+        $plan['command']=$command;
+        $plan['control_enabled']=$enabled;
+        $plan['configured']=$validType;
+        $plan['switch_variable_id']=$validType?$plugId:null;
+        $plan['power_w']=$power;
+        $plan['power_confirmed_on']=$actual===true && $power!==null && $power>=2.0;
+        $plan['feedback']=$actual===null?'NOT_CONFIGURED'
+            :($power!==null?($plan['power_confirmed_on']?'POWER_DETECTED'
+                :($actual?'NO_POWER_DETECTED':'OFF_REPORTED')):'SWITCH_STATE_ONLY');
+        unset($plan['state']);
+        $this->WriteAttributeString('EWTPumpControlState',json_encode($state));
+        $status=($enabled?'AUTO':'NUR LESEN')
+            .' | Soll '.($plan['desired_on']?'EIN':'AUS')
+            .' | Ist '.($actual===null?'UNBEKANNT':($actual?'EIN (gemeldet)':'AUS (gemeldet)'))
+            .' | '.$plan['reason'].' | '.$command
+            .' | '.($power!==null?number_format($power,1,',','.').' W':'Leistung nicht verifiziert');
+        $this->SetValue('EWTPumpStatus',$status);
+        return $plan;
+    }
+
     public function Evaluate(): void
     {
         $now=time();
@@ -720,6 +822,8 @@ class HeliosSmart extends IPSModule
         $supplyID=$this->ReadPropertyInteger('HeliosSupplyTemperature');
         $intakeID=$this->ReadPropertyInteger('HeliosIntakeAfterEWT');
         if (!IPS_VariableExists($fanID)||!IPS_VariableExists($modeID)||!IPS_VariableExists($progID)) {
+            // Frost handling must not be blocked by missing Helios stage metadata.
+            $this->EvaluateEWTPump($weather,$now,null);
             $this->SetValue('Status','Stopp: fehlende Helios-Basisvariablen; keine Befehle');
             $this->SetValue('LernDiagnose','HELIOS SMART LERNDIAGNOSE | FEHLER: Helios-Basisvariablen fehlen. Keine Geraetebefehle und kein neues Lernen.');
             return;
@@ -737,6 +841,9 @@ class HeliosSmart extends IPSModule
             'baseline_level'=>(int)GetValue($fanID),
             'supply_temperature'=>$supply,'supply_fresh'=>$supplyFresh,
         ]);
+        $decision['ewt_pump']=$this->EvaluateEWTPump($weather,$now,
+            is_numeric($decision['indoor_temperature']??null)
+                ?(float)$decision['indoor_temperature']:null);
         // Prognoseplanung ist rein lesend: Wettermodell != Zuluft nach Sole-EWT.
         // Frische Innenraumfeuchte ist Voraussetzung fuer die Feuchtebewertung.
         $indoorAH = ($decision['fresh_humidity_room_count']??0) >= 2
@@ -1027,6 +1134,8 @@ class HeliosSmart extends IPSModule
             .' | '.$decision['reason']
             .' | Tag: '.$decision['daily_strategy']['summary']
             .' | 24h: '.$forecastAdvice['summary']
+            .' | EWT-Pumpe: '.($decision['ewt_pump']['reason']??'UNBEKANNT')
+            .' / '.($decision['ewt_pump']['command']??'KEINE_AKTION')
             .' | Profil: '.$seasonLabel
             .' | Bedarf: '.$decision['ventilation_need']['summary']
             .' | Behaglichkeit: '.($decision['comfort_control']['classification']??'UNBEKANNT')
