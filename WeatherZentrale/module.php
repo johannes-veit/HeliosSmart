@@ -80,7 +80,12 @@ class WetterZentrale extends IPSModule
                 'AUTO-TIMER AKTIV | naechster Versuch in '.$delay.' s'
                 .' | Jahre '.count($progress['completed']).'/'.$progress['total']
                 .' | letzter Lauf '.($last>0
-                    ?date('d.m.Y H:i:s',$last).' ('.$source.')':'NOCH NIE'));
+                    ?date('d.m.Y H:i:s',$last).' ('.$source.')':'NOCH NIE')
+                .($progress['complete']
+                    ?' | Historie komplett: naechster Datensatz ab 10.01.'
+                        .((int)gmdate('Y',$now)+1)
+                        .' (bis dahin nur interne Jahreskontrolle)'
+                    :''));
         }
         if($this->ReadPropertyBoolean('EnableExternal')
             && $this->ReadPropertyBoolean('EnableSoilCurrent')){
@@ -364,6 +369,11 @@ class WetterZentrale extends IPSModule
             .' | '.$store['last_attempt_result']
             .' | Jahre '.count($progress['completed']).'/'.$progress['total']
             .' | naechster Timer in '.$delay.' s'
+            .($progress['complete']
+                ?' | HISTORIE KOMPLETT: naechster Jahres-Import ab 10.01.'
+                    .((int)gmdate('Y',$now)+1)
+                    .' – bis dahin keine erneuten Archiv-HTTP-Abfragen'
+                :'')
             .(($store['error']??'')!==''?' | '.$store['error']:''));
 
     }
