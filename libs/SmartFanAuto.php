@@ -72,7 +72,8 @@ final class JVHeliosSmartFanAuto
             $quiet=(bool)($d['quiet_requested']??false);
             $quietRecently=(int)($d['quiet_started_at']??0)>0
                 && $now-(int)$d['quiet_started_at']>=30*60;
-            if($quiet && $canReduce && !$quietRecently){
+            $quietCooldown=(int)($d['quiet_cooldown_until']??0)>$now;
+            if($quiet && $canReduce && !$quietRecently && !$quietCooldown){
                 $level=1;$reason='SHORT_LOW_DEMAND_QUIET';
             }
         }
