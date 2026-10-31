@@ -1157,6 +1157,19 @@ class HeliosSmart extends IPSModule
             }
         } else {
             $command='SHELLY_STATE_MATCHES';
+            if(!is_bool($state['pending_target']??null)
+                && $actual!==null && $actual===$plan['desired_on']) {
+                // A re-established, freshly reported and consistent status
+                // resolves a transient connection outage. Do not leave the
+                // EWT learner permanently blocked by historical MQTT loss.
+                $transient=[
+                    'DEVICE_OFFLINE_LAST_SWITCH_STATE_UNTRUSTED',
+                    'NO_RECENT_SHELLY_AVAILABILITY',
+                    'SHELLY_SWITCH_STATE_STALE_OR_PRE_RECONNECT',
+                ];
+                if(in_array((string)($state['last_error']??''),$transient,true))
+                    $state['last_error']='';
+            }
             // Preserve a command timeout/IO failure in the fault indicator
             // until a genuinely new output report acknowledges a later command.
             if(is_bool($state['pending_target']??null)
@@ -1175,6 +1188,10 @@ class HeliosSmart extends IPSModule
         $power=$power!==null?round((float)$power,1):null;
         $noLoad=$actual===true && $power!==null && $power<2.0
             && isset($state['last_on_at']) && $now-(int)$state['last_on_at']>=120;
+        if(!$noLoad && ($state['last_error']??'')==='SHELLY_RELAY_ON_NO_ELECTRICAL_LOAD_INDICATED'
+            && $actual!==null && (!$actual || ($power!==null && $power>=2.0))) {
+            $state['last_error']='';
+        }
         $plan['connectivity']=$health;
         $plan['command']=$command;
         $plan['control_enabled']=$enabled;
