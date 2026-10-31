@@ -927,6 +927,7 @@ class HeliosSmart extends IPSModule
                 'now'=>$now,'weather_quality'=>$weather['quality']??'UNAVAILABLE',
                 'outside_temperature'=>$current['temperature']??null,
                 'outside_observed_at'=>$current['observed_at']??0,
+                'forecast'=>is_array($weather['forecast']??null)?$weather['forecast']:[],
                 'plug_on'=>(bool)GetValue($plug),
                 'indoor_temperature'=>null,
             ]);
@@ -1029,6 +1030,7 @@ class HeliosSmart extends IPSModule
                 ?$weather['soil_climatology']:null,
             'outside_temperature'=>$current['temperature']??null,
             'outside_observed_at'=>$current['observed_at']??0,
+            'forecast'=>is_array($weather['forecast']??null)?$weather['forecast']:[],
             'intake_after_ewt'=>$intakeExists?GetValue($intakeId):null,
             'intake_updated_at'=>$intakeExists
                 ?(int)(IPS_GetVariable($intakeId)['VariableUpdated']??0):0,
@@ -1155,7 +1157,9 @@ class HeliosSmart extends IPSModule
                 ?number_format($plan['sole_temperature_measured_c'],1,',','.').' °C gemessen'
                 :number_format($plan['sole_temperature_reference']['low_c'],1,',','.')
                     .'–'.number_format($plan['sole_temperature_reference']['high_c'],1,',','.')
-                    .' °C Monatsmodell (kein Messwert)')
+                    .' °C '.(($plan['sole_temperature_reference']['source']??'')==='ERA5_LAND_REANALYSIS_OPEN_METEO'
+                        ?'ERA5-Land-Bodenmodell 100–255 cm':'vorlaeufige Saison-Schaetzung')
+                    .' (kein Sole-Messwert)')
             .' | '.($power!==null?number_format($power,1,',','.').' W':'Leistung nicht verifiziert');
         $this->SetValue('EWTPumpStatus',$status);
         return $plan;
@@ -1196,10 +1200,14 @@ class HeliosSmart extends IPSModule
                 ?(int)(IPS_GetVariable($intakeID)['VariableUpdated']??0):0,
             'shelly_online'=>$health['online_confirmed']??false,
             'pump_state'=>$health['reported']??'UNKNOWN',
+            'command_pending'=>is_bool($control['pending_target']??null),
+            'command_error'=>($control['last_error']??'')!=='',
             'switch_contradiction'=>$health['power_conflict']??false,
             'last_pump_change_at'=>$lastChange,
             'pump_power_w'=>$health['watts']??null,
             'fan_stage'=>$fan,
+            'fan_changed_at'=>$fanID>0 && IPS_VariableExists($fanID)
+                ?(int)(IPS_GetVariable($fanID)['VariableChanged']??0):0,
             'bypass'=>$decision['bypass_actual']??null,
             'indoor_c'=>$decision['indoor_temperature']??null,
             'indoor_ah_gm3'=>$decision['indoor_absolute_humidity']??null,
@@ -1214,8 +1222,9 @@ class HeliosSmart extends IPSModule
             'environment_quality'=>$environment['quality']??'UNAVAILABLE',
             'soil_reference_c'=>$pump['sole_temperature_reference']['mean_c']??null,
             'soil_measured_c'=>$pump['sole_temperature_measured_c']??null,
-            'climate'=>$decision['season_signal']??'UNKNOWN',
-            'occupancy'=>$occ['status_now']??$occ['description']??'UNKNOWN',
+            'climate'=>$decision['climate_mode']??'UNKNOWN',
+            'season'=>$decision['season_signal']??'UNKNOWN',
+            'occupancy'=>$occ['status']??'UNKNOWN',
             'operator_mode'=>$pump['operator_mode']??'AUTOMATIK',
         ];
         $learn=JVHeliosEWTPumpLearning::update($prior,$x,$now);
