@@ -17,7 +17,8 @@ function IPS_GetVariable($id){return [
 function GetValue($id){return $GLOBALS['variables'][$id];}
 function IPS_InstanceExists($id){return $id===42;}
 function IPS_GetInstance($id){return ['ModuleInfo'=>['ModuleID'=>'{685106B4-47EC-43C9-9CA9-9BAE53E4B304}']];}
-function HasAction($id){return $id===9001;}
+function HasAction($id){return $id===9001;} 
+function IPS_GetParent($id){return in_array($id,[9001,9002,9003],true)?777:60000;}
 function RequestAction($id,$value){
     $GLOBALS['commands'][]=['id'=>$id,'value'=>$value];
     return $GLOBALS['sendActionSuccess'];
