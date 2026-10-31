@@ -1,0 +1,102 @@
+<?php
+/**
+ * Automatic HELIOS fan stage selection with manufacturer *device-timed*
+ * Party/Whisper overrides. The stored weekly program is the fallback,
+ * not the normal stage target. No actuator calls live in this class.
+ *
+ * Fail safe: no command when weather / room sensors / native status fail;
+ * never reduce an independently observed high CO2 or urgent wetroom demand;
+ * no "real airflow measured" claim based on estimated fan stages.
+ */
+final class JVHeliosSmartFanAuto
+{
+    public static function decide(array $d,int $now):array
+    {
+        $out=['status'=>'FALLBACK_WEEKLY','reason'=>'UNSAFE_OR_INSUFFICIENT_INPUT',
+            'target_stage'=>null,'minutes'=>0,'execute'=>false,
+            'fallback_weekly'=>true,'route'=>null,'evidence'=>[]];
+        if(($d['enabled']??false)!==true){
+            $out['reason']='TAKEOVER_DISABLED';return $out;
+        }
+        if(($d['native_ok']??false)!==true || ($d['live_fresh']??false)!==true
+            || !in_array($d['mode']??null,[0,2,3],true)){
+            $out['reason']='NATIVE_NOT_HEALTHY_OR_NOT_AUTO';return $out;
+        }
+        $mode=$d['mode']??null;
+        if($mode===2||$mode===3){
+            // Distinguish a device-timed mode we own from a human/external party.
+            if(($d['owned_mode']??null)!==$mode
+                || ($d['owned_until']??0)<$now
+                || ($d['owned_last_at']??0)<=0){
+                $out['reason']='FOREIGN_PARTY_OR_WHISPER';return $out;
+            }
+        }
+        if(!in_array($d['weather_quality']??'',['VERIFIED','DWD_ONLY'],true)
+            || ($d['weather_age_seconds']??PHP_INT_MAX)>900
+            || ($d['weather_age_seconds']??-1)<0){
+            $out['reason']='WEATHER_NOT_VERIFIED_FRESH';return $out;
+        }
+        if((int)($d['room_temp_count']??0)<9
+            ||(int)($d['room_humidity_count']??0)<8){
+            $out['reason']='ROOM_DATA_INCOMPLETE';return $out;
+        }
+        $fan=$d['actual_fan']??null;
+        if(!is_int($fan)||$fan<1||$fan>4){
+            $out['reason']='FAN_READBACK_INVALID';return $out;
+        }
+        $co2=$d['max_co2_ppm']??null;
+        $voc=$d['max_voc_ppm']??null;
+        $badAir=(is_numeric($co2)&&(float)$co2>=1100)
+            ||(is_numeric($voc)&&(float)$voc>=1000);
+        $wet=(bool)($d['wet_need']??false);
+        $cook=(bool)($d['cooking_confirmed']??false);
+        $cool=(bool)($d['cooling_confirmed']??false);
+        $strongWet=(bool)($d['strong_wet_need']??false);
+        $strongCook=(bool)($d['strong_cooking_need']??false);
+        $highPower=(bool)($d['high_power_enabled']??false)
+            && (bool)($d['high_power_safety']??false)
+            && (bool)($d['combustion_safe']??false);
+        // Safety-priority cases always beat energy savings or absence.
+        if($strongWet || $strongCook || $badAir){
+            $level=$highPower?4:3;
+            $reason=$badAir?'NATIVE_CO2_OR_VOC_HIGH'
+                :($strongWet?'STRONG_WETROOM_NEED':'CONFIRMED_COOKING');
+        } elseif($wet || $cook || $cool){
+            $level=3;
+            $reason=$wet?'WETROOM_AIR_NEED':($cook?'COOKING':'SAFE_PASSIVE_COOLING');
+        }else{
+            $canReduce=(bool)($d['minimum_airflow_validated']??false)
+                ||(bool)($d['model_airflow_accepted']??false);
+            $level=$canReduce?2:3; // S3 = nominal, not a fictitious minimum validation
+            $reason=$canReduce?'ENERGY_EFFICIENT_BASE':'NOMINAL_FALLBACK_UNMEASURED_AIRFLOW';
+            $quiet=(bool)($d['quiet_requested']??false);
+            $quietRecently=(int)($d['quiet_started_at']??0)>0
+                && $now-(int)$d['quiet_started_at']>=30*60;
+            if($quiet && $canReduce && !$quietRecently){
+                $level=1;$reason='SHORT_LOW_DEMAND_QUIET';
+            }
+        }
+        if($level===4 && !$highPower)$level=3;
+        $route=$level===1?'WHISPER':'PARTY';
+        // Both are native Helios device timers; loss of the SymBox does
+        // NOT leave MANUELL active indefinitely.
+        $out['status']='SMART_OVERRIDE_READY';
+        $out['reason']=$reason;
+        $out['target_stage']=$level;
+        $out['minutes']=15;
+        $out['route']=$route;
+        $out['execute']=true;
+        $out['fallback_weekly']=false;
+        $out['evidence']=[
+            'room_temp_count'=>$d['room_temp_count'],
+            'room_humidity_count'=>$d['room_humidity_count'],
+            'high_co2_or_voc'=>$badAir,
+            'wetroom_demand'=>$wet,
+            'cooking_demand'=>$cook,
+            'cooling_demand'=>$cool,
+            'model_airflow_accepted'=>(bool)($d['model_airflow_accepted']??false),
+            'minimum_airflow_validated'=>(bool)($d['minimum_airflow_validated']??false),
+        ];
+        return $out;
+    }
+}
