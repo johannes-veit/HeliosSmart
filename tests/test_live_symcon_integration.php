@@ -38,7 +38,16 @@ function HELIOS_OperatingMode_Party_Set(...$args){
     if(($args[1]??false)===false){$GLOBALS['deviceMode']=0;return true;}
     $GLOBALS['deviceMode']=2;$GLOBALS['deviceFan']=(int)$args[2];$GLOBALS['remaining']=(int)$args[3];return true;
 }
-function HELIOS_OperatingMode_Get($id){$GLOBALS['getCalls']++;return $GLOBALS['deviceMode'];}
+function HELIOS_OperatingMode_Get($id){$GLOBALS['getCalls']++;
+    return ($GLOBALS['failLiveRead']??false)?false:$GLOBALS['deviceMode'];}
+function HELIOS_Defrost_State_Get($id){
+    return ($GLOBALS['failDefrostRead']??false)?false:
+        ['HeatExchanger'=>($GLOBALS['nativeDefrost']??false)===true,
+         'HotWaterRegister'=>false];
+}
+function HELIOS_HumidityControl_Internal_ExhaustAir_Get($id){
+    return $GLOBALS['nativeExtractRh']??53;
+}
 function HELIOS_FanLevel_Get($id){$GLOBALS['getCalls']++;return $GLOBALS['deviceFan'];}
 function HELIOS_WeekProgram_Get($id){$GLOBALS['getCalls']++;return $GLOBALS['deviceProgram'];}
 function HELIOS_OperatingMode_RemainingMinutes_Get($id){$GLOBALS['getCalls']++;return $GLOBALS['remaining'];}
@@ -306,4 +315,68 @@ it(str_contains($refused,'NICHT FREIGEGEBEN')
     && !$blocked->ReadPropertyBoolean('EnableSmartFanTakeover'),
     'invalid original Helios 209 cannot enable full smart control');
 $GLOBALS['nativeStatus']=102;
+$healthSim=new HeliosSmart();$healthSim->Create();
+$healthSim->setProperty('WeatherCenterInstance',42);
+$healthSim->setProperty('EnableControl',true);
+$healthSim->setProperty('EnableSmartFanTakeover',true);
+$GLOBALS['deviceMode']=0;$GLOBALS['deviceFan']=4;$GLOBALS['deviceProgram']=3;
+$GLOBALS['values'][30441]=4;
+$GLOBALS['nativeDefrost']=true;
+$GLOBALS['nativeExtractRh']=53;
+$beforeFrost=count($GLOBALS['calls']);
+$healthSim->Evaluate();
+$nativeFrost=json_decode($healthSim->value('DecisionJSON'),true);
+it(($nativeFrost['smart_fan_takeover']['reason']??'')
+        ==='NATIVE_HEAT_EXCHANGER_DEFROST_ACTIVE'
+    && count($GLOBALS['calls'])===$beforeFrost,
+    'native manufacturer defrost is not overridden by SMART S3');
+$GLOBALS['nativeDefrost']=false;
+$GLOBALS['nativeExtractRh']=78;
+$healthSim->Evaluate();
+$hotRh=json_decode($healthSim->value('DecisionJSON'),true);
+it(($hotRh['smart_fan_takeover']['reason']??'')
+        ==='NATIVE_EXTRACT_HUMIDITY_HIGH_KEEP_DEVICE',
+    'high native Helios extract RH preserves native control instead of SMART S3');
+$GLOBALS['nativeExtractRh']=53;
+$healthSim->Evaluate();
+$nativeSafe=json_decode($healthSim->value('DecisionJSON'),true);
+it(($nativeSafe['smart_fan_execution']['status']??'')
+        ==='SMART_STAGE_CONFIRMED'
+    && ($nativeSafe['fan_stage_attribution']['kind']??'')
+        ==='DEVICE_AUTOMATIC_WEEKLY_OR_NATIVE',
+    'SMART takes over after defrost and high humidity clear, with live actuator acknowledgement');
+$healthSim->setProperty('EnableSmartFanTakeover',false);
+$healthSim->setProperty('EnableControl',false);
+$beforeExit=count($GLOBALS['calls']);
+$healthSim->Evaluate();
+$exiting=json_decode($healthSim->value('DecisionJSON'),true);
+it(($exiting['smart_fan_execution']['status']??'')
+       ==='AUTO_FALLBACK_CONFIRMED'
+    && $GLOBALS['deviceMode']===0,
+    'turning OFF SMART checkbox immediately cancels its own vendor-timed Party');
+it(count(array_filter(array_slice($GLOBALS['calls'],$beforeExit),
+   static fn($c)=>$c[0]==='party'&&$c[1][1]===true))===0,
+   'no competing old Party when SMART is disabled mid-session');
+// Missing live response during an active timed Party must not be
+// misreported as confirmed weekly-program fallback.
+$networkSim=new HeliosSmart();$networkSim->Create();
+$networkSim->setProperty('WeatherCenterInstance',42);
+$networkSim->setProperty('EnableControl',true);
+$networkSim->setProperty('EnableSmartFanTakeover',true);
+$GLOBALS['deviceMode']=0;$GLOBALS['deviceFan']=4;
+$networkSim->Evaluate();
+$GLOBALS['failLiveRead']=true;
+$networkSim->Evaluate();
+$failedRead=json_decode($networkSim->value('DecisionJSON'),true);
+it(($failedRead['smart_fan_execution']['status']??'')
+       ==='FALLBACK_PENDING_NATIVE_15MIN_TIMER_UNVERIFIED'
+    && ($failedRead['smart_fan_effective_state']??'')
+       ==='RUECKFALL NOCH NICHT BESTAETIGT',
+    'network loss mid-party is explicitly pending native timer, not claimed successful AUTO');
+$GLOBALS['failLiveRead']=false;
+$GLOBALS['deviceMode']=0;$GLOBALS['deviceFan']=4;
+$networkSim->setProperty('EnableControl',false);
+$networkSim->setProperty('EnableSmartFanTakeover',false);
+$GLOBALS['nativeDefrost']=false;
+$GLOBALS['nativeExtractRh']=53;
 echo "ALLE $counter SYMCON-LIVE-INTEGRATIONSPRUEFUNGEN BESTANDEN\n";
