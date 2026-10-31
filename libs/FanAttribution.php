@@ -30,6 +30,10 @@ final class JVHeliosFanAttribution
                     $note='Helios Automatik: Stufe durch gespeichertes Wochenprogramm'
                         .' oder interne Geraeteregelung. Eine einzelne Stufenmeldung'
                         .' verrät NICHT den aktiven Zeitschaltpunkt.';
+                    if(($x['native_sensor_control_possible']??false)===true)
+                        $note.=' | CO2-/Feuchte-/VOC-Regelung im Original-Helios'
+                            .' aktiv oder moeglich: Stufe 4 ist nicht automatisch'
+                            .' ein Wochenplan-Schaltpunkt.';
                     break;
                 case 1:
                     $kind='MANUAL_ON_DEVICE';
@@ -75,6 +79,10 @@ final class JVHeliosFanAttribution
             .' | '.$note;
         if($minutesSinceChange!==null)
             $sentence.=' | letzte gemeldete Stufenänderung vor '.$minutesSinceChange.' min';
+        if(($x['native_module_fault']??false)===true)
+            $sentence.=' | ACHTUNG: Original-Helios Status '
+                .($x['native_status']??'UNBEKANNT')
+                .' – eigene SMART-Party/Ruhe gesperrt';
         return [
             'kind'=>$kind,'status'=>$sentence,
             'helios_mode'=>$mode,'actual_fan_level'=>$fan,
@@ -86,6 +94,9 @@ final class JVHeliosFanAttribution
             'own_party_active_plausible'=>$owned,
             'party_command_attempted_now'=>$nowSending,
             'manufacturer_weekly_slot_not_read'=>true,
+            'native_sensor_control_possible'=>($x['native_sensor_control_possible']??false)===true,
+            'native_module_fault'=>($x['native_module_fault']??false)===true,
+            'native_status'=>$x['native_status']??null,
             'not_an_actuator_command'=>true,
             'heating_cost_stage4_unquantified'=>true,
         ];

@@ -31,6 +31,7 @@ require_once __DIR__ . '/../libs/EWTPumpOperator.php';
 require_once __DIR__ . '/../libs/EWTPumpHealth.php';
 require_once __DIR__ . '/../libs/EWTPumpLearning.php';
 require_once __DIR__ . '/../libs/FanAttribution.php';
+require_once __DIR__ . '/../libs/NativeHeliosCoordination.php';
 /** Vorhersagegestützter Beobachter; Aktor nur nach expliziter Freigabe. */
 class HeliosSmart extends IPSModule
 {
@@ -119,6 +120,10 @@ class HeliosSmart extends IPSModule
             'Helios Lüfterstufe – Betrieb / Ursache','',59);
         $this->RegisterVariableString('FanStageCauseJSON',
             'Helios Lüfterstufe – Diagnosedaten JSON','',60);
+        $this->RegisterVariableString('NativeHeliosStatus',
+            'Original-HELIOS #19285 – Zusammenarbeit / Fehler','',61);
+        $this->RegisterVariableString('NativeHeliosJSON',
+            'Original-HELIOS #19285 – Schnittstellendiagnose JSON','',62);
         if(method_exists($this,'EnableAction')) {
             $this->EnableAction('EWTPumpModeManual');
             $this->EnableAction('EWTPumpSwitch');
@@ -196,6 +201,7 @@ class HeliosSmart extends IPSModule
         // Sofortiger lesender Diagnosebericht bereits beim Modul-Update.
         // Keine komplette Evaluate()-Ausfuehrung: keine Party-Schaltmoeglichkeit.
         $this->RefreshLearningReport();
+        $this->ReadNativeHeliosIntegration(null,false);
     }
 
     /** Aenderungs-Ereignisse der vorhandenen Bad-RH-Variablen statt fuenf Minuten Polling. */
@@ -245,7 +251,9 @@ class HeliosSmart extends IPSModule
         return json_encode([
             'elements'=>[
                 ['type'=>'Label','caption'=>'Vier-Stufen-Strategie: S1 optional als 30-min-Ruhe-/Sparbetrieb rund um die Uhr, S2 im Wochenprogramm, S3 nach Bedarf, S4 nur mit Freigabe. Nacht-S1 ist wegen ungesicherter Luftmenge standardmaessig AUS.'],
-                ['type'=>'NumberSpinner','name'=>'HeliosInstance','caption'=>'Helios-Instanz'],
+                ['type'=>'NumberSpinner','name'=>'HeliosInstance','caption'=>'Original Helios Symcon Modul (hier #19285, gemeinsam genutzte einzige Geraeteinstanz)'],
+                ['type'=>'Label','caption'=>'Das originale HELIOS-Modul liest alle 61 Sekunden und fuehrt das Hersteller-Wochenprogramm aus. HELIOS SMART nutzt dessen native GETs; keine zweite direkte HTTP-Steuerung. Angewendete Helios-Konfiguration muss Status 102/OK haben. Bei Fehler 209 ist Eigenes Skript aktiv, aber keine Skript-ID gewaehlt. Fehler nur in der Originalinstanz beheben; HELIOS SMART veraendert diese Konfiguration nicht.'],
+                ['type'=>'Button','caption'=>'HELIOS-Originalinstanz jetzt nur lesend pruefen','onClick'=>'echo JVHS_CheckNativeHeliosIntegration($id);'],
                 ['type'=>'NumberSpinner','name'=>'WeatherCenterInstance','caption'=>'WetterZentrale-Instanz (0 = automatisch erkennen)'],
                 ['type'=>'NumberSpinner','name'=>'ClimateControlInstance','caption'=>'LCNClimateControl (nur lesend)'],
                 ['type'=>'NumberSpinner','name'=>'HeliosFanVariable','caption'=>'Helios Lüfterstufe'],
@@ -469,6 +477,80 @@ class HeliosSmart extends IPSModule
     private function OptionalAttributeInt(string $name):int
     {
         return method_exists($this,'ReadAttributeInteger')?(int)$this->ReadAttributeInteger($name):0;
+    }
+
+    /**
+     * Read existing vendor status/configuration and advertised sensor modes.
+     * NEVER return/publish the vendor's device password from IPS_GetConfiguration.
+     * No calls to HELIOS_*Set or IPS_SetProperty on the original instance.
+     */
+    private function ReadNativeHeliosIntegration(?int $program,bool $heating): array
+    {
+        $id=$this->ReadPropertyInteger('HeliosInstance');
+        $config=null;$status=null;
+        $trusted=$id>0 && IPS_InstanceExists($id);
+        if($trusted && function_exists('IPS_GetInstance')){
+            try{
+                $instance=IPS_GetInstance($id);
+                $trusted=strcasecmp((string)($instance['ModuleInfo']['ModuleID']??''),
+                    '{889DFBC4-09A6-4D77-9928-738E5D494362}')===0;
+                if(isset($instance['InstanceStatus']))
+                    $status=(int)$instance['InstanceStatus'];
+            }catch(Throwable $e){$trusted=false;}
+        }else{$trusted=false;}
+        if($trusted && function_exists('IPS_GetConfiguration')){
+            try{
+                $raw=IPS_GetConfiguration($id);
+                $parsed=is_string($raw)?json_decode($raw,true):null;
+                if(is_array($parsed)){
+                    // Whitelist deliberately: credentials must not enter
+                    // JSON reports, statuses, attributes or debugging.
+                    $config=[];
+                    foreach(['notif_script_active','notifscript_id',
+                        'notif_pushmsg_active','webfrontinstance_id',
+                        'notif_mail_active','smtpinstance_id',
+                        'timerinterval','log_fanlevel'] as $key)
+                        if(array_key_exists($key,$parsed))$config[$key]=$parsed[$key];
+                }
+            }catch(Throwable $e){}
+        }
+        $sensors=[];
+        foreach([
+            'CO2Control'=>35481,'HumidityControl'=>38520,
+            'VOCControl'=>55926,'HumidityControlInternal'=>25620,
+            'SettingSensorControlSleepMode'=>54901,
+            'OperatingModePresetPartyDuration'=>17791,
+            'OperatingModePresetPartyFanLevel'=>50208,
+        ] as $name=>$sensorID) {
+            if(function_exists('IPS_VariableExists') && IPS_VariableExists($sensorID)
+                && function_exists('IPS_GetParent')
+                && (int)IPS_GetParent($sensorID)===$id)
+                $sensors[$name]=GetValue($sensorID);
+        }
+        if($program===null){
+            $p=$this->ReadPropertyInteger('HeliosProgramVariable');
+            if($p>0 && IPS_VariableExists($p))$program=(int)GetValue($p);
+        }
+        $assessment=JVHeliosNativeCoordination::assess(
+            $config,$trusted?$status:null,$sensors,$program,$heating);
+        $assessment['original_instance_id']=$id;
+        $assessment['module_guid_verified']=$trusted;
+        // A different module must never inherit the trusted GUID.
+        if(!$trusted){
+            $assessment['write_allowed']=false;
+            $assessment['status']='ORIGINAL-HELIOS FEHLER: ungueltige Instanz oder Modul-ID'
+                .' | keine HELIOS-SMART Luefterbefehle';
+        }
+        $this->SetValue('NativeHeliosStatus',$assessment['status']);
+        $this->SetValue('NativeHeliosJSON',
+            json_encode($assessment,JSON_UNESCAPED_UNICODE));
+        return $assessment;
+    }
+
+    public function CheckNativeHeliosIntegration(): string
+    {
+        $assessment=$this->ReadNativeHeliosIntegration(null,false);
+        return (string)$assessment['status'];
     }
 
     /** Fresh live requests to the manufacturer HELIOS module, never guessed timestamps. */
@@ -1724,11 +1806,20 @@ class HeliosSmart extends IPSModule
             $deviceStatus['fan_fresh']=false;
             $deviceStatus['program_fresh']=false;
         }
+        // A native Helios configuration error (e.g. 209 own script
+        // without a script) stops the original module's 61s poll timer.
+        // No Party or Whisper command is allowed until native status 102
+        // and source instance/configuration are both valid.
+        $native=$this->ReadNativeHeliosIntegration(
+            $deviceStatus['program'],
+            ($decision['winter_room_air']['heating_active']??false)===true);
+        $decision['native_helios_integration']=$native;
         $approvals=[
             'estimated_flow_trial'=>$this->ReadPropertyBoolean('AllowEstimatedAirflowLimitedParty'),
             'high_power_opt_in'=>$this->ReadPropertyBoolean('EnableHighPowerParty'),
             'high_power_safety'=>$this->ReadPropertyBoolean('HighPowerSafetyValidated'),
-            'enable_control'=>$this->ReadPropertyBoolean('EnableControl'),
+            'enable_control'=>$this->ReadPropertyBoolean('EnableControl')
+                && ($native['write_allowed']??false)===true,
             'minimum_airflow'=>$this->ReadPropertyBoolean('MinimumVentilationValidated'),
             'combustion_safety'=>$this->ReadPropertyBoolean('CombustionSafetyValidated'),
             'party_return'=>$this->ReadPropertyBoolean('DevicePartyReturnValidated'),
@@ -1754,12 +1845,18 @@ class HeliosSmart extends IPSModule
         $decision['party_protocol_draft']=JVHeliosPartyProtocol::draft(
             $candidate,$guard,$this->ReadPropertyInteger('HeliosInstance'));
         $decision['device_status_check']=$deviceStatus;
-        $execution=$this->TryOwnParty($candidate,$deviceStatus,$approvals,$now);
+        $nativeCanWrite=($native['write_allowed']??false)===true;
+        $execution=$nativeCanWrite
+            ?$this->TryOwnParty($candidate,$deviceStatus,$approvals,$now)
+            :['status'=>'NATIVE_HELIOS_CONFIG_BLOCKED','attempted'=>false,
+                'sent'=>false,'verified'=>false];
         $decision['party_execution']=$execution;
-        $decision['night_quiet_priority_return']=$this->EndOwnNightQuietIfNeeded(
-            $decision['night_strategy'],$deviceStatus,$now);
-        $decision['night_quiet_execution']=$this->TryNightQuiet(
-            $decision['night_strategy'],$candidate,$deviceStatus,$now);
+        $decision['night_quiet_priority_return']=$nativeCanWrite
+            ?$this->EndOwnNightQuietIfNeeded($decision['night_strategy'],$deviceStatus,$now)
+            :['status'=>'NATIVE_HELIOS_CONFIG_BLOCKED','attempted'=>false];
+        $decision['night_quiet_execution']=$nativeCanWrite
+            ?$this->TryNightQuiet($decision['night_strategy'],$candidate,$deviceStatus,$now)
+            :['status'=>'NATIVE_HELIOS_CONFIG_BLOCKED','attempted'=>false];
         // After a successful/uncertain write this diagnostic is based on new
         // durable ownership; subsequent ticks only observe its state.
         if (($execution['attempted']??false)===true) {
@@ -1793,6 +1890,9 @@ class HeliosSmart extends IPSModule
             'owned_until'=>$this->OptionalAttributeInt('OwnedPartyExpiresAt'),
             'last_command_at'=>$this->OptionalAttributeInt('LastCommandAt'),
             'command_attempted'=>(bool)($execution['attempted']??false),
+            'native_sensor_control_possible'=>($native['native_sensor_regulation_possible']??false)===true,
+            'native_module_fault'=>!$nativeCanWrite,
+            'native_status'=>$native['native_instance_status']??null,
         ],$now);
         $decision['fan_stage_attribution']=$fanCause;
         $this->SetValue('FanStageCause',$fanCause['status']);

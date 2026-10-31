@@ -397,8 +397,8 @@ $hs->setProperty('DevicePartyReturnValidated',true);
 $hs->setProperty('EnableProgramSwitch',true);
 $hs->Evaluate();
 $pre=json_decode($hs->value('DecisionJSON'),true);
-a(($pre['execution_status']??'')==='GATE_BLOCKED',
-  'Ohne reale Hersteller-Ruecklesedaten bleibt die Schaltlogik blockiert');
+a(in_array(($pre['execution_status']??''),['GATE_BLOCKED','NATIVE_HELIOS_CONFIG_BLOCKED'],true),
+  'Ohne reale Hersteller-Ruecklesedaten oder nachweislich gesundes Originalmodul bleibt die Schaltlogik blockiert');
 a(($pre['hardware_command_attempts']??-1)===0,
   'Nicht einmal ein Helios-Befehlsversuch');
 a(in_array('HELIOS_DEVICE_STATUS_NOT_FRESH',(array)($pre['party_safety']['blocking_reasons']??[]),true),
