@@ -93,18 +93,25 @@ lcheck(($early['diagnosis']['rejected']['FAN_LEVEL_NOT_STABLE_10_MIN']??0)===0,
 lcheck($early['diagnosis']['rejection_count_basis']==='30_MIN_SAMPLING_WINDOWS_NOT_FAN_CHANGES',
  'diagnosis explicitly identifies counter units');
 $st=$early['state'];
+$busy['outside_at']=$now+30*60-60;
+$busy['intake_at']=$now+30*60-40;
+$busy['fan_changed_at']=$now+30*60-50;
 $first=JVHeliosEWTPumpLearning::update($st,$busy,$now+30*60);
 lcheck($first['diagnosis']['last_result']==='FAN_LEVEL_NOT_STABLE_10_MIN'
  && ($first['diagnosis']['rejected']['FAN_LEVEL_NOT_STABLE_10_MIN']??0)===1,
  'first eligible transient increments the proper quality-window counter');
 $st=$first['state'];
 for($i=1;$i<=5;$i++){
+ $busy['outside_at']=$now+30*60+$i*5*60-60;
+ $busy['intake_at']=$now+30*60+$i*5*60-40;
  $busy['fan_changed_at']=$now+30*60+$i*5*60-50;
  $out=JVHeliosEWTPumpLearning::update($st,$busy,$now+30*60+$i*5*60);
  $st=$out['state'];
 }
 lcheck(($out['diagnosis']['rejected']['FAN_LEVEL_NOT_STABLE_10_MIN']??0)===1,
  'five-minute repeats do not inflate the count');
+$busy['outside_at']=$now+60*60;
+$busy['intake_at']=$now+60*60+20;
 $busy['fan_changed_at']=$now+60*60+30;
 $out=JVHeliosEWTPumpLearning::update($st,$busy,$now+60*60+60);
 lcheck(($out['diagnosis']['rejected']['FAN_LEVEL_NOT_STABLE_10_MIN']??0)===2,
