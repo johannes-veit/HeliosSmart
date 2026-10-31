@@ -180,8 +180,9 @@ it(is_string($diagnose)
     && str_contains($diagnose,'HELIOS SMART – DIAGNOSE SENDEN AN CHATGPT')
     && str_contains($diagnose,'WETTER / ENERGIE / EWT-LUFT')
     && str_contains($diagnose,'Raumdetails T/RH und Alter')
-    && str_contains($diagnose,'HELIOS Lernfortschritt'),
-    'one automatic full ChatGPT diagnosis after completed Evaluate');
+    && str_contains($diagnose,'HELIOS Lernfortschritt')
+    && str_contains($diagnose,'EWT-PUMPENAUTOMATIK NICHT FREIGEGEBEN'),
+    'one complete ChatGPT diagnosis flags intentionally disabled EWT automation without any pump writes');
 $beforeReadonly=count($GLOBALS['calls']);
 $h->RefreshChatGPTDiagnosis();
 it(count($GLOBALS['calls'])===$beforeReadonly
