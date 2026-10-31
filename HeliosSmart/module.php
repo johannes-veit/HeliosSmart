@@ -519,6 +519,8 @@ class HeliosSmart extends IPSModule
             'CO2Control'=>35481,'HumidityControl'=>38520,
             'VOCControl'=>55926,'HumidityControlInternal'=>25620,
             'SettingSensorControlSleepMode'=>54901,
+            'OperatingModePresetPartyDuration'=>17791,
+            'OperatingModePresetPartyFanLevel'=>50208,
         ] as $name=>$sensorID) {
             if(function_exists('IPS_VariableExists') && IPS_VariableExists($sensorID)
                 && function_exists('IPS_GetParent')
