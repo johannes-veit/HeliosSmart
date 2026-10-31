@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../libs/WeatherLogic.php';
 require_once __DIR__ . '/../libs/SoilClimatology.php';
+require_once __DIR__ . '/../libs/SoilHistorySchedule.php';
 require_once __DIR__ . '/../libs/EWTEnvironment.php';
 /** Symcon 9: Zentrale, geteilte und rein lesende Wetterversorgung. */
 class WetterZentrale extends IPSModule
@@ -22,7 +23,7 @@ class WetterZentrale extends IPSModule
         $this->RegisterPropertyInteger('SoilHistoryYears', 5);
         $this->RegisterAttributeString('SoilHistory', '{}');
         $this->RegisterAttributeString('SoilHistorySnapshot', '{}');
-        $this->RegisterTimer('SoilHistoryTick', 0, 'JVWC_RefreshSoilHistory($_IPS[\'TARGET\']);');
+        $this->RegisterTimer('SoilHistoryTick', 0, 'JVWC_RefreshSoilHistoryScheduled($_IPS[\'TARGET\']);');
         $this->RegisterAttributeString('Cache', '{}');
         $this->RegisterTimer('WeatherTick', 0, 'JVWC_Refresh($_IPS[\'TARGET\']);');
         $this->RegisterVariableFloat('OutdoorTemperature', 'Außentemperatur geprüft', '~Temperature', 10);
@@ -34,6 +35,8 @@ class WetterZentrale extends IPSModule
         $this->RegisterVariableString('Diagnostic', 'Wetterdiagnose', '', 70);
         $this->RegisterVariableString('SoilClimatologyJSON', 'EWT Bodenkennlinie ERA5-Land – Modell', '', 80);
         $this->RegisterVariableString('SoilHistoryStatus', 'EWT Bodenhistorie – Datenqualität', '', 90);
+        $this->RegisterVariableString('SoilHistoryRunStatus',
+            'EWT Bodenhistorie – Import/Timer', '', 100);
         $this->SetValue('Quality', 'UNAVAILABLE');
     }
 
@@ -41,8 +44,32 @@ class WetterZentrale extends IPSModule
     {
         parent::ApplyChanges();
         $this->SetTimerInterval('WeatherTick', 5 * 60 * 1000);
-        $this->SetTimerInterval('SoilHistoryTick', 10 * 60 * 1000);
-        // ApplyChanges führt bewusst keine HTTP-Abfragen aus.
+        if (!$this->ReadPropertyBoolean('EnableExternal')
+            || !$this->ReadPropertyBoolean('EnableSoilHistory')) {
+            $this->SetTimerInterval('SoilHistoryTick',0);
+            $this->SetValue('SoilHistoryRunStatus',
+                'AUTOMATIK AUS: HTTPS oder Bodenhistorie deaktiviert');
+        } else {
+            $store=json_decode($this->ReadAttributeString('SoilHistory'),true);
+            if(!is_array($store))$store=[];
+            $loc=$this->coordinates();
+            if($loc!==null && ($store['location']??'')!==sprintf('%.4f,%.4f',$loc[0],$loc[1]))
+                $store=[]; // old coordinates never justify deferring a new site
+            $now=time();
+            $delay=JVHeliosSoilHistorySchedule::delaySeconds($store,
+                $now,$this->ReadPropertyInteger('SoilHistoryYears'),true);
+            $this->SetTimerInterval('SoilHistoryTick',$delay*1000);
+            $progress=JVHeliosSoilHistorySchedule::progress($store,$now,
+                $this->ReadPropertyInteger('SoilHistoryYears'));
+            $last=(int)($store['last_run_at']??0);
+            $source=(string)($store['last_run_source']??'');
+            $this->SetValue('SoilHistoryRunStatus',
+                'AUTO-TIMER AKTIV | naechster Versuch in '.$delay.' s'
+                .' | Jahre '.count($progress['completed']).'/'.$progress['total']
+                .' | letzter Lauf '.($last>0
+                    ?date('d.m.Y H:i:s',$last).' ('.$source.')':'NOCH NIE'));
+        }
+        // Kein HTTP in ApplyChanges: erster automatischer Tick nach 60 s.
     }
 
     public function GetConfigurationForm(): string
@@ -177,16 +204,54 @@ class WetterZentrale extends IPSModule
      * Keeps at most 10 x 12 monthly means in a Symcon attribute.
      * Does NOT reinterpret the model as a current 2.5-m soil sensor.
      */
+    /** Button: a single immediate year, while the timer continues itself. */
     public function RefreshSoilHistory(): void
+    {
+        $this->ExecuteSoilHistory('MANUELL');
+    }
+
+    /** Own timer callback: shown separately from manual requests. */
+    public function RefreshSoilHistoryScheduled(): void
+    {
+        $this->ExecuteSoilHistory('TIMER');
+    }
+
+    private function ExecuteSoilHistory(string $trigger): void
+    {
+        $lock='JVWC_SOIL_HISTORY_'.$this->InstanceID;
+        $locked=false;
+        if(function_exists('IPS_SemaphoreEnter')) {
+            $locked=IPS_SemaphoreEnter($lock,1000);
+            if(!$locked) {
+                $this->SetValue('SoilHistoryRunStatus',
+                    'Bodenimport bereits aktiv – kein paralleler HTTP-Aufruf');
+                return;
+            }
+        }
+        try {
+            $this->RefreshSoilHistoryInternal($trigger);
+        } finally {
+            if($locked && function_exists('IPS_SemaphoreLeave'))
+                IPS_SemaphoreLeave($lock);
+        }
+    }
+
+    private function RefreshSoilHistoryInternal(string $trigger): void
     {
         if (!$this->ReadPropertyBoolean('EnableExternal')
             || !$this->ReadPropertyBoolean('EnableSoilHistory')) {
+            $this->SetTimerInterval('SoilHistoryTick',0);
             $this->SetValue('SoilHistoryStatus','Bodenhistorie passiv – externe Abfragen oder Bodenhistorie deaktiviert');
+            $this->SetValue('SoilHistoryRunStatus',
+                'AUTO-TIMER AUS – externe Abfragen oder Bodenhistorie deaktiviert');
             return;
         }
         $loc=$this->coordinates();
         if($loc===null){
             $this->SetValue('SoilHistoryStatus','Bodenhistorie: Hauskoordinaten unbekannt');
+            $this->SetValue('SoilHistoryRunStatus',
+                'Bodenimport blockiert: Hauskoordinaten fehlen');
+            $this->SetTimerInterval('SoilHistoryTick',6*3600*1000);
             return;
         }
         [$lat,$lon]=$loc;
@@ -198,6 +263,9 @@ class WetterZentrale extends IPSModule
             $store=['location'=>$key,'years'=>[],'error'=>''];
         }
         if(!is_array($store['years']??null))$store['years']=[];
+        $store['last_run_at']=$now;
+        $store['last_run_source']=$trigger;
+        $store['last_attempt_result']='NO_REQUEST_NEEDED';
         $num=max(3,min(10,$this->ReadPropertyInteger('SoilHistoryYears')));
         $end=(int)gmdate('Y',$now)-1;
         $wanted=range($end-$num+1,$end);
@@ -209,16 +277,24 @@ class WetterZentrale extends IPSModule
                 $store['last_attempt_at']=$now;
                 $store['last_attempt_year']=$year;
                 $url=JVHeliosSoilClimatology::apiUrl($lat,$lon,$year);
-                $http=$this->httpJSON($url);
-                $annual=is_array($http['body']??null)
-                    ?JVHeliosSoilClimatology::annual($http['body'],$year):null;
+                try {
+                    $http=$this->httpJSON($url);
+                    $annual=is_array($http['body']??null)
+                        ?JVHeliosSoilClimatology::annual($http['body'],$year):null;
+                } catch(Throwable $e) {
+                    $annual=null;
+                    $this->SendDebug('SoilHistoryFetch',
+                        substr($e->getMessage(),0,200),0);
+                }
                 if($annual!==null){
                     $store['years'][$year]=$annual;
                     $store['error']='';
                     $store['retry_after']=0;
                     $store['updated_at']=$now;
+                    $store['last_attempt_result']='OK_YEAR_'.$year;
                 }else{
                     $store['error']='ERA5-Land Jahr '.$year.' HTTP/Datensatz unbrauchbar';
+                    $store['last_attempt_result']='FAILED_YEAR_'.$year;
                     // Failing endpoints are not polled every 10 minutes.
                     $store['retry_after']=$now+6*3600;
                 }
@@ -241,6 +317,16 @@ class WetterZentrale extends IPSModule
             .' | Tiefenphasenversatz '.($summary['lag_months']===null?'unbekannt':$summary['lag_months'].' Monate');
         if(($store['error']??'')!=='')$status.=' | '.$store['error'];
         $this->SetValue('SoilHistoryStatus',$status);
+        $progress=JVHeliosSoilHistorySchedule::progress($store,$now,$num);
+        $delay=JVHeliosSoilHistorySchedule::delaySeconds($store,$now,$num);
+        $this->SetTimerInterval('SoilHistoryTick',$delay*1000);
+        $this->SetValue('SoilHistoryRunStatus',
+            'AUTO-TIMER AKTIV | zuletzt '.$trigger.' um '.date('d.m.Y H:i:s',$now)
+            .' | '.$store['last_attempt_result']
+            .' | Jahre '.count($progress['completed']).'/'.$progress['total']
+            .' | naechster Timer in '.$delay.' s'
+            .(($store['error']??'')!==''?' | '.$store['error']:''));
+
     }
 
     /** Einheitliche Ausgabeschnittstelle für weitere Module, ohne neue Einzelvariablen. */
