@@ -15,7 +15,7 @@ $valid=[
  'minimum_airflow_validated'=>false,'model_airflow_accepted'=>false,
  'high_power_enabled'=>false,'high_power_safety'=>false,
  'combustion_safe'=>false,
- 'owned_mode'=>0,'owned_until'=>0,'owned_last_at'=>0,
+ 'owned_mode'=>0,'owned_stage'=>0,'owned_until'=>0,'owned_last_at'=>0,
 ];
 $dec=static fn(array $x=[]) =>JVHeliosSmartFanAuto::decide(array_replace($valid,$x),$now);
 $r=$dec();
@@ -71,9 +71,12 @@ foreach([
 }
 ckFan(!$dec(['mode'=>2,'owned_mode'=>0])['execute'],
  'do not hijack external party');
-ckFan($dec(['mode'=>2,'owned_mode'=>2,'owned_until'=>$now+200,
+ckFan($dec(['mode'=>2,'owned_mode'=>2,'owned_stage'=>4,'owned_until'=>$now+200,
     'owned_last_at'=>$now-500])['execute'],
  'renew only own verified manufacturer timed-party mode');
+ckFan(!$dec(['mode'=>2,'owned_mode'=>2,'owned_stage'=>3,'owned_until'=>$now+200,
+    'owned_last_at'=>$now-500])['execute'],
+ 'manual/foreign change to native Party fan stage cancels SMART ownership');
 ckFan(!$dec(['mode'=>3,'owned_mode'=>2,'owned_until'=>$now+200,
     'owned_last_at'=>$now-500])['execute'],
  'do not confuse another entity whisper with our timed party');
