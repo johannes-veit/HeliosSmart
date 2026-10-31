@@ -129,3 +129,57 @@ Reihenfolge:
 
 Die neue Bodendatenfunktion ist **nur lesend** und darf keinesfalls selbst den
 Shelly schalten. Der bestehende \`EnableEWTPumpControl\`-Schutz bleibt unverändert.
+
+
+## Bedienung: zwei Schiebeschalter in HELIOS SMART (31.10.2026)
+
+Die beiden Bedienelemente erscheinen beim Modul-Update **automatisch als eigene
+Variablen direkt unter der HELIOS-SMART-Instanz** und sind im klassischen
+IP-Symcon WebFront steuerbar. Keine manuell anzulegenden Aktionsskripte:
+
+1. \`EWTPumpModeManual\` – **EWT-Pumpe Betriebsart – Automatik / Manuell**.
+   Zwei Positionen: links AUTOMATIK (false, Standard), rechts MANUELL (true).
+   Der Modus bleibt über einen Neustart und eine Modulaktualisierung erhalten.
+2. \`EWTPumpSwitch\` – **EWT-Pumpe Schaltzustand – Aus / Ein**.
+   In MANUELL gibt dieser Schalter einen echten \`RequestAction()\`-Befehl an
+   die zugeordnete Shelly-Schaltvariable. In AUTOMATIK wird eine direkte
+   Bedienung abgewiesen – der Schalter zeigt weiterhin den vom Shelly
+   zurückgemeldeten Schaltzustand und die intelligente Logik steuert selbst.
+   Es wird niemals einfach nur der angezeigte Wert geändert, um Erfolg
+   vorzutäuschen.
+
+\`EWTPumpStatus\` zeigt Automatik/Manuell, Soll/Ist, Schaltgrund, Datenquelle,
+Wattwert (wenn zugeordnet), Anforderungen oder Schaltfehler. Bei einer
+Schaltanforderung läuft ein 10-Sekunden-Rückmeldetimer, der mit bestätigtem
+Schaltzustand oder mit Fehler endet.
+
+**Frostschutz hat in beiden Betriebsarten Vorrang.** Unter +5 °C oder wenn
+reale Außentemperaturdaten unzuverlässig sind, wird EIN verlangt;
+während bestehendem EIN-Zustand bleibt wegen der +7-°C-Hysterese die Pumpe an.
+MANUELL AUS wird dann zurückgewiesen. Selbst im manuellen Modus wird die
+Frostprüfung weiterhin im 5-Minuten-Takt ausgeführt.
+
+### Einmalige Installation nach Einbau des eigenen Shelly
+
+- Vor dem Anschluss elektrische Pumpenlast, Relais-/Einschaltstrom und
+  Anforderungen an den Frostschutz prüfen. Steckdosenrelais ersetzt nicht
+  unabhängigen Frostschutz der Soleanlage.
+- Shelly Smart Plug in VLAN/Netzwerk einrichten und über den **Shelly
+  Konfigurator von Symcon** einbinden. In Shelly den Wiederanlaufzustand
+  **EIN** konfigurieren.
+- Das vorhandene Shelly für den FBH-Taupunktwächter darf nicht mit diesem
+  Ausgang verwechselt werden. Der Lüftungs-EWT muss einen eindeutig
+  zugeordneten eigenen Pumpenschaltausgang haben.
+- In der HELIOS-SMART-Konfiguration bei **Shelly Sole-EWT-Schaltvariable**
+  die Boolean-Schaltvariable des Plug auswählen (neue Variablenauswahl,
+  keine IP oder Instanz-ID eingeben). Optional die Watt-Leistungsvariable
+  und eine tatsächlich installierte Sole-Temperaturvariable auswählen.
+- Die separate Option \`EnableEWTPumpControl\` nach Abschluss der
+  Frostschutz-/Lastprüfung aktivieren und Änderungen übernehmen.
+  Bis dahin sind beide Schalter sichtbar, aber es wird nichts geschaltet.
+- Jetzt kann die Betriebsart auf **Manuell** gesetzt und der zweite Schalter
+  auf **Ein** oder bei frostfreiem, verifiziertem Wetter **Aus** gestellt
+  werden. Zurück auf Automatik übergeben steuert wieder die EWT-Nutzenlogik.
+
+Wichtig: Statusmeldungen beruhen auf den über Symcon verfügbaren
+Shelly-Rückmeldungen, nicht auf einem separaten Durchflusssensor.
