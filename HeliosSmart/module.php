@@ -2698,6 +2698,9 @@ class HeliosSmart extends IPSModule
             'max_co2_ppm'=>$sensorEvidence['max_co2_ppm'],
             'max_voc_ppm'=>$sensorEvidence['max_voc_ppm'],
             'native_extract_rh'=>$sensorEvidence['native_extract_rh'],
+            'native_humidity_control_enabled'=>$nativeHumidityConfigured
+                ||(is_numeric($native['sensor_control_reported']['HumidityControl']??null)
+                    && (int)$native['sensor_control_reported']['HumidityControl']>0),
             'native_sensor_stale'=>$sensorEvidence['native_sensor_stale'],
             'native_sensor_control_unverified'=>$sensorSourceUnverified,
             'native_defrost_active'=>$sensorEvidence['native_defrost_active'],
