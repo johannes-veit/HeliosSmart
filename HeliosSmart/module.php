@@ -197,7 +197,9 @@ class HeliosSmart extends IPSModule
         }
         if(in_array($sender,$statusIDs,true) && (int)$Message===VM_UPDATE) {
             $now=time();
-            if($now-$this->ReadAttributeInteger('EWTPumpLastEventAt')>=2) {
+            $onlineID=(int)$this->ReadPropertyInteger('EWTPumpOnlineVariable');
+            if($sender===$onlineID ||
+                $now-$this->ReadAttributeInteger('EWTPumpLastEventAt')>=2) {
                 $this->WriteAttributeInteger('EWTPumpLastEventAt',$now);
                 $this->EvaluateEWTPump($this->ReadEWTPumpWeather(),$now,
                     $this->LastEWTIndoorTemperature($now));
@@ -809,10 +811,24 @@ class HeliosSmart extends IPSModule
         $powerID=$this->ReadPropertyInteger('EWTPumpPowerVariable');
         $on=$read($onlineID);$out=$read($switchID);
         $heart=$read($heartID);$power=$read($powerID);
-        $onlineValid=$onlineID>0 && IPS_VariableExists($onlineID)
+        $onlineValid=$onlineID>0 && $onlineID!==$switchID
+            && IPS_VariableExists($onlineID)
             && (int)(IPS_GetVariable($onlineID)['VariableType']??-1)===0;
         $switchValid=$switchID>0 && IPS_VariableExists($switchID)
             && (int)(IPS_GetVariable($switchID)['VariableType']??-1)===0;
+        // A liveness signal belonging to a different Shelly must not
+        // certify this relay. Symcon devices normally have one instance parent.
+        if($switchValid && function_exists('IPS_GetParent')) {
+            $parent=(int)IPS_GetParent($switchID);
+            if($onlineValid && (int)IPS_GetParent($onlineID)!==$parent)
+                $onlineValid=false;
+            if($heartID>0 && IPS_VariableExists($heartID)
+                && (int)IPS_GetParent($heartID)!==$parent)
+                $heart=['value'=>null,'updated'=>0,'changed'=>0];
+            if($powerID>0 && IPS_VariableExists($powerID)
+                && (int)IPS_GetParent($powerID)!==$parent)
+                $power=['value'=>null,'updated'=>0,'changed'=>0];
+        }
         // Telemetry must originate from the SAME plug; a typed property is
         // operator-configured, never auto-discovered by guesswork.
         $health=JVHeliosEWTPumpHealth::assess([
@@ -1034,8 +1050,7 @@ class HeliosSmart extends IPSModule
         if($actual!==null)$this->SetValue('EWTPumpSwitch',$actual);
         // A Boolean widget cannot display UNKNOWN. Separate status is authoritative.
         $this->SetValue('EWTPumpAlarm',
-            $this->ReadPropertyBoolean('EnableEWTPumpControl')
-                && (!$health['actuation_allowed'] || $health['power_conflict']));
+            $configured && (!$health['actuation_allowed'] || $health['power_conflict']));
         $enabled=$this->ReadPropertyBoolean('EnableEWTPumpControl');
         $command='NO_COMMAND';
         if(!$enabled) {
