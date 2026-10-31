@@ -19,11 +19,31 @@ Vor Freigabe die Anlagentopologie pruefen und nur genau einen Aktor als Eigentue
 - Prognosen sind nicht gleichbedeutend mit aktuellen Messungen. Keine LCN-/Ventil- oder Helios-Fan-Steuerung durch dieses Feature.
 - Kein Anspruch auf absolute Energiebilanz ohne reale Luftmenge, Pumpenleistung und WRG-Wirkungsgrad; 1.5 K ist eine konservative vorlaeufige Heuristik.
 
+## Brauneberg: Vorlaeufiges Saisonmodell (2,5 m)
+Das vom Betreiber bisher niedrigste gemessene Soletemperaturniveau ist **8 °C**. Die urspruenglichen Schaetzungen von 5–7 °C fuer Februar bis April passen hierzu nicht. Daher ist die vorlaeufige Planungskennlinie bis einschliesslich Mai auf 8–9 °C angehoben. Diese Aenderung ist KEINE gemessene Monatszeitreihe und keine garantierte Untergrenze. Wetterfrostschutz bleibt stets an die **tatsaechliche Aussenluft** gebunden, nicht an die Wasser- oder Soletemperatur.
+
+| Monat | Sole C, Modell, nicht Messwert |
+|---|---|
+| Jan | 8–9 |
+| Feb | 8–9 |
+| Maerz | 8–9 |
+| Apr | 8–9 |
+| Mai | 8–9 |
+| Jun | 9–11 |
+| Jul | 11–13 |
+| Aug | 13–14 |
+| Sep | 14–15 |
+| Okt | 13–14 |
+| Nov | 11–13 |
+| Dez | 9–11 |
+
+Die Saisonwerte steuern nur die Frage, wann ein Versuchslauf sinnvoll sein koennte. Messwerte des eigenen Solefuehlers, falls die richtige Soleleitung sicher identifiziert ist, haben Vorrang. Die Pumpe bleibt bei Wetterausfall und Frostwarnbedingungen wie bisher EIN. EWT-Sole und FBH-Kuehlsystem duerfen ohne nachgewiesene Verrohrung nicht verwechselt werden.
+
 ## Einmalige Einrichtung in IP-Symcon
 1. **Separaten** Shelly Smart Plug fuer die Luft-EWT-Pumpe fachgerecht installieren und ueber Shelly-Konfigurator mit Symcon verbinden.
 2. Shelly lokal auf Wiederanlaufzustand **EIN** nach Netzwiederkehr stellen; der rein elektronische Neustart ist aber kein unabhaengiger Frostschutz.
 3. In HELIOS SMART den numerischen Symcon-ID der Bool-Schaltvariable in `EWTPumpSwitchVariable` eintragen, nicht die Netzwerk-IP oder die Shelly-Instanz-ID.
-4. Optional ID des Watt-Leistungswerts in `EWTPumpPowerVariable` eintragen; Leistung allein bestaetigt nicht die Sole-Durchstroemung.
+4. Optional ID des Watt-Leistungswerts in `EWTPumpPowerVariable` eintragen; Leistung allein bestaetigt nicht die Sole-Durchstroemung. Optional die eindeutig dieser Soleleitung zugeordnete Temperaturvariable in `EWTSoleTemperatureVariable` hinterlegen.
 5. Nur nach Pruefung von Pumpenlast, Einschaltstrom, korrekter Stromversorgung, Fluessigkeits-Frostschutz, Unabhaengigkeit vom FBH-Taupunktwaechter und Rueckfallverhalten `EnableEWTPumpControl` freigeben.
 6. `EWTPumpStatus` und `DecisionJSON.ewt_pump` kontrollieren.
 
