@@ -48,6 +48,9 @@ php tests/test_summer_airflow.php
 php tests/test_ewt_pump.php
 php tests/test_ewt_operator.php
 php tests/test_ewt_operator_integration.php
+php tests/test_ewt_health.php
+php tests/test_ewt_learning.php
+php tests/test_ewt_environment.php
 php tests/test_soil_climatology.php
 
 php tests/test_theoretical_ventilation.php

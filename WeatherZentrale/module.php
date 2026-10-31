@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../libs/WeatherLogic.php';
 require_once __DIR__ . '/../libs/SoilClimatology.php';
+require_once __DIR__ . '/../libs/EWTEnvironment.php';
 /** Symcon 9: Zentrale, geteilte und rein lesende Wetterversorgung. */
 class WetterZentrale extends IPSModule
 {
@@ -90,7 +91,9 @@ class WetterZentrale extends IPSModule
             $requests = [
                 'met_no'=>[2*3600,'https://api.met.no/weatherapi/locationforecast/2.0/compact?'
                     .http_build_query(['lat'=>round($lat,4),'lon'=>round($lon,4)])],
-                'best_match'=>[60*60,'https://api.open-meteo.com/v1/forecast?'.http_build_query($query)],
+                'best_match'=>[60*60,'https://api.open-meteo.com/v1/forecast?'.http_build_query(
+                    array_replace($query,['hourly'=>
+                        'temperature_2m,relative_humidity_2m,dew_point_2m,wind_speed_10m,precipitation,shortwave_radiation']))],
                 'dwd_synop'=>[15*60,'https://api.brightsky.dev/current_weather?'.http_build_query(['lat'=>$lat,'lon'=>$lon])],
                 'icon'=>[3*3600,'https://api.open-meteo.com/v1/dwd-icon?'.http_build_query($query+['models'=>'icon_d2'])],
                 'ecmwf'=>[6*3600,'https://api.open-meteo.com/v1/ecmwf?'.http_build_query($query+['models'=>'ecmwf_ifs'])],
@@ -142,6 +145,8 @@ class WetterZentrale extends IPSModule
             $this->SetValue('OutdoorDewPoint', $c['dewpoint']);
             $this->SetValue('OutdoorAbsHumidity', $c['absolute_humidity']);
         }
+        $environment=JVHeliosEWTEnvironment::parse(
+            $validBody('best_match',4*3600),$now);
         $forecast = JVWeatherLogic::combineForecasts($bySource, $now);
         $this->SetValue('ForecastJSON', json_encode($forecast, JSON_UNESCAPED_UNICODE));
         if ($externalActive) {
@@ -156,7 +161,8 @@ class WetterZentrale extends IPSModule
         // Nur tatsächlich frische Quellen werden vom Konsumenten als gültig betrachtet.
         $cache['snapshot'] = [
             'issued_at'=>$now, 'quality'=>$chosen['quality'], 'current'=>$chosen['current'],
-            'forecast'=>$forecast, 'reason'=>$chosen['reason'], 'providers'=>array_map(
+            'forecast'=>$forecast, 'reason'=>$chosen['reason'],
+            'environment_context'=>$environment,'providers'=>array_map(
                 static function($v){return ['fetched_at'=>$v['fetched_at']??0,'error'=>$v['error']??''];},
                 array_intersect_key($cache,array_flip(['dwd_synop','dwd_observation','mosmix','icon','ecmwf','best_match','met_no']))
             )
