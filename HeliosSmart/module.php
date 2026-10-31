@@ -1973,6 +1973,21 @@ class HeliosSmart extends IPSModule
         }
     }
 
+    /** Read our OWN registered text variables only, never another module's settings. */
+    private function DiagnosticOwnText(string $ident,int $limit=6000):?string
+    {
+        if(!method_exists($this,'GetIDForIdent'))return null;
+        try{
+            $id=$this->GetIDForIdent($ident);
+            if(!is_int($id)||$id<=0||!IPS_VariableExists($id))return null;
+            $value=GetValue($id);
+            if(!is_string($value)||$value==='')return null;
+            return strlen($value)>$limit
+                ?substr($value,0,$limit).' [AUSZUG, weitere Daten im Lernprogramm]'
+                :$value;
+        }catch(Throwable $e){return null;}
+    }
+
     /**
      * Whitelist a snapshot of decisions, real device feedback, sensor ages
      * and learning counts. Never serialize raw native config, IPS secrets,
@@ -1997,6 +2012,7 @@ class HeliosSmart extends IPSModule
             $pumpState=json_decode($this->ReadAttributeString('EWTPumpControlState'),true);
             $pumpState=is_array($pumpState)?$pumpState:[];
             $ewtLearning=(array)($d['ewt_learning']??[]);
+            $nativeAir=(array)($d['native_air_evidence']??[]);
             $lState=json_decode($this->ReadAttributeString('LearningObservationState'),true);
             $lState=is_array($lState)?$lState:[];
             $occState=json_decode($this->ReadAttributeString('OccupancyLearningState'),true);
@@ -2088,6 +2104,10 @@ class HeliosSmart extends IPSModule
                 'attribution'=>$pick($actual,['kind','own_party_active_plausible',
                     'native_sensor_control_possible','native_module_fault',
                     'fan_changed_minutes_ago']),
+                'native_air_sensors'=>$pick($nativeAir,['co2_sensor_count',
+                    'voc_sensor_count','max_co2_ppm','max_voc_ppm',
+                    'native_extract_rh','native_sensor_stale',
+                    'native_defrost_active','native_defrost_known']),
                 'smart_plan'=>$pick($plan,['status','reason','target_stage',
                     'minutes','execute','fallback_weekly','route','evidence']),
                 'smart_execution'=>$pick($execution,['status','attempted','sent',
@@ -2174,8 +2194,13 @@ class HeliosSmart extends IPSModule
                     'frost_priority','outside_c','operator_mode','planning_source',
                     'planning_gap_k','measured_effect_k','frost_threshold_on_c',
                     'frost_threshold_release_c']),
-                'ewt_health'=>$pick($connectivity,['online_confirmed','reported',
-                    'power_conflict','watts','actuation_allowed','last_update_age_seconds']),
+                'ewt_health'=>[
+                    'telemetrie'=>$pick($connectivity,['online_confirmed','reported',
+                        'power_conflict','watts','actuation_allowed','last_update_age_seconds']),
+                    'shelly_iststatus'=>$this->DiagnosticOwnText('EWTPumpActualStatus',450),
+                    'ewt_zustandsmeldung'=>$this->DiagnosticOwnText('EWTPumpStatus',900),
+                    'ewt_lernstatus'=>$this->DiagnosticOwnText('EWTPumpLearningStatus',500),
+                ],
                 'ewt_state'=>$pick($pumpState,['manual_mode','manual_target','last_on_at',
                     'last_off_at','pending_target','last_error','command_at']),
                 'ewt_learning'=>$pick($ewtLearning,['samples','monthly_profiles',
@@ -2185,6 +2210,7 @@ class HeliosSmart extends IPSModule
                     'letzte_lernbericht_aktualisierung'=>$lState['d']??null,
                     'occupancy_samples'=>$occState['samples']??null,
                     'calendar_patterns'=>count($calendar),
+                    'lernbericht_auszug'=>$this->DiagnosticOwnText('LernDiagnose',5600),
                 ],
                 'prediction'=>[
                     'forecast_records'=>count($forecast),
@@ -2519,6 +2545,7 @@ class HeliosSmart extends IPSModule
         $smartState=json_decode($this->ReadAttributeString('SmartFanTakeoverState'),true);
         if(!is_array($smartState))$smartState=[];
         $sensorEvidence=$this->ReadSmartFanSensorEvidence($now);
+        $decision['native_air_evidence']=$sensorEvidence;
         $wetActual=false;$strongWet=false;
         foreach((array)($decision['wetrooms']??[]) as $wet){
             if(!is_array($wet)||($wet['boost_recommended']??false)!==true)continue;
