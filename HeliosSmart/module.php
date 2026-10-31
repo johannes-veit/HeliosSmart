@@ -818,6 +818,7 @@ class HeliosSmart extends IPSModule
                         $result['status']=$ok!==false && ($after['mode']??null)===0
                             ?'AUTO_FALLBACK_CONFIRMED':'AUTO_FALLBACK_PENDING';
                         $result['verified']=($after['mode']??null)===0;
+                        if($result['verified'])$result['readback']=$after;
                         if(!$result['verified']){
                             $result['status']='FALLBACK_PENDING_NATIVE_TIMER_UNVERIFIED';
                             $result['fallback_weekly']=false;
@@ -898,6 +899,7 @@ class HeliosSmart extends IPSModule
             $after=$this->ReadHeliosLive();
             if($after!==null && $after['mode']===$desiredMode
                 && $after['fan']===$level){
+                $result['readback']=$after;
                 $result['status']='SMART_STAGE_CONFIRMED';
                 $result['verified']=true;
                 $result['fallback_weekly']=false;
@@ -2279,6 +2281,23 @@ class HeliosSmart extends IPSModule
                 'attempted'=>false,'fallback_weekly'=>true];
         $decision['smart_fan_takeover']=$smartPlan;
         $decision['smart_fan_execution']=$smartExecution;
+        // The initial live snapshot may say AUTO/S4, while an executed,
+        // acknowledged native Party has *already* switched to mode 2/S3.
+        // Always use the post-command verified state in the displayed
+        // attribution instead of showing the old pre-command readings.
+        if(($smartExecution['verified']??false)===true
+            && is_array($smartExecution['readback']??null)){
+            $after=$smartExecution['readback'];
+            $deviceStatus['mode']=$after['mode'];
+            $deviceStatus['fan']=$after['fan'];
+            $deviceStatus['program']=$after['program'];
+            $deviceStatus['mode_fresh']=true;
+            $deviceStatus['fan_fresh']=true;
+            $deviceStatus['program_fresh']=true;
+        }
+        $smartStateNow=json_decode(
+            $this->ReadAttributeString('SmartFanTakeoverState'),true);
+        if(!is_array($smartStateNow))$smartStateNow=$smartState;
         $this->SetValue('SmartFanTakeoverJSON',
             json_encode(['plan'=>$smartPlan,'execution'=>$smartExecution,
                 'original_helios'=>$native['status']??'UNAVAILABLE',
@@ -2396,13 +2415,13 @@ class HeliosSmart extends IPSModule
             'control_enabled'=>$this->ReadPropertyBoolean('EnableControl'),
             'high_power_opt_in'=>$this->ReadPropertyBoolean('EnableHighPowerParty'),
             'owned_level'=>$smartEnabled
-                ?(int)($smartState['stage']??0)
+                ?(int)($smartStateNow['stage']??0)
                 :$this->OptionalAttributeInt('OwnedPartyLevel'),
             'owned_until'=>$smartEnabled
-                ?(int)($smartState['until']??0)
+                ?(int)($smartStateNow['until']??0)
                 :$this->OptionalAttributeInt('OwnedPartyExpiresAt'),
             'last_command_at'=>$smartEnabled
-                ?(int)($smartState['sent_at']??0)
+                ?(int)($smartStateNow['sent_at']??0)
                 :$this->OptionalAttributeInt('LastCommandAt'),
             'command_attempted'=>(bool)(($execution['attempted']??false)
                 ||($smartExecution['attempted']??false)),
