@@ -746,13 +746,26 @@ class HeliosSmart extends IPSModule
             else
                 $out['native_sensor_stale']=true;
         }
-        if(!function_exists('IPS_GetObjectIDByIdent'))return $out;
+        // Symcon's IPS_GetObjectIDByIdent() emits PHP warnings for a
+        // missing ident (try/catch does NOT suppress those warnings).
+        // The original Helios module creates CO2/VOC variables only for
+        // physically configured sensors. Discover existing children ONCE;
+        // never request absent slots 1..8 by ident.
+        if(!function_exists('IPS_GetChildrenIDs')
+            || !function_exists('IPS_GetObject'))return $out;
+        $installed=['SensorCO2_'=>[], 'SensorVOC_'=>[]];
+        foreach(IPS_GetChildrenIDs($native) as $child){
+            if(!is_int($child)||$child<=0||!IPS_VariableExists($child))continue;
+            $object=IPS_GetObject($child);
+            $ident=(string)($object['ObjectIdent']??'');
+            if(preg_match('/^Sensor(CO2|VOC)_([1-8])$/D',$ident,$match)!==1)
+                continue;
+            $prefix='Sensor'.$match[1].'_';
+            $installed[$prefix][(int)$match[2]]=$child;
+        }
         foreach(['SensorCO2_'=>'max_co2_ppm','SensorVOC_'=>'max_voc_ppm'] as $prefix=>$key){
             $highest=null;
-            for($i=1;$i<=8;$i++){
-                try{$id=IPS_GetObjectIDByIdent($prefix.$i,$native);}
-                catch(Throwable $e){continue;}
-                if(!is_int($id)||$id<=0||!IPS_VariableExists($id))continue;
+            foreach($installed[$prefix] as $i=>$id){
                 $out[$prefix==='SensorCO2_'?'co2_sensor_count':'voc_sensor_count']++;
                 $meta=IPS_GetVariable($id);
                 $age=$now-(int)($meta['VariableUpdated']??0);
