@@ -32,6 +32,7 @@ require_once __DIR__ . '/../libs/EWTPumpHealth.php';
 require_once __DIR__ . '/../libs/EWTPumpLearning.php';
 require_once __DIR__ . '/../libs/FanAttribution.php';
 require_once __DIR__ . '/../libs/NativeHeliosCoordination.php';
+require_once __DIR__ . '/../libs/SeasonProgramControl.php';
 /** Vorhersagegestützter Beobachter; Aktor nur nach expliziter Freigabe. */
 class HeliosSmart extends IPSModule
 {
@@ -124,6 +125,8 @@ class HeliosSmart extends IPSModule
             'Original-HELIOS #19285 – Zusammenarbeit / Fehler','',61);
         $this->RegisterVariableString('NativeHeliosJSON',
             'Original-HELIOS #19285 – Schnittstellendiagnose JSON','',62);
+        $this->RegisterVariableString('SmartFanControlStatus',
+            'SMART-Lueftung – aktive Regelung / Uebernahme','',63);
         if(method_exists($this,'EnableAction')) {
             $this->EnableAction('EWTPumpModeManual');
             $this->EnableAction('EWTPumpSwitch');
@@ -278,7 +281,10 @@ class HeliosSmart extends IPSModule
                 ['type'=>'NumberSpinner','name'=>'ResidentShadowInstance','caption'=>'Anwesenheit SHADOW (#32969)'],
                 ['type'=>'NumberSpinner','name'=>'CookingPowerThresholdW','caption'=>'Leistungsschwelle W (Standard 2000)'],
                 ['type'=>'ValidationTextBox','name'=>'Rooms','caption'=>'Raumsensoren JSON'],
-                ['type'=>'CheckBox','name'=>'EnableControl','caption'=>'Automatische Zusatzlueftung AKTIVIEREN (zuvor alle Sicherheitsbedingungen pruefen)'],
+                ['type'=>'CheckBox','name'=>'EnableControl','caption'=>'Aktive SMART-Lueftung: eigene zeitlich begrenzte Zusatzbefehle erlauben, nur nach Sicherheitsfreigaben'],
+                ['type'=>'CheckBox','name'=>'EnableProgramSwitch','caption'=>'SMART-Saisonprofilwahl: bei bestaetigtem Heizwetter Sommerprogramm 4 automatisch durch normales Programm 3 ersetzen'],
+                ['type'=>'Label','caption'=>'SOMMERPROFIL 4 -> NORMAL-/WINTERPROFIL 3 bei lokaler Kälte und nachweislich gesundem Helios AUTO. Kein dauerhaftes MANUELL: das Original geraeteregelt CO2/Feuchte/VOC und Wochenprogramm bleibt aktiv. Automatische Absenkung einer eventuell echten Sensor-Anforderung Stufe 4 ist nicht freigegeben.'],
+                ['type'=>'Button','caption'=>'SMART-LUEFTUNG JETZT AKTIVIEREN (Original pruefen, Programmautomatik und Zusatzsteuerung freigeben)','onClick'=>'echo JVHS_StartSmartFanControl($id);'],
                 ['type'=>'CheckBox','name'=>'EnableNightQuiet','caption'=>'OPTIONAL: jederzeit Stufe 1 fuer 30 min bei geringem Bedarf mit Helios-Ruhebetrieb und Auto-Rueckfall (Modellluftmenge; Standard AUS)'],
                 ['type'=>'CheckBox','name'=>'AllowEstimatedAirflowLimitedParty','caption'=>'Modellbetrieb akzeptieren: Luftmengen NICHT gemessen; S3 max. 15 min oder separat freigegebener Nacht-Ruhebetrieb S1/30'],
                 ['type'=>'CheckBox','name'=>'MinimumVentilationValidated','caption'=>'Alternativ: reale Luftmengen fachlich eingemessen (nur bei vorhandenem Nachweis)'],
@@ -551,6 +557,91 @@ class HeliosSmart extends IPSModule
     {
         $assessment=$this->ReadNativeHeliosIntegration(null,false);
         return (string)$assessment['status'];
+    }
+
+    /**
+     * Operator-driven commissioning. No remote SymBox access is assumed.
+     * Set only SMART opt-ins, NEVER fabricate fire/airflow/party approvals.
+     * A later, verified Evaluate can select the normal winter baseline.
+     */
+    public function StartSmartFanControl(): string
+    {
+        $native=$this->ReadNativeHeliosIntegration(null,false);
+        if(($native['write_allowed']??false)!==true){
+            $msg='SMART-LUEFTUNG NICHT FREIGEGEBEN | Original-Helios #19285'
+                .' nicht gesund: '.($native['status']??'UNBEKANNT');
+            $this->SetValue('SmartFanControlStatus',$msg);
+            return $msg;
+        }
+        $live=$this->ReadHeliosLive();
+        if($live===null || $live['mode']!==0){
+            $msg='SMART-LUEFTUNG NICHT FREIGEGEBEN | Original-Helios muss'
+                .' aktuell AUTOMATISCH (0) sein und frische Rueckmeldungen liefern';
+            $this->SetValue('SmartFanControlStatus',$msg);
+            return $msg;
+        }
+        try{
+            if(!function_exists('IPS_SetProperty') || !function_exists('IPS_ApplyChanges'))
+                throw new RuntimeException('Symcon-Konfigurationsfunktionen fehlen');
+            IPS_SetProperty($this->InstanceID,'EnableControl',true);
+            IPS_SetProperty($this->InstanceID,'EnableProgramSwitch',true);
+            IPS_ApplyChanges($this->InstanceID);
+            $this->Evaluate();
+            $msg='SMART-LUEFTUNG AKTIV | AUTO als Herstellerbasis'
+                .' | Saisonprofil bei belegtem Heizwetter automatisch'
+                .' | Party/Ruhe nur bei ihren gesonderten Sicherheitsfreigaben'
+                .' | aktuelle Beurteilung: '.$this->GetValue('SmartFanControlStatus');
+            $this->SetValue('SmartFanControlStatus',$msg);
+            return $msg;
+        }catch(Throwable $e){
+            $msg='SMART-LUEFTUNG FREIGABE/ERSTAUSWERTUNG NICHT BESTAETIGT: '
+                .substr($e->getMessage(),0,160);
+            $this->SetValue('SmartFanControlStatus',$msg);
+            return $msg;
+        }
+    }
+
+    /**
+     * Stored season profile selection is a real device command, not a new
+     * steady MANUELL mode. Old profile 4 is the operator's HOT SUMMER plan,
+     * profile 3 is the previously configured NORMAL/WINTER programme.
+     */
+    private function TrySeasonProgramSwitch(array $plan,int $now): array
+    {
+        if(($plan['may_send']??false)!==true)
+            return ['status'=>$plan['reason']??'NO_CHANGE','attempted'=>false];
+        $instance=$this->ReadPropertyInteger('HeliosInstance');
+        if(!function_exists('HELIOS_WeekProgram_Set')
+            || !function_exists('HELIOS_WeekProgram_Get')
+            || !function_exists('IPS_SemaphoreEnter')
+            || !function_exists('IPS_SemaphoreLeave'))
+            return ['status'=>'REQUIRED_API_NOT_AVAILABLE','attempted'=>false];
+        $lock='JVHeliosParty_'.$this->InstanceID;
+        if(!IPS_SemaphoreEnter($lock,1000))
+            return ['status'=>'HELIOS_COMMAND_BUSY','attempted'=>false];
+        try{
+            $live=$this->ReadHeliosLive();
+            if($live===null || $live['mode']!==0 || $live['program']!==4)
+                return ['status'=>'ACTUAL_HELIOS_PROGRAM_CHANGED','attempted'=>false];
+            $last=$this->ReadAttributeInteger('LastProgramAt');
+            if($last>0 && $now-$last<24*3600)
+                return ['status'=>'PROFILE_COOLDOWN_24H','attempted'=>false];
+            // Persist before RPC: a timeout may have performed the command.
+            $this->WriteAttributeInteger('LastProgramAt',$now);
+            $result=HELIOS_WeekProgram_Set($instance,3);
+            if($result===false || $result===null)
+                return ['status'=>'PROFILE_WRITE_NOT_CONFIRMED','attempted'=>true];
+            $check=$this->ReadHeliosLive();
+            if($check!==null && $check['mode']===0 && $check['program']===3)
+                return ['status'=>'WINTER_PROGRAM_3_CONFIRMED_AUTO','attempted'=>true,
+                    'from_program'=>4,'to_program'=>3,'verified'=>true];
+            return ['status'=>'PROFILE_SENT_READBACK_PENDING','attempted'=>true,
+                'from_program'=>4,'to_program'=>3,'verified'=>false];
+        }catch(Throwable $e){
+            return ['status'=>'PROFILE_IO_UNCERTAIN','attempted'=>true];
+        }finally{
+            IPS_SemaphoreLeave($lock);
+        }
     }
 
     /** Fresh live requests to the manufacturer HELIOS module, never guessed timestamps. */
@@ -1814,6 +1905,31 @@ class HeliosSmart extends IPSModule
             $deviceStatus['program'],
             ($decision['winter_room_air']['heating_active']??false)===true);
         $decision['native_helios_integration']=$native;
+        $seasonControl=JVHeliosSeasonProgramControl::decide([
+            'enabled'=>$this->ReadPropertyBoolean('EnableControl')
+                && $this->ReadPropertyBoolean('EnableProgramSwitch'),
+            'native_healthy'=>($native['write_allowed']??false)===true,
+            'mode'=>$deviceStatus['mode'],
+            'program'=>$deviceStatus['program'],
+            'fresh_live'=>$live!==null,
+            'weather_quality'=>$decision['weather_quality']??'UNAVAILABLE',
+            'outside_temperature'=>$decision['outside_temperature']??null,
+            'outside_age_seconds'=>isset($weather['current']['observed_at'])
+                ?$now-(int)$weather['current']['observed_at']:100000,
+            'season_signal'=>$decision['daily_strategy']['season_signal']??'UNKNOWN',
+            'last_attempt_at'=>$this->OptionalAttributeInt('LastProgramAt'),
+        ],$now);
+        $seasonResult=$this->TrySeasonProgramSwitch($seasonControl,$now);
+        $decision['smart_profile_control']=$seasonControl;
+        $decision['smart_profile_execution']=$seasonResult;
+        $this->SetValue('SmartFanControlStatus',
+            'SMART-LUEFTUNG '.($this->ReadPropertyBoolean('EnableControl')
+                ?'AKTIV':'NUR BEOBACHTEN')
+            .' | Profilregelung '.($this->ReadPropertyBoolean('EnableProgramSwitch')
+                ?'AN':'AUS')
+            .' | '.$seasonResult['status']
+            .' | Helios AUTO/Wochenplan mit interner CO2-/Feuchteregelung'
+            .' | Manuell NICHT erforderlich');
         $approvals=[
             'estimated_flow_trial'=>$this->ReadPropertyBoolean('AllowEstimatedAirflowLimitedParty'),
             'high_power_opt_in'=>$this->ReadPropertyBoolean('EnableHighPowerParty'),
@@ -1846,6 +1962,10 @@ class HeliosSmart extends IPSModule
             $candidate,$guard,$this->ReadPropertyInteger('HeliosInstance'));
         $decision['device_status_check']=$deviceStatus;
         $nativeCanWrite=($native['write_allowed']??false)===true;
+        // No overlapping Party/Whisper in the same evaluation as a weekly
+        // programme change or a write with uncertain result.
+        $nativeCanWrite=$nativeCanWrite
+            && ($seasonResult['attempted']??false)!==true;
         $execution=$nativeCanWrite
             ?$this->TryOwnParty($candidate,$deviceStatus,$approvals,$now)
             :['status'=>'NATIVE_HELIOS_CONFIG_BLOCKED','attempted'=>false,
@@ -1911,7 +2031,7 @@ class HeliosSmart extends IPSModule
             'NONCUSTOM'=>'bestehendes Sonderprofil respektieren',
             default=>'noch keine sichere Profilentscheidung',
         };
-        $this->SetValue('Status',($this->ReadPropertyBoolean('EnableControl')?'AUTO-ANGEFORDERT':'BEOBACHTUNG').' | '.$decision['mode']
+        $this->SetValue('Status',($this->ReadPropertyBoolean('EnableControl')?'SMART-LUEFTUNG AKTIV':'BEOBACHTUNG').' | '.$decision['mode']
             .' | Wetter '.$decision['weather_quality'].' ('.$weatherConnection.') | '
             .($decision['mode']==='WEEKLY_BASE'
                 ? 'Aktuelle Stufe '.$decision['requested_level'].' (kein zusaetzlicher Boost)'
@@ -1922,6 +2042,7 @@ class HeliosSmart extends IPSModule
             .' | EWT-Pumpe: '.($decision['ewt_pump']['reason']??'UNBEKANNT')
             .' / '.($decision['ewt_pump']['command']??'KEINE_AKTION')
             .' | Profil: '.$seasonLabel
+            .' / Saison-Aktion '.($seasonResult['status']??'KEINE')
             .' | Bedarf: '.$decision['ventilation_need']['summary']
             .' | Behaglichkeit: '.($decision['comfort_control']['classification']??'UNBEKANNT')
                 .' / '.($decision['comfort_control']['requested_improvement']??'KEINE_DATEN')
