@@ -9,8 +9,8 @@ Vor Freigabe die Anlagentopologie pruefen und nur genau einen Aktor als Eigentue
 
 ## Grundlogik (alle fuenf Minuten und bei relevanten Helios-Ereignissen)
 - Wetterquelle: WeatherZentrale. Aussenluft am Helios-Geraet (#28581) ist NACH dem EWT und kein echter Aussenfuehler.
-- T_aussen <= +5 C: Pumpe EIN, ungeachtet von Anwesenheit, Luefterstufe, Raumbedarf und EWT-Effizienz.
-- +5 bis +7 C: bereits laufende Pumpe bleibt EIN (Frost-Hysterese).
+- T_aussen <= +3 C: Pumpen-Frostvorsorge EIN, ungeachtet von Anwesenheit, Luefterstufe, Raumbedarf und EWT-Effizienz (Betreiberanpassung vom 31.10.2026).
+- +3 bis unter +5 C: bereits laufende Pumpe bleibt EIN (2-K-Frost-Hysterese).
 - Fehlender / veralteter / nur modellierter Aussenmesswert: Pumpe EIN als Software-Fail-safe.
 - Sonst bei Raum>=20.5 C und Aussen>=20 C: sommerliches Kuehlpotenzial; bei Raum mindestens 2 C waermer als Aussen und Aussen<14 C: Heizpotenzial.
 - Verifizierte EWT-Wirkung ab +/-1.5 K gegenueber unabhaengiger Aussentemperatur: EIN beibehalten. Fehlt ausreichende Wirkung: AUS.
@@ -56,7 +56,7 @@ Kein Smart Plug, keine Software und keine Cloud garantieren einen dauerhaft gesc
 - EWT-Schaltfunktion nicht freigegeben: Nur Empfehlung, keine Pumpe wird geschaltet.
 - Luefter-/Party-Funktionen bleiben unveraendert; `EnableEWTPumpControl` ist eine separate Freigabe.
 
-Herstellerreferenz: Helios SEWT Montage- und Betriebsvorschrift, Schaltplan SS-906, mit Thermostatgrenzen +5 / +20 C (Stand 11/2025).
+Herstellerreferenz: Helios SEWT Montage- und Betriebsvorschrift, Schaltplan SS-906, mit Thermostatgrenzen +5 / +20 C (Stand 11/2025). Die am 31.10.2026 auf Wunsch des Betreibers geänderte Software-Schwelle +3 °C fuer die EWT-Pumpe ist KEINE gepruefte Freigabe zur Abweichung von diesen Herstellerwerten. Herstellereigener Wärmetauscher-/Vorheiz-Frostschutz und separate physische Sole-Absicherung bleiben unveraendert.
 
 
 ## Wissenschaftlich geerdete Bodenkennlinie: DWD und ERA5-Land (31.10.2026)
@@ -153,9 +153,9 @@ Wattwert (wenn zugeordnet), Anforderungen oder Schaltfehler. Bei einer
 Schaltanforderung läuft ein 10-Sekunden-Rückmeldetimer, der mit bestätigtem
 Schaltzustand oder mit Fehler endet.
 
-**Frostschutz hat in beiden Betriebsarten Vorrang.** Unter +5 °C oder wenn
+**Frostschutz hat in beiden Betriebsarten Vorrang.** Bis einschliesslich +3 °C oder wenn
 reale Außentemperaturdaten unzuverlässig sind, wird EIN verlangt;
-während bestehendem EIN-Zustand bleibt wegen der +7-°C-Hysterese die Pumpe an.
+während bestehendem EIN-Zustand bleibt wegen der +5-°C-Rueckschaltschwelle die Pumpe an.
 MANUELL AUS wird dann zurückgewiesen. Selbst im manuellen Modus wird die
 Frostprüfung weiterhin im 5-Minuten-Takt ausgeführt.
 
