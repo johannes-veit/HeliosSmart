@@ -33,6 +33,7 @@ require_once __DIR__ . '/../libs/EWTPumpLearning.php';
 require_once __DIR__ . '/../libs/FanAttribution.php';
 require_once __DIR__ . '/../libs/NativeHeliosCoordination.php';
 require_once __DIR__ . '/../libs/SeasonProgramControl.php';
+require_once __DIR__ . '/../libs/SmartFanAuto.php';
 /** Vorhersagegestützter Beobachter; Aktor nur nach expliziter Freigabe. */
 class HeliosSmart extends IPSModule
 {
@@ -72,6 +73,8 @@ class HeliosSmart extends IPSModule
         $this->RegisterPropertyBoolean('CombustionSafetyValidated',false);
         $this->RegisterPropertyBoolean('DevicePartyReturnValidated',false);
         $this->RegisterPropertyBoolean('EnableProgramSwitch',false);
+        $this->RegisterPropertyBoolean('EnableSmartFanTakeover',false);
+        $this->RegisterAttributeString('SmartFanTakeoverState','{}');
         $this->RegisterPropertyBoolean('EnableNightQuiet',false);
         $this->RegisterAttributeString('RoomHistory', '{}');
         $this->RegisterAttributeString('LearningObservationState', '{}');
@@ -127,6 +130,8 @@ class HeliosSmart extends IPSModule
             'Original-HELIOS #19285 – Schnittstellendiagnose JSON','',62);
         $this->RegisterVariableString('SmartFanControlStatus',
             'SMART-Lueftung – aktive Regelung / Uebernahme','',63);
+        $this->RegisterVariableString('SmartFanTakeoverJSON',
+            'SMART-Lueftung – aktive Stufenwahl / Fallback JSON','',64);
         if(method_exists($this,'EnableAction')) {
             $this->EnableAction('EWTPumpModeManual');
             $this->EnableAction('EWTPumpSwitch');
@@ -282,7 +287,10 @@ class HeliosSmart extends IPSModule
                 ['type'=>'NumberSpinner','name'=>'CookingPowerThresholdW','caption'=>'Leistungsschwelle W (Standard 2000)'],
                 ['type'=>'ValidationTextBox','name'=>'Rooms','caption'=>'Raumsensoren JSON'],
                 ['type'=>'CheckBox','name'=>'EnableControl','caption'=>'Aktive SMART-Lueftung: eigene zeitlich begrenzte Zusatzbefehle erlauben, nur nach Sicherheitsfreigaben'],
-                ['type'=>'CheckBox','name'=>'EnableProgramSwitch','caption'=>'SMART-Saisonprofilwahl: bei bestaetigtem Heizwetter Sommerprogramm 4 automatisch durch normales Programm 3 ersetzen'],
+                ['type'=>'CheckBox','name'=>'EnableProgramSwitch','caption'=>'Rueckfall-Wochenprofil saisonal anpassen: im Heizbetrieb Sommerprofil 4 durch Normalprofil 3 ersetzen'],
+                ['type'=>'CheckBox','name'=>'EnableSmartFanTakeover','caption'=>'SMART uebernimmt Stufen 1–4 mit nativen 15-Minuten-Zeitbefehlen; Wochenprogramm bleibt nur Rueckfallebene'],
+                ['type'=>'Label','caption'=>'SMART-PRIORITAET: Bei frischem Wetter, mindestens 9 Raumtemperaturen, 8 Raumfeuchten, funktionsfaehiger Original-Helios-Steuerung und Freigabe steuert SMART mit geraeteseitig zeitbegrenzten Party/Ruhe-Befehlen. Ohne Mess-/Betriebsnachweis oder bei Abbruch endet die eigene Anforderung nach spaetestens 15 Minuten und das Herstellerwochenprogramm uebernimmt. Unterhalb nomineller Stufe 3 nur bei ausdruecklicher Luftmengen-/Modellfreigabe.'],
+
                 ['type'=>'Label','caption'=>'SOMMERPROFIL 4 -> NORMAL-/WINTERPROFIL 3 bei lokaler Kälte und nachweislich gesundem Helios AUTO. Kein dauerhaftes MANUELL: das Original geraeteregelt CO2/Feuchte/VOC und Wochenprogramm bleibt aktiv. Automatische Absenkung einer eventuell echten Sensor-Anforderung Stufe 4 ist nicht freigegeben.'],
                 ['type'=>'Button','caption'=>'SMART-LUEFTUNG JETZT AKTIVIEREN (Original pruefen, Programmautomatik und Zusatzsteuerung freigeben)','onClick'=>'echo JVHS_StartSmartFanControl($id);'],
                 ['type'=>'CheckBox','name'=>'EnableNightQuiet','caption'=>'OPTIONAL: jederzeit Stufe 1 fuer 30 min bei geringem Bedarf mit Helios-Ruhebetrieb und Auto-Rueckfall (Modellluftmenge; Standard AUS)'],
@@ -585,12 +593,13 @@ class HeliosSmart extends IPSModule
                 throw new RuntimeException('Symcon-Konfigurationsfunktionen fehlen');
             IPS_SetProperty($this->InstanceID,'EnableControl',true);
             IPS_SetProperty($this->InstanceID,'EnableProgramSwitch',true);
+            IPS_SetProperty($this->InstanceID,'EnableSmartFanTakeover',true);
             IPS_ApplyChanges($this->InstanceID);
             $this->Evaluate();
-            $msg='SMART-LUEFTUNG AKTIV | Hersteller bleibt AUTO'
-                .' | saisonale Wochenprofilregelung freigegeben'
-                .' | Zusatz-Party/Ruhe nur nach ihren eigenen Sicherheitsfreigaben'
-                .' | aktuelle Einzelheiten: SmartFanControlStatus / DecisionJSON';
+            $msg='SMART-LUEFTUNG AKTIV | nativer Zeitbefehl bis 15 Min'
+                .' | alle 5 Min Sensorlage pruefen'
+                .' | HELIOS-Wochenprogramm NUR Rueckfall'
+                .' | Details: SmartFanControlStatus / SmartFanTakeoverJSON';
             $this->SetValue('SmartFanControlStatus',$msg);
             return $msg;
         }catch(Throwable $e){
@@ -600,6 +609,7 @@ class HeliosSmart extends IPSModule
             try{
                 IPS_SetProperty($this->InstanceID,'EnableControl',false);
                 IPS_SetProperty($this->InstanceID,'EnableProgramSwitch',false);
+                IPS_SetProperty($this->InstanceID,'EnableSmartFanTakeover',false);
                 IPS_ApplyChanges($this->InstanceID);
             }catch(Throwable $ignored){}
             $msg='SMART-LUEFTUNG NICHT FREIGEGEBEN (Prueffehler): '
@@ -647,6 +657,143 @@ class HeliosSmart extends IPSModule
                 'from_program'=>4,'to_program'=>3,'verified'=>false];
         }catch(Throwable $e){
             return ['status'=>'PROFILE_IO_UNCERTAIN','attempted'=>true];
+        }finally{
+            IPS_SemaphoreLeave($lock);
+        }
+    }
+
+    private function ReadSmartFanSensorEvidence(int $now): array
+    {
+        $native=$this->ReadPropertyInteger('HeliosInstance');
+        $out=['max_co2_ppm'=>null,'max_voc_ppm'=>null];
+        if(!function_exists('IPS_GetObjectIDByIdent')||!IPS_InstanceExists($native))
+            return $out;
+        foreach(['SensorCO2_'=>'max_co2_ppm','SensorVOC_'=>'max_voc_ppm'] as $prefix=>$key){
+            $highest=null;
+            for($i=1;$i<=8;$i++){
+                try{$id=IPS_GetObjectIDByIdent($prefix.$i,$native);}
+                catch(Throwable $e){continue;}
+                if(!is_int($id)||$id<=0||!IPS_VariableExists($id))continue;
+                $meta=IPS_GetVariable($id);
+                $age=$now-(int)($meta['VariableUpdated']??0);
+                if($age<0||$age>45*60)continue;
+                $value=GetValue($id);
+                if(is_numeric($value) && (float)$value>=250 && (float)$value<=10000)
+                    $highest=max($highest??0,(float)$value);
+            }
+            $out[$key]=$highest;
+        }
+        return $out;
+    }
+
+    /**
+     * Device-owned expiry is essential: native FanLevel_SetForPeriod
+     * depends on a Symcon software timer and can leave MANUELL active
+     * during a SymBox outage. Instead use manufacturer Party/Whisper
+     * which expire INSIDE the Helios controller after max 15 min.
+     */
+    private function ExecuteSmartFanTakeover(array $plan,int $now): array
+    {
+        $state=json_decode($this->ReadAttributeString('SmartFanTakeoverState'),true);
+        if(!is_array($state))$state=[];
+        $instance=$this->ReadPropertyInteger('HeliosInstance');
+        $result=['attempted'=>false,'sent'=>false,'verified'=>false,
+            'status'=>$plan['reason']??'UNKNOWN',
+            'target_stage'=>$plan['target_stage']??null,
+            'fallback_weekly'=>$plan['fallback_weekly']??true];
+        $owned=(int)($state['sent_at']??0)>0
+            && (int)($state['until']??0)>=$now
+            && in_array((int)($state['mode']??0),[2,3],true);
+        if(!function_exists('IPS_SemaphoreEnter')||!function_exists('IPS_SemaphoreLeave'))
+            return $result+['status'=>'SYSCON_LOCK_UNAVAILABLE'];
+        $lock='JVHeliosParty_'.$this->InstanceID;
+        if(!IPS_SemaphoreEnter($lock,1000)){
+            $result['status']='DEVICE_COMMAND_BUSY';return $result;
+        }
+        try{
+            $live=$this->ReadHeliosLive();
+            $mode=$live['mode']??null;
+            if(!$plan['execute']){
+                // The only early cancel allowed is for our OWN verified
+                // timed command; never cancel a foreign Party/Whisper.
+                if($owned && $mode===(int)$state['mode']){
+                    $fn=$mode===3?'HELIOS_OperatingMode_Whisper_Set'
+                        :'HELIOS_OperatingMode_Party_Set';
+                    if(function_exists($fn)){
+                        $result['attempted']=true;
+                        $ok=$fn($instance,false,0,0);
+                        $after=$this->ReadHeliosLive();
+                        $result['status']=$ok!==false && ($after['mode']??null)===0
+                            ?'AUTO_FALLBACK_CONFIRMED':'AUTO_FALLBACK_PENDING';
+                        $result['verified']=($after['mode']??null)===0;
+                    }
+                }
+                if($result['verified'] || !$owned)
+                    $this->WriteAttributeString('SmartFanTakeoverState',
+                        json_encode(['last_completed_at'=>$now]));
+                return $result;
+            }
+            if($live===null || !in_array($mode,[0,2,3],true)){
+                $result['status']='HELIOS_LIVE_READBACK_FAILED';return $result;
+            }
+            if($mode!==0 && (!$owned || $mode!==(int)($state['mode']??0))){
+                $result['status']='FOREIGN_DEVICE_MODE_NO_OVERRIDE';return $result;
+            }
+            $level=(int)($plan['target_stage']??0);
+            if($level<1 || $level>4)return $result;
+            $desiredMode=$level===1?3:2;
+            $since=$now-(int)($state['sent_at']??0);
+            if($owned && $mode===$desiredMode
+                && (int)($state['stage']??0)===$level
+                && $since>=0 && $since<10*60){
+                $result['status']='SMART_OWNED_ACTIVE_WAIT_RENEWAL';
+                $result['verified']=($live['fan']??null)===$level;
+                $result['fallback_weekly']=false;
+                return $result;
+            }
+            if($owned && $since>=0 && $since<5*60
+                && ($live['fan']??null)!==$level && $level<3){
+                $result['status']='STAGE_CHANGE_MINIMUM_DWELL';
+                return $result;
+            }
+            $fn=$desiredMode===3?'HELIOS_OperatingMode_Whisper_Set'
+                :'HELIOS_OperatingMode_Party_Set';
+            if(!function_exists($fn)){
+                $result['status']='NATIVE_TIMED_MODE_NOT_SUPPORTED';return $result;
+            }
+            // Never more than one action per tick, record intent before RPC
+            // so timeout/restart will not trigger a command flood.
+            $state=[
+                'sent_at'=>$now,
+                'until'=>$now+15*60,
+                'stage'=>$level,
+                'mode'=>$desiredMode,
+                'prior_program'=>$live['program']??null,
+                'quiet_started_at'=>$level===1
+                    ?(int)($state['quiet_started_at']??$now):0,
+            ];
+            $this->WriteAttributeString('SmartFanTakeoverState',json_encode($state));
+            $result['attempted']=true;
+            $ok=$fn($instance,true,$level,15);
+            if($ok===false || $ok===null){
+                $result['status']='NATIVE_TIMED_MODE_COMMAND_FAILED';
+                return $result; // device itself times out if command was accepted
+            }
+            $result['sent']=true;
+            $after=$this->ReadHeliosLive();
+            if($after!==null && $after['mode']===$desiredMode
+                && $after['fan']===$level){
+                $result['status']='SMART_STAGE_CONFIRMED';
+                $result['verified']=true;
+                $result['fallback_weekly']=false;
+                return $result;
+            }
+            $result['status']='SMART_STAGE_SENT_READBACK_PENDING';
+            return $result;
+        }catch(Throwable $e){
+            $this->SendDebug('SmartStageRPC',substr($e->getMessage(),0,180),0);
+            $result['status']='SMART_STAGE_IO_ERROR';
+            return $result;
         }finally{
             IPS_SemaphoreLeave($lock);
         }
