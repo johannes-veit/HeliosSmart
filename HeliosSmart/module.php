@@ -114,8 +114,9 @@ class HeliosSmart extends IPSModule
         parent::ApplyChanges();
         $this->SetTimerInterval('SmartTick',5*60*1000);
         // Pending Shelly readback timer is enabled only while awaiting feedback.
-        $this->SetTimerInterval('EWTPumpFeedbackTick',0);
         $ewtState=json_decode($this->ReadAttributeString('EWTPumpControlState'),true);
+        $this->SetTimerInterval('EWTPumpFeedbackTick',
+            is_array($ewtState) && is_bool($ewtState['pending_target']??null)?10*1000:0);
         $this->SetValue('EWTPumpModeManual',
             is_array($ewtState) && ($ewtState['manual_mode']??false)===true);
         // Bestehende LCN-Variablen beobachten: keinerlei LCN-Lese- oder Schaltbefehl.
@@ -906,8 +907,18 @@ class HeliosSmart extends IPSModule
             'plug_on'=>$actual,
             'state'=>$state
         ]);
-        $state=$plan['state'];
         $manual=($state['manual_mode']??false)===true;
+        $beforePlan=$state;
+        $state=$plan['state'];
+        if($manual) {
+            // A user-forced run is NOT an automatic EWT probe.
+            // Otherwise the automatic 90-minute probe scheduling learns
+            // falsely that it has already tested the soil during manual OFF.
+            foreach(['probe_until','last_probe_at'] as $field) {
+                if(array_key_exists($field,$beforePlan))$state[$field]=$beforePlan[$field];
+                else unset($state[$field]);
+            }
+        }
         $manualTarget=(bool)($state['manual_target']??($actual??true));
         $plan=JVHeliosEWTPumpOperator::apply($plan,$manual,$manualTarget);
         $this->SetValue('EWTPumpModeManual',$manual);
