@@ -898,8 +898,12 @@ class HeliosSmart extends IPSModule
             $wasManual=($state['manual_mode']??false)===true;
             $state['manual_mode']=$value;
             // Entering manual mode must preserve the reported physical state.
-            if($value && !$wasManual)
-                $state['manual_target']=$health['reported']==='UNKNOWN'?true:(bool)GetValue($plug);
+            if($value && !$wasManual) {
+                // Do not invent an ON state from a cached/unavailable relay;
+                // use a newly verified current state once the Shelly returns.
+                $state['manual_target']=$health['reported']==='UNKNOWN'
+                    ?null:(bool)GetValue($plug);
+            }
             $this->WriteAttributeString('EWTPumpControlState',json_encode($state));
             $this->SetValue('EWTPumpModeManual',$value);
             // EWT-only evaluation: never touch Helios fan/party.
@@ -1053,7 +1057,9 @@ class HeliosSmart extends IPSModule
         if($actual!==null)$this->SetValue('EWTPumpSwitch',$actual);
         // A Boolean widget cannot display UNKNOWN. Separate status is authoritative.
         $this->SetValue('EWTPumpAlarm',
-            $configured && (!$health['actuation_allowed'] || $health['power_conflict']));
+            $configured && (!$health['actuation_allowed']
+                || $health['power_conflict']
+                || ($state['last_error']??'')!==''));
         $enabled=$this->ReadPropertyBoolean('EnableEWTPumpControl');
         $command='NO_COMMAND';
         if(!$enabled) {
@@ -1065,6 +1071,12 @@ class HeliosSmart extends IPSModule
             $state['last_error']=$health['warning'];
         } elseif(function_exists('HasAction') && !HasAction($plugId)) {
             $command='SHELLY_HAS_NO_ACTION';
+        } elseif(is_bool($state['pending_target']??null)
+            && $state['pending_target']!==$plan['desired_on']
+            && $plan['desired_on']!==true) {
+            // Do not send a contradictory OFF while an ON command has no
+            // confirmed result. Only a frost-priority ON may supersede OFF.
+            $command='WAIT_FOR_PENDING_COMMAND_BEFORE_OFF';
         } elseif($actual!==$plan['desired_on']
             || (is_bool($state['pending_target']??null)
                 && $state['pending_target']!==$plan['desired_on'])) {
@@ -1095,7 +1107,8 @@ class HeliosSmart extends IPSModule
             }
         } else {
             $command='SHELLY_STATE_MATCHES';
-            if(!is_bool($state['pending_target']??null))$state['last_error']='';
+            // Preserve a command timeout/IO failure in the fault indicator
+            // until a genuinely new output report acknowledges a later command.
             if(is_bool($state['pending_target']??null)
                 && JVHeliosEWTPumpHealth::ack($health,
                     $state['pending_target'],
