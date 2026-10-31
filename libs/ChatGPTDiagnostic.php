@@ -42,6 +42,7 @@ final class JVHeliosChatGPTDiagnostic
                 'Aktueller Helios-Iststatus'=>$f['device']??null,
                 'Original-Helios Integrationsstatus'=>$f['native']??null,
                 'Stufen-Ursache'=>$f['attribution']??null,
+                'Original-Helios CO2/VOC/Feuchte/Enteisung'=>$f['native_air_sensors']??null,
             ],
             'SMART-ENTSCHEIDUNG / SCHALTUNGEN'=>[
                 'Plan und Begruendung'=>$f['smart_plan']??null,
