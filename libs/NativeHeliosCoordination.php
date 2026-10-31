@@ -35,6 +35,10 @@ final class JVHeliosNativeCoordination
             if(array_key_exists($key,$sensorFlags))
                 $sensorControls[$key]=$sensorFlags[$key];
         }
+        $partyPresetLevel=is_numeric($sensorFlags['OperatingModePresetPartyFanLevel']??null)
+            ?(int)$sensorFlags['OperatingModePresetPartyFanLevel']:null;
+        $partyPresetMinutes=is_numeric($sensorFlags['OperatingModePresetPartyDuration']??null)
+            ?(int)$sensorFlags['OperatingModePresetPartyDuration']:null;
         $sensorRegulationPossible=
             (($sensorControls['CO2Control']??0)>0)
             || (($sensorControls['HumidityControl']??0)>0)
@@ -49,6 +53,11 @@ final class JVHeliosNativeCoordination
             $summary.=' | ACHTUNG: Benutzerdefiniert 2 / Sommerprofil im Heizbetrieb';
         if($sensorRegulationPossible)
             $summary.=' | Gerateeigene CO2-/VOC-/Feuchteregelung moeglich';
+        if($partyPresetLevel===4 && $partyPresetMinutes!==null)
+            $summary.=' | Native Party-Vorwahl S4/'.$partyPresetMinutes
+                .' min (nur VORWAHL, keine aktive Party)';
+        if($known && ($config['log_fanlevel']??false)!==true)
+            $summary.=' | Original-Luefterstufenlogging ist AUS';
         $summary.=' | '.($writeAllowed
             ?'Eigene Zusatz-Party nur nach separaten Freigaben erlaubt'
             :'KEINE NEUEN HELIOS-SMART LUEFTERBEFEHLE');
@@ -66,6 +75,9 @@ final class JVHeliosNativeCoordination
             'native_log_fanlevel'=>$known
                 ?($config['log_fanlevel']??false)===true:null,
             'current_week_program'=>$weekProgram,
+            'native_party_preset_fan_level'=>$partyPresetLevel,
+            'native_party_preset_minutes'=>$partyPresetMinutes,
+            'native_party_preset_is_not_active_party'=>true,
             'custom_program4_hot_summer_selected_in_heating'=>$hotSummerSelected,
             'sensor_control_reported'=>$sensorControls,
             'native_sensor_regulation_possible'=>$sensorRegulationPossible,
