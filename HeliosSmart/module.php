@@ -816,6 +816,13 @@ class HeliosSmart extends IPSModule
             && (int)(IPS_GetVariable($onlineID)['VariableType']??-1)===0;
         $switchValid=$switchID>0 && IPS_VariableExists($switchID)
             && (int)(IPS_GetVariable($switchID)['VariableType']??-1)===0;
+        // The WebFront mirror is actionable. Selecting our own control as
+        // the "Shelly" would recurse into this module's RequestAction().
+        if($switchValid && function_exists('IPS_GetParent')
+            && (int)IPS_GetParent($switchID)===$this->InstanceID) {
+            $switchValid=false;
+            $onlineValid=false;
+        }
         // A liveness signal belonging to a different Shelly must not
         // certify this relay. Symcon devices normally have one instance parent.
         if($switchValid && function_exists('IPS_GetParent')) {
@@ -846,6 +853,25 @@ class HeliosSmart extends IPSModule
                 :($health['reported']==='OFF_REPORTED'?'AUS gemeldet':'EIN gemeldet'))
             .' | Verbindung '.$health['link'].' | '.$health['warning']);
         return $health;
+    }
+
+    /**
+     * SymBox MQTT callbacks, 5-minute evaluation and WebFront actions may
+     * execute concurrently. Protect the entire EWT state/action transaction
+     * with a single per-instance semaphore; fan/Party uses its own lock.
+     */
+    private function WithEWTPumpLock(callable $operation)
+    {
+        if(!function_exists('IPS_SemaphoreEnter') || !function_exists('IPS_SemaphoreLeave'))
+            return $operation();
+        $name='JVHS_EWT_PUMP_'.$this->InstanceID;
+        if(!IPS_SemaphoreEnter($name,1500))
+            throw new RuntimeException('EWT pump controller busy – retry, no command sent');
+        try {
+            return $operation();
+        } finally {
+            IPS_SemaphoreLeave($name);
+        }
     }
 
     /** Safe, small read path for a manual pump command; never calls Helios fan/party APIs. */
@@ -881,6 +907,13 @@ class HeliosSmart extends IPSModule
      */
     public function RequestAction($Ident,$Value)
     {
+        return $this->WithEWTPumpLock(function()use($Ident,$Value) {
+            return $this->RequestEWTPumpActionUnlocked($Ident,$Value);
+        });
+    }
+
+    private function RequestEWTPumpActionUnlocked($Ident,$Value)
+    {
         if(!in_array($Ident,['EWTPumpModeManual','EWTPumpSwitch'],true))
             throw new Exception('Unbekannte HELIOS SMART Aktion: '.$Ident);
         if(!is_bool($Value) && $Value!==0 && $Value!==1)
@@ -907,7 +940,7 @@ class HeliosSmart extends IPSModule
             $this->WriteAttributeString('EWTPumpControlState',json_encode($state));
             $this->SetValue('EWTPumpModeManual',$value);
             // EWT-only evaluation: never touch Helios fan/party.
-            $this->EvaluateEWTPump($weather,$now,
+            $this->EvaluateEWTPumpUnlocked($weather,$now,
                 $value?null:$this->LastEWTIndoorTemperature($now));
             return;
         }
@@ -941,7 +974,7 @@ class HeliosSmart extends IPSModule
         $this->WriteAttributeString('EWTPumpControlState',json_encode($state));
         // DO NOT write the requested value to the actual-state switch.
         // It reflects the Shelly's reported real value, never an optimistic command.
-        $this->EvaluateEWTPump($weather,$now,null);
+        $this->EvaluateEWTPumpUnlocked($weather,$now,null);
     }
 
     /**
@@ -949,6 +982,13 @@ class HeliosSmart extends IPSModule
      * The boolean mirror is updated only from the configured Shelly state.
      */
     public function CheckEWTPumpFeedback(): void
+    {
+        $this->WithEWTPumpLock(function():void {
+            $this->CheckEWTPumpFeedbackUnlocked();
+        });
+    }
+
+    private function CheckEWTPumpFeedbackUnlocked(): void
     {
         $state=json_decode($this->ReadAttributeString('EWTPumpControlState'),true);
         if(!is_array($state))$state=[];
@@ -1001,6 +1041,13 @@ class HeliosSmart extends IPSModule
      * explicit opt-in have been configured. Missing weather => request ON.
      */
     private function EvaluateEWTPump(array $weather,int $now,?float $inside): array
+    {
+        return $this->WithEWTPumpLock(function()use($weather,$now,$inside):array {
+            return $this->EvaluateEWTPumpUnlocked($weather,$now,$inside);
+        });
+    }
+
+    private function EvaluateEWTPumpUnlocked(array $weather,int $now,?float $inside): array
     {
         $plugId=$this->ReadPropertyInteger('EWTPumpSwitchVariable');
         $powerId=$this->ReadPropertyInteger('EWTPumpPowerVariable');
