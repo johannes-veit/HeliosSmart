@@ -925,7 +925,9 @@ class HeliosSmart extends IPSModule
                 && $state['pending_target']!==$plan['desired_on'])) {
             $lastRequest=(int)($state['last_request_at']??0);
             $lastTarget=$state['last_request_target']??null;
-            if($lastTarget===$plan['desired_on'] && $now-$lastRequest<90) {
+            if(is_bool($state['pending_target']??null)
+                && $state['pending_target']===$plan['desired_on']
+                && $lastTarget===$plan['desired_on'] && $now-$lastRequest<90) {
                 $command='WAIT_FOR_SHELLY_FEEDBACK';
             } else {
                 try {
@@ -947,6 +949,7 @@ class HeliosSmart extends IPSModule
             }
         } else {
             $command='SHELLY_STATE_MATCHES';
+            if(!is_bool($state['pending_target']??null))$state['last_error']='';
             if(is_bool($state['pending_target']??null)
                 && $actual===$state['pending_target']) {
                 $state['pending_target']=null;
