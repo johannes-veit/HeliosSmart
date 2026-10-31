@@ -699,14 +699,26 @@ class HeliosSmart extends IPSModule
         $out=['max_co2_ppm'=>null,'max_voc_ppm'=>null,
             'native_extract_rh'=>null,'native_sensor_stale'=>false];
         if(!IPS_InstanceExists($native))return $out;
-        // The original Helios module exposes its own extract-air RH; this
-        // must be checked before reducing an internally requested stage 4.
+        // Prefer a true fresh manufacturer GET to an old Symcon variable
+        // timestamp. The original module writes unchanged RH values only
+        // on change, so VariableUpdated alone is NOT a freshness heartbeat.
+        if($this->ReadPropertyBoolean('EnableSmartFanTakeover')
+            && function_exists('HELIOS_HumidityControl_Internal_ExhaustAir_Get')){
+            try{
+                $fresh=HELIOS_HumidityControl_Internal_ExhaustAir_Get($native);
+                if(is_numeric($fresh) && (float)$fresh>=0 && (float)$fresh<=100)
+                    $out['native_extract_rh']=(float)$fresh;
+            }catch(Throwable $e){}
+        }
+        // Otherwise trust an existing native RH variable only if recent.
         $extractRhID=50809;
         if(IPS_VariableExists($extractRhID)
             && function_exists('IPS_GetParent')
             && (int)IPS_GetParent($extractRhID)===$native){
             $age=$now-(int)(IPS_GetVariable($extractRhID)['VariableUpdated']??0);
-            if($age>=0 && $age<=45*60 && is_numeric(GetValue($extractRhID)))
+            if($out['native_extract_rh']!==null) {
+                // Real-time native read is the stronger timestamp.
+            }elseif($age>=0 && $age<=45*60 && is_numeric(GetValue($extractRhID)))
                 $out['native_extract_rh']=(float)GetValue($extractRhID);
             else
                 $out['native_sensor_stale']=true;
