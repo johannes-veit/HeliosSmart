@@ -1704,9 +1704,14 @@ class HeliosSmart extends IPSModule
             'program_fresh'=>($now-(int)(IPS_GetVariable($progID)['VariableUpdated']??0))>=-120
                 && ($now-(int)(IPS_GetVariable($progID)['VariableUpdated']??0))<=600,
         ];
-        // Live device communication is attempted ONLY when explicitly enabled.
-        // VariableUpdated is not a heartbeat: the native module updates on change.
-        $live=$this->ReadPropertyBoolean('EnableControl') ? $this->ReadHeliosLive() : null;
+        // Live GET requests are read-only. For observed stage 4 also
+        // request the actual Helios mode and weekly-program ID while fan
+        // control is disabled: cached mode/program variables may be many
+        // hours old even when still physically correct.
+        // No Party, Whisper or program write is caused by these GETs.
+        $live=($this->ReadPropertyBoolean('EnableControl')
+            || (int)GetValue($fanID)===4)
+            ? $this->ReadHeliosLive():null;
         if ($live!==null) {
             $deviceStatus['mode']=$live['mode'];
             $deviceStatus['fan']=$live['fan'];
