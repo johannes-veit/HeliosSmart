@@ -110,7 +110,7 @@ class HeliosSmart extends IPSModule
         $this->RegisterVariableString('EWTPumpStatus','Sole-EWT Pumpe (Helios-Aussenluft)','',52);
         $this->RegisterVariableBoolean('EWTPumpOnline','EWT-Shelly erreichbar (aktuell bestätigt)','~Switch',53);
         $this->RegisterVariableString('EWTPumpActualStatus','EWT-Pumpe – verlässlicher Istzustand','',54);
-        $this->RegisterVariableBoolean('EWTPumpAlarm','EWT-Pumpe Verbindungs-/Schaltfehler','~Alert',55);
+        $this->RegisterVariableBoolean('EWTPumpAlarm','EWT-Pumpe Verbindungs-/Schaltfehler','~Switch',55);
         $this->RegisterVariableString('EWTPumpLearningStatus','EWT – Lerndiagnose','',56);
         $this->RegisterVariableString('EWTPumpLearningJSON','EWT – Lernbewertung JSON','',57);
         if(method_exists($this,'EnableAction')) {
