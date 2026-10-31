@@ -57,3 +57,75 @@ Kein Smart Plug, keine Software und keine Cloud garantieren einen dauerhaft gesc
 - Luefter-/Party-Funktionen bleiben unveraendert; `EnableEWTPumpControl` ist eine separate Freigabe.
 
 Herstellerreferenz: Helios SEWT Montage- und Betriebsvorschrift, Schaltplan SS-906, mit Thermostatgrenzen +5 / +20 C (Stand 11/2025).
+
+
+## Wissenschaftlich geerdete Bodenkennlinie: DWD und ERA5-Land (31.10.2026)
+
+Die DWD-Stationsdaten enthalten je nach Station reale Bodentemperaturen bis 100 cm Tiefe
+(u.a. ERDBT_100). Diese sind als lokale *Pruefquelle* wertvoll, bilden aber nicht die
+2,5 m tiefe Soleleitung ab. Es werden **keine** DWD-1m-Messwerte faelschlich als
+2,5m-Istwerte deklariert. Eine Stationsauswahl und kontinuierliche DWD-1m-
+Einbindung ist derzeit NICHT implementiert.
+
+Praktischer ist die ERA5-Land-Reanalyse mit Bodenschicht 4 von 100 bis 289 cm
+(Copernicus). Open-Meteo bietet eine historische Modellausgabe fuer die Schicht
+100–255 cm und fuer die Vergleichsschicht 28–100 cm an. Achtung: Diese Werte
+sind *mittlere Modellwerte der ganzen Schicht*, kein genauer 250-cm-Thermometerwert
+und keine direkte Temperatur der durch die Rohrschlange strömenden Sole.
+
+**Referenzquellen:**
+- DWD CDC: Stündliche Stations-Bodentemperaturen (historical/recent),
+  https://opendata.dwd.de/climate_environment/CDC/observations_germany/climate/hourly/soil_temperature/
+- ERA5-Land: https://cds.climate.copernicus.eu/datasets/reanalysis-era5-land-timeseries
+- Open-Meteo Historical API: https://open-meteo.com/en/docs/historical-weather-api
+
+### Automatischer Import, maximal fünf Jahre, minimales Speichern
+
+WetterZentrale verwendet die bereits konfigurierten Hauskoordinaten (Location
+Control bzw. Latitude/Longitude), keine vom Modul erfundenen Koordinaten.
+Wenn die vorhandene Freigabe \`EnableExternal\` aktiv ist und
+\`EnableSoilHistory\` aktiv bleibt, lädt \`SoilHistoryTick\` in getrennten
+Durchläufen jeweils **nur ein vollständiges historisches Jahr** als 8760/8784
+Stundenwerte (zwei Bodenschichten) über Open-Meteo, Model \`era5_land\`.
+Standardmäßig werden die letzten fünf abgeschlossenen Kalenderjahre geholt.
+Die Daten werden *sofort* auf zwölf Monatswerte verdichtet, die stündlichen
+Rohdaten nicht langfristig im Symcon-Attribut gespeichert. Bei fehlgeschlagener
+Abfrage pausiert der Hintergrundabruf für sechs Stunden. Beim Wechsel des
+Standorts werden alte Daten verworfen.
+
+Ausgabe der WetterZentrale:
+- \`SoilHistoryStatus\`: Anzahl erfolgreicher Jahre, Qualität, geschätzter Phasenversatz.
+- \`SoilClimatologyJSON\`: 12 Monatsmittel der tiefen und flachen Modellschicht
+  mit jährlicher Min/Max-Spanne, Standardabweichung, Jahranzahl und Quelle.
+- \`JVWC_Snapshot(...).soil_climatology\`: gemeinsame read-only Datenquelle
+  für HELIOS SMART und ggf. weitere Verbraucher.
+
+Die Kennlinie wird erst mit **mindestens drei kompletten Jahren** als Planungsquelle
+akzeptiert. Ein ungeprüftes Monatsmittel oder eine einzelne Online-Abfrage
+ist niemals ein eigener Bodentemperaturmesswert. Wenn die Modellhistorie noch
+nicht verfügbar ist, wird die bisherige vom Betreiber geschätzte Saisonkurve
+verwendet. Diese war zuletzt nach dem berichteten Sole-Minimum von 8 °C
+angepasst worden – dieser *beobachtete* Minimalwert ist keine garantierte
+physikalische Grenze.
+
+### Phasenverschiebung
+
+Zwischen 28–100 und 100–255 cm wird das zeitliche Maximum/Minimum und die
+Kreuzkorrelations-Verschiebung 0 bis 4 Monate aus den historischen Monatsmitteln
+ausgewiesen. **Keine weitere starre Verzögerung auf die tiefe Modellschicht
+anwenden**: die Erdreichträgheit ist dort bereits enthalten.
+Eine optionale spätere Tiefenkorrektur zu exakt 2,5 m braucht Daten zur
+Bodenleitfähigkeit/Feuchte und idealerweise echte Messungen der Soletemperatur.
+
+### Einfluss auf die Pumpe
+
+Reihenfolge:
+1. Frostschutz nach **echter Außenlufttemperatur** und Ausfalllogik: immer Vorrang.
+2. Frischer **eigener** Solefühler, falls korrekt zugeordnet und vorhanden.
+3. ERA5-Land-Mehrjahreskennlinie, falls vollständig und Qualitätsprüfung bestanden.
+4. Vorläufige Betreiber-Monatswerte als letzte Planungshilfe.
+5. **Messbarer** EWT-Effekt im Lüftungseintritt gegenüber freier Außenluft
+   entscheidet darüber, ob die Pumpe nach einem Probeintervall weiterläuft.
+
+Die neue Bodendatenfunktion ist **nur lesend** und darf keinesfalls selbst den
+Shelly schalten. Der bestehende \`EnableEWTPumpControl\`-Schutz bleibt unverändert.
