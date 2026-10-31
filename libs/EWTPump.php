@@ -78,7 +78,7 @@ final class JVHeliosEWTPump
             // Thermal seasonality is delayed by the ground mass. Calendar
             // months alone never authorize operation or override real effect.
             $warmingNeeded=$out<18.0 && $inside>=$out+2.0;
-            $coolingNeeded=($inside>=22.0 && $out>=16.0)
+            $coolingNeeded=($inside>=22.0 && $out>=18.0)
                 || ($out>$inside+1.0 && $out>=20.0);
             $heatingPlausible=$planningGap!==null && $planningGap>=1.5;
             $coolingPlausible=$planningGap!==null && $planningGap<=-1.5;
