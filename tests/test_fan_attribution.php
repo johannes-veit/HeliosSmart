@@ -43,7 +43,15 @@ $expired=$check(['mode'=>2,'owned_level'=>4,'owned_until'=>$now-20,
 stageCheck($expired['kind']==='PARTY_NOT_OWNED',
     'expired party cannot silently own a current stage4');
 $quiet=$check(['mode'=>3,'fan'=>1,'program'=>3]);
-stageCheck($quiet['kind']==='QUIET_MODE','whisper separate mode');
+stageCheck($quiet['kind']==='QUIET_MODE_NOT_OWNED','foreign whisper stays separate mode');
+$ownedQuiet=$check(['mode'=>3,'fan'=>1,'owned_level'=>1,
+    'owned_until'=>$now+300,'last_command_at'=>$now-50]);
+stageCheck($ownedQuiet['kind']==='OWNED_WHISPER_PLAUSIBLE',
+    'own stage1 timer is distinguished from foreign Whisper');
+$autoOnly=$check(['mode'=>0,'fan'=>4,'owned_level'=>4,
+    'owned_until'=>$now+300,'last_command_at'=>$now-50]);
+stageCheck($autoOnly['own_party_active_plausible']===false,
+    'old ownership record is never accepted as proof of Party in AUTO mode');
 $vacation=$check(['mode'=>4,'fan'=>2]);
 stageCheck($vacation['kind']==='HOLIDAY_MODE','vacation not weekly');
 $issued=$check(['control_enabled'=>true,'command_attempted'=>true]);
