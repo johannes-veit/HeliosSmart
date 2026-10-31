@@ -6,6 +6,29 @@
  */
 final class JVHeliosEWTPump
 {
+    /**
+     * Standort-Hypothese Brauneberg / 2,5 m Erdreich:
+     * vom Betreiber genannte plausible Monatsbereiche der Soletemperatur.
+     * Weder Istwerte noch Garantiewerte oder Frostschutz-Solltemperaturen.
+     * Die Werte werden ausschließlich zur Planung von Probeläufen benutzt.
+     */
+    private const SEASONAL_SOLE_C = [
+        1=>[8.0,9.0], 2=>[6.0,7.0], 3=>[5.0,6.0],
+        4=>[6.0,7.0], 5=>[7.0,9.0], 6=>[9.0,11.0],
+        7=>[11.0,13.0], 8=>[13.0,14.0], 9=>[14.0,15.0],
+        10=>[13.0,14.0], 11=>[11.0,13.0], 12=>[9.0,11.0],
+    ];
+
+    public static function seasonalReference(int $now): array
+    {
+        $month=(int)(new DateTimeImmutable('@'.$now))
+            ->setTimezone(new DateTimeZone('Europe/Berlin'))->format('n');
+        [$low,$high]=self::SEASONAL_SOLE_C[$month];
+        return ['month'=>$month,'low_c'=>$low,'high_c'=>$high,
+            'mean_c'=>round(($low+$high)/2,2),
+            'quality'=>'SEASONAL_ESTIMATE_NOT_MEASURED'];
+    }
+
     public static function decide(array $x): array
     {
         $now=(int)($x['now']??time());
@@ -30,14 +53,41 @@ final class JVHeliosEWTPump
         $insideValid=is_numeric($inside) && is_finite((float)$inside)
             && (float)$inside>=10 && (float)$inside<=36;
         $inside=$insideValid?(float)$inside:null;
+        $reference=self::seasonalReference($now);
+        $sole=$x['sole_temperature']??null;
+        $soleAt=(int)($x['sole_updated_at']??0);
+        $soleValid=is_numeric($sole) && is_finite((float)$sole)
+            && (float)$sole>=-10 && (float)$sole<=35
+            && $soleAt>0 && ($now-$soleAt)>=-120
+            && ($now-$soleAt)<=2700;
+        $measuredSole=$soleValid?(float)$sole:null;
+        // Real sensor takes priority. Otherwise seasonal reference is a
+        // LOW-CONFIDENCE estimate for trying the pump, never proven benefit.
+        $planningSole=$measuredSole??$reference['mean_c'];
+        $planningGap=$out!==null?round($planningSole-$out,2):null;
+        $potentialBasis=$soleValid?'MEASURED_SOLE':'SEASONAL_ESTIMATE';
         // ALWAYS ON when actual outdoor data is absent or below +5 C.
         // A frozen controller or unplugged Shelly cannot guarantee this; provide
         // an independent manufacturer-appropriate frost protection mechanism.
         $frost=!$weatherValid || $out<=5.0 || ($currentOn===true && $out<7.0);
         $candidate='NONE';
         if ($weatherValid && $insideValid) {
-            if ($out>=20.0 && $inside>=20.5) $candidate='COOLING';
-            elseif ($out<14.0 && $inside>=$out+2.0) $candidate='HEATING';
+            // Thermal seasonality is delayed by the ground mass. Calendar
+            // months alone never authorize operation or override real effect.
+            $warmingNeeded=$out<18.0 && $inside>=$out+2.0;
+            $coolingNeeded=($inside>=22.0 && $out>=16.0)
+                || ($out>$inside+1.0 && $out>=20.0);
+            $heatingPlausible=$planningGap!==null && $planningGap>=1.5;
+            $coolingPlausible=$planningGap!==null && $planningGap<=-1.5;
+            // If the pump is already running, trustworthy air measurements
+            // are preferred over the seasonal model (which can be wrong).
+            $actualHeat=$currentOn===true && $delta!==null && $delta>=1.5;
+            $actualCool=$currentOn===true && $delta!==null && $delta<=-1.5;
+            if ($coolingNeeded && ($coolingPlausible || $actualCool)) {
+                $candidate='COOLING';
+            } elseif ($warmingNeeded && ($heatingPlausible || $actualHeat)) {
+                $candidate='HEATING';
+            }
         }
         $elapsedOn=$now-(int)($state['last_on_at']??0);
         $elapsedOff=$now-(int)($state['last_off_at']??0);
@@ -85,6 +135,14 @@ final class JVHeliosEWTPump
             'outside_c'=>$out,
             'intake_after_ewt_c'=>$intakeValid?(float)$intake:null,
             'effect_kelvin'=>$delta,
+            'sole_temperature_measured_c'=>$measuredSole,
+            'sole_temperature_reference'=>$reference,
+            'planning_sole_c'=>$planningSole,
+            'planning_gap_sole_minus_outside_kelvin'=>$planningGap,
+            'planning_source'=>$potentialBasis,
+            'benefit_is_measured'=>$currentOn===true && $delta!==null
+                && (($candidate==='HEATING' && $delta>=1.5)
+                    || ($candidate==='COOLING' && $delta<=-1.5)),
             'plug_actual'=>$currentOn,
             'probe_until'=>$next['probe_until']??0,
             'state'=>$next,
