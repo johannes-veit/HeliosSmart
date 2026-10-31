@@ -2125,6 +2125,9 @@ class HeliosSmart extends IPSModule
             if((int)($d['fresh_room_count']??0)<9
                 ||(int)($d['fresh_humidity_room_count']??0)<8)
                 $warnings[]='Raumtemperatur-/Luftfeuchteabdeckung nicht ausreichend.';
+            if(!$this->ReadPropertyBoolean('EnableEWTPumpControl'))
+                $warnings[]='EWT-PUMPENAUTOMATIK NICHT FREIGEGEBEN: nur Beobachtung;'
+                    .' das Lernmodul kann dadurch keine EIN/AUS-Vergleiche herbeifuehren.';
             if(($d['ewt_pump']['connectivity']['online_confirmed']??false)!==true
                 && $this->ReadPropertyBoolean('EnableEWTPumpControl'))
                 $warnings[]='EWT-Shelly online nicht sicher bestaetigt.';
