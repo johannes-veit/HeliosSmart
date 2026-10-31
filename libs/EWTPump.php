@@ -144,6 +144,12 @@ final class JVHeliosEWTPump
             $reason=!$weatherValid?'FROST_FAILSAFE_WEATHER_MISSING':
                 ($out<=5.0 || ($currentOn===true && $out<7.0)
                     ?'FROST_PREHEAT':'FROST_FORECAST_NEAR_TERM');
+        } elseif (!$insideValid) {
+            // During startup or after loss of the room snapshot, an unrelated
+            // MQTT status event must never turn a useful running EWT OFF.
+            // Hold the confirmed existing position, no speculative probe.
+            $desired=$currentOn===true;
+            $reason='INDOOR_CONTEXT_MISSING_HOLD_REPORTED_STATE';
         } elseif ($candidate!=='NONE') {
             $benefit=$delta!==null && (
                 ($candidate==='HEATING' && $delta>=1.5)
