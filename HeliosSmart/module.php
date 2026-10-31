@@ -2298,7 +2298,8 @@ class HeliosSmart extends IPSModule
                     'last_quality_checked_at','last_sample_at',
                     'rejection_count_basis','rejected','legacy_rejected_5min_checks',
                     'next_sample_earliest_at','pump_state','shelly_link',
-                    'shelly_online_confirmed','fan_stage','fan_stable_minutes',
+                    'shelly_online_confirmed','temperature_pair_offset_seconds',
+                    'fan_stage','fan_stable_minutes',
                     'pump_stable_minutes','paired_advice','energy_tradeoff',
                     'missing_inputs']),
                 'learning'=>[
