@@ -113,6 +113,7 @@ class HeliosSmart extends IPSModule
         $this->RegisterVariableBoolean('EWTPumpAlarm','EWT-Pumpe Verbindungs-/Schaltfehler','~Switch',55);
         $this->RegisterVariableString('EWTPumpLearningStatus','EWT – Lerndiagnose','',56);
         $this->RegisterVariableString('EWTPumpLearningJSON','EWT – Lernbewertung JSON','',57);
+        $this->RegisterVariableString('EWTPumpSetupReport','EWT-Shelly Installation / Diagnose','',58);
         if(method_exists($this,'EnableAction')) {
             $this->EnableAction('EWTPumpModeManual');
             $this->EnableAction('EWTPumpSwitch');
@@ -247,6 +248,8 @@ class HeliosSmart extends IPSModule
                 ['type'=>'SelectVariable','name'=>'EWTPumpHeartbeatVariable','caption'=>'Optional: regelmaessig aktualisierte Shelly-Telemetrie (z.B. Leistung/Uptime) – online und derselbe Plug','validVariableTypes'=>[0,1,2,3]],
                 ['type'=>'SelectVariable','name'=>'EWTSoleTemperatureVariable','caption'=>'Optional: ECHTE Soletemperatur am Helios-EWT (leer=0)','validVariableTypes'=>[1,2]],
                 ['type'=>'CheckBox','name'=>'EnableEWTPumpControl','caption'=>'Separaten EWT-Pumpenaktor nach Installation und Frostschutzpruefung freigeben (Standard AUS)'],
+                ['type'=>'Label','caption'=>'BEREITSTELLUNG DIESER SYMBOX: EWT Pumpe Lueftungsanlage ShellyDevice #58021, Relais #32748, Erreichbar #35794, Wirkleistung/Heartbeat #19705. Die folgende Aktion prueft ID, Geraetename, Variablentyp, gleichen Parent, Schaltaktion und frische MQTT-Telemetrie. Nur nach geprueftem Elektro-/Frostschutz und Shelly Power-on-Verhalten anklicken.'],
+                ['type'=>'Button','caption'=>'EWT-Shelly #58021 automatisch zuordnen, pruefen und Automatik freigeben','onClick'=>'echo JVHS_InstallExistingEWTShelly($id);'],
                 ['type'=>'Label','caption'=>'Online/Erreichbar ist Pflicht; nach MQTT-Neuverbindung muss der Shelly-Schaltwert erneut gemeldet werden. Bei Offline/veraltet bleibt der IST-Zustand UNBEKANNT, auch wenn die alte Schalter-Kachel AUS zeigt. Die zwei Schiebeschalter Betriebsart Automatik/Manuell und Schaltzustand Aus/Ein werden automatisch als Variablen unter der HELIOS SMART Instanz angelegt. Aus/Ein ist nur in MANUELL bedienbar; bei Frost oder fehlender sicherer Aussentemperatur bleibt AUS gesperrt.'],
                 ['type'=>'NumberSpinner','name'=>'KitchenLightVariable','caption'=>'Kuechenlicht Status (Original #51009)'],
                 ['type'=>'NumberSpinner','name'=>'KitchenMotionVariable','caption'=>'Bewegung Wohnen / Kueche (#51040)'],
@@ -853,6 +856,97 @@ class HeliosSmart extends IPSModule
                 :($health['reported']==='OFF_REPORTED'?'AUS gemeldet':'EIN gemeldet'))
             .' | Verbindung '.$health['link'].' | '.$health['warning']);
         return $health;
+    }
+
+    /**
+     * One-click, installation-specific commissioning for the already installed
+     * ShellyDevice shown on this SymBox. This action is deliberate, not run
+     * during normal Create/ApplyChanges or a GitHub module update.
+     * It does not touch the existing FBH cooling plug or Helios Party options.
+     */
+    public function InstallExistingEWTShelly(): string
+    {
+        $device=58021;
+        $expected=[
+            'EWTPumpSwitchVariable'=>[32748,0,'Status'],
+            'EWTPumpOnlineVariable'=>[35794,0,'Erreichbar'],
+            'EWTPumpPowerVariable'=>[19705,2,'Wirkleistung'],
+            'EWTPumpHeartbeatVariable'=>[19705,2,'Wirkleistung'],
+        ];
+        try {
+            if(!function_exists('IPS_GetParent')
+                ||!function_exists('IPS_GetName')
+                ||!function_exists('IPS_SetProperty')
+                ||!function_exists('IPS_ApplyChanges'))
+                throw new RuntimeException('Erforderliche Symcon API fehlt');
+            if(!IPS_InstanceExists($device)
+                || IPS_GetName($device)!=='EWT Pumpe Lüftungsanlage')
+                throw new RuntimeException('ShellyDevice #58021 fehlt oder hat anderen Namen');
+            foreach($expected as $key=>$spec){
+                [$id,$type,$name]=$spec;
+                if(!IPS_VariableExists($id)
+                    ||(int)IPS_GetParent($id)!==$device
+                    ||(int)(IPS_GetVariable($id)['VariableType']??-1)!==$type
+                    ||IPS_GetName($id)!==$name)
+                    throw new RuntimeException($key.' #'.$id.' falsche Instanz / Typ / Name');
+            }
+            if(!HasAction(32748))
+                throw new RuntimeException('Shelly Status #32748 hat keine Schaltaktion');
+            if(GetValue(35794)!==true)
+                throw new RuntimeException('Shelly #58021 ist derzeit offline');
+            $now=time();
+            $heartbeatAt=(int)(IPS_GetVariable(19705)['VariableUpdated']??0);
+            if($heartbeatAt<=0 || $heartbeatAt>$now+120 || $now-$heartbeatAt>240)
+                throw new RuntimeException('Wirkleistung #19705 nicht innerhalb 4 Min aktualisiert');
+            foreach($expected as $key=>$spec){
+                if(!IPS_SetProperty($this->InstanceID,$key,$spec[0]))
+                    throw new RuntimeException('Konfiguration fehlgeschlagen: '.$key);
+            }
+            if(IPS_InstanceExists(40477))
+                IPS_SetProperty($this->InstanceID,'WeatherCenterInstance',40477);
+            // Confirm the live device/telemetry before enabling any output.
+            if(!IPS_SetProperty($this->InstanceID,'EnableEWTPumpControl',false))
+                throw new RuntimeException('Sichere Vorpruefung fehlgeschlagen');
+            IPS_ApplyChanges($this->InstanceID);
+            $health=$this->ReadEWTPumpHealth(time());
+            if(($health['actuation_allowed']??false)!==true)
+                throw new RuntimeException('Shelly Live-Status nicht verifiziert: '
+                    .($health['warning']??'UNBEKANNT'));
+            if(!IPS_SetProperty($this->InstanceID,'EnableEWTPumpControl',true))
+                throw new RuntimeException('Freigabe konnte nicht gespeichert werden');
+            IPS_ApplyChanges($this->InstanceID);
+            $now=time();
+            $plan=$this->EvaluateEWTPump(
+                $this->ReadEWTPumpWeather(),$now,
+                $this->LastEWTIndoorTemperature($now));
+            $command=(string)($plan['command']??'UNBEKANNT');
+            $report='CONFIGURIERT / AUTOMATIK FREIGEGEBEN | Shelly #58021'
+                .' | Relais #32748 | Online #35794'
+                .' | Wirkleistung+Heartbeat #19705'
+                .' | Soll '.(($plan['desired_on']??false)?'EIN':'AUS')
+                .' | Kommando '.$command
+                .' | Ist '.(($plan['plug_actual']??null)===null?'UNBEKANNT'
+                    :(($plan['plug_actual']??false)?'EIN gemeldet':'AUS gemeldet'))
+                .' | '.$health['link']
+                .' | Schalt-/Leistungsrueckmeldung weiterhin pruefen';
+            if(in_array($command,['SHELLY_ACTION_ERROR',
+                'BLOCKED_SHELLY_OFFLINE_STALE_OR_INCONSISTENT',
+                'SHELLY_HAS_NO_ACTION'],true)) {
+                $report='STOERUNG NACH FREIGABE – '.$report;
+            }
+            $this->SetValue('EWTPumpSetupReport',$report);
+            return $report;
+        } catch(Throwable $e) {
+            // Configuration may have been partially applied. It must not
+            // become active on an unchecked or incorrectly mapped actuator.
+            try {
+                IPS_SetProperty($this->InstanceID,'EnableEWTPumpControl',false);
+                IPS_ApplyChanges($this->InstanceID);
+            } catch(Throwable $ignored) {}
+            $report='EWT-SHELLY NICHT FREIGEGEBEN: '.substr($e->getMessage(),0,230);
+            $this->SetValue('EWTPumpSetupReport',$report);
+            return $report;
+        }
     }
 
     /**
