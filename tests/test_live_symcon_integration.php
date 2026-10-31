@@ -233,6 +233,16 @@ $active->setProperty('EnableSmartFanTakeover',true);
 $beforeSmart=count($GLOBALS['calls']);
 $active->Evaluate();
 $auto=json_decode($active->value('DecisionJSON'),true);
+echo "SMART_DEBUG ".json_encode([
+  'plan'=>$auto['smart_fan_takeover']??null,
+  'result'=>$auto['smart_fan_execution']??null,
+  'season'=>$auto['smart_profile_execution']??null,
+  'native'=>$auto['native_helios_integration']??null,
+  'room_temp'=>$auto['fresh_room_count']??null,
+  'room_rh'=>$auto['fresh_humidity_room_count']??null,
+  'quality'=>$auto['weather_quality']??null,
+  'daily_season'=>$auto['daily_strategy']['season_signal']??null,
+],JSON_UNESCAPED_UNICODE)."\n";
 it(($auto['smart_fan_takeover']['execute']??false)===true,
     'SMART fan overrides manufacturer weekly after fresh room and weather checks');
 it(($auto['smart_fan_takeover']['target_stage']??null)===3,
