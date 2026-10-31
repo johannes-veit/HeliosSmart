@@ -52,6 +52,7 @@ php tests/test_ewt_health.php
 php tests/test_ewt_learning.php
 php tests/test_ewt_environment.php
 php tests/test_soil_climatology.php
+php tests/test_soil_history_auto.php
 
 php tests/test_theoretical_ventilation.php
 php tests/test_horizon_planner.php
