@@ -260,7 +260,7 @@ $GLOBALS['variableTimes'][19705]=time()-30;
 $install=new HeliosSmart();$install->Create();
 $GLOBALS['installerModule']=$install;
 $summary=$install->InstallExistingEWTShelly();
-a(str_contains($summary,'CONFIGURIERT / AUTOMATIK FREIGEGEBEN'),
+a(str_contains($summary,'CONFIGURIERT / EWT-STEUERUNG FREIGEGEBEN'),
     'one-click installation maps all correct Shelly variables');
 a(str_contains($summary,'EINRICHTUNGSBERICHT (kein Live-Istzustand)')
     && !str_contains($summary,'REQUEST_ON')
