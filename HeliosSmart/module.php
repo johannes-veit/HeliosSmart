@@ -587,14 +587,22 @@ class HeliosSmart extends IPSModule
             IPS_SetProperty($this->InstanceID,'EnableProgramSwitch',true);
             IPS_ApplyChanges($this->InstanceID);
             $this->Evaluate();
-            $msg='SMART-LUEFTUNG AKTIV | AUTO als Herstellerbasis'
-                .' | Saisonprofil bei belegtem Heizwetter automatisch'
-                .' | Party/Ruhe nur bei ihren gesonderten Sicherheitsfreigaben'
-                .' | aktuelle Beurteilung: '.$this->GetValue('SmartFanControlStatus');
+            $msg='SMART-LUEFTUNG AKTIV | Hersteller bleibt AUTO'
+                .' | saisonale Wochenprofilregelung freigegeben'
+                .' | Zusatz-Party/Ruhe nur nach ihren eigenen Sicherheitsfreigaben'
+                .' | aktuelle Einzelheiten: SmartFanControlStatus / DecisionJSON';
             $this->SetValue('SmartFanControlStatus',$msg);
             return $msg;
         }catch(Throwable $e){
-            $msg='SMART-LUEFTUNG FREIGABE/ERSTAUSWERTUNG NICHT BESTAETIGT: '
+            // A partially applied opt-in is not left armed following a
+            // failed commissioning step. Device commands, if already sent,
+            // are not canceled blindly; manufacturer remains in AUTO.
+            try{
+                IPS_SetProperty($this->InstanceID,'EnableControl',false);
+                IPS_SetProperty($this->InstanceID,'EnableProgramSwitch',false);
+                IPS_ApplyChanges($this->InstanceID);
+            }catch(Throwable $ignored){}
+            $msg='SMART-LUEFTUNG NICHT FREIGEGEBEN (Prueffehler): '
                 .substr($e->getMessage(),0,160);
             $this->SetValue('SmartFanControlStatus',$msg);
             return $msg;
