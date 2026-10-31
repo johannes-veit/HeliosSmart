@@ -97,7 +97,12 @@ final class JVHeliosEWTPump
         $soilModel=is_array($x['soil_current_model']??null)
             ?$x['soil_current_model']:null;
         $modelValue=null;
-        if(is_array($soilModel)
+        $modelProvenance='UNAVAILABLE';
+        $hasRetrieval=is_array($soilModel)
+            && array_key_exists('retrieved_at',$soilModel);
+        $observationAt=is_array($soilModel)&&is_numeric($soilModel['time']??null)
+            ?(int)$soilModel['time']:0;
+        $modelCommon=is_array($soilModel)
             && ($soilModel['source']??'')==='OPEN_METEO_ECMWF_IFS_FORECAST_MODEL'
             && ($soilModel['quality']??'')==='MODEL_FORECAST_NOT_MEASURED'
             && ($soilModel['depth_deep_cm']??'')==='100-255'
@@ -105,24 +110,37 @@ final class JVHeliosEWTPump
             && is_finite((float)$soilModel['deep_c'])
             && (float)$soilModel['deep_c']>=-15
             && (float)$soilModel['deep_c']<=35
-            && is_numeric($soilModel['time']??null)
+            && $observationAt<=$now+300 && $observationAt>0;
+        $retrievalValid=$hasRetrieval
             && is_numeric($soilModel['retrieved_at']??null)
             && (int)$soilModel['retrieved_at']<=$now+120
             && (int)$soilModel['retrieved_at']>=$now-9*3600
-            && (int)$soilModel['time']<=$now+300
-            && (int)$soilModel['time']>=$now-12*3600
-            && (int)$soilModel['time']<=(int)$soilModel['retrieved_at']+300) {
+            && $observationAt>=$now-12*3600
+            && $observationAt<=(int)$soilModel['retrieved_at']+300;
+        // JVHeliosCurrentSoilModel::latest() returns a model HOUR, not a
+        // retrieved_at field. Some weather-center adapters add the latter,
+        // some do not. In the latter case trust only a VERY RECENT
+        // observation timestamp (<=2h), never invent a retrieval time,
+        // and demand more predicted benefit before any reversible probe.
+        $timeOnlyFresh=!$hasRetrieval
+            && $observationAt>=$now-2*3600;
+        if($modelCommon && ($retrievalValid || $timeOnlyFresh)){
             $modelValue=round((float)$soilModel['deep_c'],2);
+            $modelProvenance=$retrievalValid
+                ?'MODEL_WITH_VERIFIED_RETRIEVAL_AGE'
+                :'MODEL_HOUR_RECENT_RETRIEVAL_TIMESTAMP_ABSENT';
         }
         $planningSole=$measuredSole??$modelValue??$reference['mean_c'];
         $planningGap=$out!==null?round($planningSole-$out,2):null;
         $potentialBasis=$soleValid?'MEASURED_SOLE':
-            ($modelValue!==null?'ECMWF_IFS_100_255CM_LIVE_MODEL':
-                (($reference['quality']??'')==='ERA5_LAND_100_255CM_MULTIYEAR_MODEL'
+            ($modelValue!==null
+                ?($retrievalValid?'ECMWF_IFS_100_255CM_LIVE_MODEL'
+                    :'ECMWF_IFS_100_255CM_RECENT_HOURLY_MODEL')
+                :(($reference['quality']??'')==='ERA5_LAND_100_255CM_MULTIYEAR_MODEL'
                     ?'ERA5_LAND_MULTIYEAR_LAYER_MODEL':'SEASONAL_ESTIMATE'));
-        // One matching pair (15.4 vs 15.5 C) is encouraging, but it
-        // cannot justify treating a numerical soil forecast as a sensor.
-        $probeMargin=$potentialBasis==='ECMWF_IFS_100_255CM_LIVE_MODEL'?2.0:1.5;
+        // The soil grid is NEVER a measured fluid temperature.
+        $probeMargin=$potentialBasis==='ECMWF_IFS_100_255CM_LIVE_MODEL'?2.0:
+            ($potentialBasis==='ECMWF_IFS_100_255CM_RECENT_HOURLY_MODEL'?2.5:1.5);
         // Separate AIR-EWT circulation frost preheat: ON at <= +3 C,
         // release only at >= +5 C (2 K hysteresis). This does not alter
         // the independent Helios heat-exchanger anti-icing protection.
@@ -229,6 +247,7 @@ final class JVHeliosEWTPump
             'soil_current_model_c'=>$modelValue,
             'soil_model_quality'=>$modelValue!==null
                 ?'MODEL_FORECAST_NOT_MEASURED':'NO_VALID_CURRENT_MODEL',
+            'soil_model_provenance'=>$modelProvenance,
             'planning_probe_margin_k'=>$probeMargin,
             'planning_sole_c'=>$planningSole,
             'planning_gap_sole_minus_outside_kelvin'=>$planningGap,
