@@ -48,6 +48,13 @@ final class JVHeliosSmartFanAuto
         $voc=$d['max_voc_ppm']??null;
         $badAir=(is_numeric($co2)&&(float)$co2>=1100)
             ||(is_numeric($voc)&&(float)$voc>=1000);
+        $nativeRh=$d['native_extract_rh']??null;
+        $nativeHighRh=is_numeric($nativeRh)
+            && (float)$nativeRh>=70.0;
+        if(($d['native_sensor_stale']??false)===true && $fan===4){
+            $out['reason']='NATIVE_SENSOR_READINGS_STALE_KEEP_OWN_DEMAND';
+            return $out;
+        }
         $wet=(bool)($d['wet_need']??false);
         $cook=(bool)($d['cooking_confirmed']??false);
         $cool=(bool)($d['cooling_confirmed']??false);
@@ -59,8 +66,10 @@ final class JVHeliosSmartFanAuto
         // A genuinely high native CO2/VOC sensor request must NOT be
         // silently downgraded to S3 simply because S4 approval is absent.
         // Keep the manufacturer's own sensor/weekly regulation in charge.
-        if($badAir && !$highPower){
-            $out['reason']='NATIVE_CO2_VOC_HIGH_NO_S4_APPROVAL';
+        if(($badAir || $nativeHighRh) && !$highPower && $fan===4){
+            $out['reason']=$badAir
+                ?'NATIVE_CO2_VOC_HIGH_NO_S4_APPROVAL'
+                :'NATIVE_EXTRACT_HUMIDITY_HIGH_KEEP_S4';
             return $out;
         }
         // Similarly never force a lower stage than the already measured
@@ -70,10 +79,11 @@ final class JVHeliosSmartFanAuto
             return $out;
         }
         // Safety-priority cases always beat energy savings or absence.
-        if($strongWet || $strongCook || $badAir){
+        if($strongWet || $strongCook || $badAir || $nativeHighRh){
             $level=$highPower?4:3;
             $reason=$badAir?'NATIVE_CO2_OR_VOC_HIGH'
-                :($strongWet?'STRONG_WETROOM_NEED':'CONFIRMED_COOKING');
+                :($nativeHighRh?'NATIVE_HUMIDITY_HIGH'
+                    :($strongWet?'STRONG_WETROOM_NEED':'CONFIRMED_COOKING'));
         } elseif($wet || $cook || $cool){
             $level=3;
             $reason=$wet?'WETROOM_AIR_NEED':($cook?'COOKING':'SAFE_PASSIVE_COOLING');
@@ -105,6 +115,7 @@ final class JVHeliosSmartFanAuto
             'room_temp_count'=>$d['room_temp_count'],
             'room_humidity_count'=>$d['room_humidity_count'],
             'high_co2_or_voc'=>$badAir,
+            'high_native_extract_rh'=>$nativeHighRh,
             'wetroom_demand'=>$wet,
             'cooking_demand'=>$cook,
             'cooling_demand'=>$cool,
