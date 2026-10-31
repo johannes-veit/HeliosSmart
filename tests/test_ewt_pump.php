@@ -11,16 +11,38 @@ $base=[
 ];
 $plan=static fn(array $override):array => JVHeliosEWTPump::decide(array_replace($base,$override));
 checkEwt($plan(['outside_temperature'=>-8])['desired_on']===true,'below zero ON');
-checkEwt($plan(['outside_temperature'=>4.9])['frost_priority']===true,'under +5 frost ON');
+checkEwt($plan(['outside_temperature'=>3.0])['frost_priority']===true,'at +3 EWT preheating frost ON');
+checkEwt($plan(['outside_temperature'=>3.1])['frost_priority']===false,'above +3 frost OFF when plug not yet running');
 checkEwt($plan(['weather_quality'=>'MODEL_SUPPORTED','outside_temperature'=>23])['desired_on']===true,'model-only fail-safe ON');
 checkEwt($plan(['outside_temperature'=>23,'outside_observed_at'=>$now-3600])['desired_on']===true,'stale weather fail-safe ON');
 checkEwt($plan(['outside_temperature'=>16])['desired_on']===false,'mild weather OFF');
+checkEwt($plan(['outside_temperature'=>7.0,'plug_on'=>true,
+    'intake_after_ewt'=>10.0])['frost_priority']===false,
+    'at +7C frost is inactive even if EWT runs for actual air preheating');
+checkEwt($plan(['outside_temperature'=>4.0,'plug_on'=>false,
+    'intake_after_ewt'=>null,'indoor_temperature'=>null])['frost_priority']===false,
+    'initial OFF at +4C not forcibly started by frost only');
+checkEwt($plan(['outside_temperature'=>4.0,'plug_on'=>true,
+    'intake_after_ewt'=>4.0,'indoor_temperature'=>null])['frost_priority']===true,
+    'running pump at +4C stays ON until +5C to avoid cycling');
+checkEwt($plan(['outside_temperature'=>4.0,'weather_quality'=>'UNAVAILABLE'])['frost_priority']===true,
+    'unknown weather retains fault-safe pump ON even above +3C');
+checkEwt($plan(['outside_temperature'=>6.0,
+    'forecast'=>[['observed_at'=>$now+3600,'temperature'=>1.5,'confidence'=>'OK']]])
+    ['near_term_forecast_frost']===false,
+    'forecast slightly above +1C does not force early frost preheat');
+checkEwt($plan(['outside_temperature'=>6.0,
+    'forecast'=>[['observed_at'=>$now+3600,'temperature'=>0.0,'confidence'=>'OK']]])
+    ['near_term_forecast_frost']===true,
+    'verified near-zero forecast may preheat preventively');
+
 checkEwt($plan(['outside_temperature'=>21,'plug_on'=>false])['reason']==='COOLING_PROBE_START','summer probe');
 checkEwt($plan(['outside_temperature'=>25,'plug_on'=>true,'intake_after_ewt'=>20])['desired_on']===true,'cooling worthwhile');
 checkEwt($plan(['outside_temperature'=>25,'plug_on'=>true,'intake_after_ewt'=>25,'state'=>['last_on_at'=>$now-4000]])['desired_on']===false,'useless summer OFF');
 checkEwt($plan(['outside_temperature'=>9,'plug_on'=>true,'intake_after_ewt'=>13])['desired_on']===true,'winter useful preheat');
 checkEwt($plan(['outside_temperature'=>9,'plug_on'=>true,'intake_after_ewt'=>8,'state'=>['last_on_at'=>$now-4000]])['desired_on']===false,'winter no benefit OFF');
-checkEwt($plan(['outside_temperature'=>6,'plug_on'=>true,'intake_after_ewt'=>4])['desired_on']===true,'frost hysteresis priority');
+checkEwt($plan(['outside_temperature'=>4.9,'plug_on'=>true,'intake_after_ewt'=>4])['desired_on']===true,'frost hysteresis until +5');
+checkEwt($plan(['outside_temperature'=>5.0,'plug_on'=>true,'intake_after_ewt'=>4,'state'=>['last_on_at'=>$now-3600]])['frost_priority']===false,'at +5 frost protection releases');
 checkEwt($plan(['outside_temperature'=>25,'plug_on'=>false,'state'=>['last_off_at'=>$now-8000,'last_probe_at'=>$now-1800]])['desired_on']===false,'no short cycle');
 checkEwt($plan(['outside_temperature'=>24,'plug_on'=>true,'intake_after_ewt'=>24,'state'=>['last_on_at'=>$now-300,'probe_until'=>$now+600]])['desired_on']===true,'probe min runtime');
 // Monthly estimates are NOT monthly measurements. User-reported observed
@@ -74,7 +96,7 @@ $forecast=[['observed_at'=>$now+3600,'temperature'=>-2,'confidence'=>'OK']];
 $preheat=$plan(['outside_temperature'=>10,'forecast'=>$forecast]);
 checkEwt($preheat['desired_on']===true
     && $preheat['reason']==='FROST_FORECAST_NEAR_TERM',
-    'validated frost in next 3h pre-starts the air EWT pump');
+    'validated colder-than-1C forecast in next 3h pre-starts EWT pump');
 $unsupported=$plan(['outside_temperature'=>10,
     'forecast'=>[['observed_at'=>$now+3600,'temperature'=>-2,'confidence'=>'LOW']]]);
 checkEwt($unsupported['near_term_forecast_frost']===false,
