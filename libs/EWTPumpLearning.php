@@ -98,6 +98,7 @@ final class JVHeliosEWTPumpLearning
             'soil_measured_c'=>$x['soil_measured_c']??null,
             'pump_power_w'=>$watts,
             'climate'=>$x['climate']??'UNKNOWN',
+            'season'=>$x['season']??'UNKNOWN',
             'occupancy'=>$x['occupancy']??'UNKNOWN',
             'operator_mode'=>$x['operator_mode']??'AUTOMATIK',
             'weather_quality'=>$x['weather_quality']??'UNAVAILABLE',
@@ -118,6 +119,8 @@ final class JVHeliosEWTPumpLearning
         if(!in_array($x['pump_state']??'',['ON_REPORTED','OFF_REPORTED'],true))
             return 'PUMP_STATE_UNKNOWN';
         if(($x['switch_contradiction']??false)===true)return 'CONTRADICTORY_SHELLY_POWER';
+        if(($x['command_pending']??false)===true)return 'SHELLY_COMMAND_NOT_ACKNOWLEDGED';
+        if(($x['command_error']??false)===true)return 'SHELLY_COMMAND_ERROR';
         $out=$x['outside_c']??null;$intake=$x['intake_c']??null;
         if(!is_numeric($out)||!is_numeric($intake) || !is_finite((float)$out)
             || !is_finite((float)$intake)||$out<-35||$out>55
@@ -128,7 +131,14 @@ final class JVHeliosEWTPumpLearning
             ||$intakeAge>1200)return 'STALE_TEMPERATURE';
         $changeAt=(int)($x['last_pump_change_at']??0);
         if($changeAt<=0 || $now-$changeAt<15*60) return 'PUMP_NOT_STABLE_15_MIN';
-        if(!is_numeric($x['fan_stage']??null))return 'NO_FAN_STAGE';
+        if(!is_numeric($x['fan_stage']??null)
+            || (int)$x['fan_stage']<1 || (int)$x['fan_stage']>4)
+            return 'NO_VALID_AIRFLOW_STAGE';
+        // A stage change affects the air-temperature response independently
+        // of pump changes. Do not fit overlapping fan transients as EWT effect.
+        $fanChanged=(int)($x['fan_changed_at']??0);
+        if($fanChanged>$now+120 || ($fanChanged>0 && $now-$fanChanged<10*60))
+            return 'FAN_LEVEL_NOT_STABLE_10_MIN';
         return 'OK';
     }
 
