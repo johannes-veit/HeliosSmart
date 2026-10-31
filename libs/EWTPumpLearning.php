@@ -106,6 +106,7 @@ final class JVHeliosEWTPumpLearning
             'time'=>$now,'mode'=>$mode,'outside_c'=>round($out,2),
             'intake_c'=>round($intake,2),'ewt_air_effect_k'=>round($effect,2),
             'fan_stage'=>$stage,'bypass'=>$bypass,
+            'intake_read_source'=>$x['intake_read_source']??'SYMCON_VARIABLE',
             'indoor_c'=>$x['indoor_c']??null,
             'humidity_inside_gm3'=>$x['indoor_ah_gm3']??null,
             'humidity_outside_gm3'=>$x['outside_ah_gm3']??null,
