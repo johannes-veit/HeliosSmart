@@ -46,6 +46,15 @@ $stale=array_replace($x,['outside_at'=>$now-7200,'intake_at'=>$now-30,
 $out=JVHeliosEWTPumpLearning::update($state,$stale,$now);
 lcheck($out['state']['samples']===48,'stale weather not learned');
 lcheck($out['diagnosis']['last_result']==='STALE_TEMPERATURE','explicit stale weather rejection');
+$misaligned=array_replace($x,[
+    'outside_at'=>$now-60,'intake_at'=>$now-950,
+    'last_pump_change_at'=>$now-3600,
+]);
+$alignment=JVHeliosEWTPumpLearning::update([],$misaligned,$now);
+lcheck($alignment['diagnosis']['last_result']==='OUTSIDE_INTAKE_NOT_TIME_ALIGNED_10_MIN',
+    'weather and Helios after-EWT air at different times are not comparable');
+lcheck($alignment['state']['samples']===0,
+    'misaligned air measurement pair never contaminates ON/OFF matched EWT evidence');
 $offline=array_replace($x,['outside_at'=>$now-60,'intake_at'=>$now-50,
  'shelly_online'=>false,'last_pump_change_at'=>$now-3600]);
 $out=JVHeliosEWTPumpLearning::update($state,$offline,$now);
