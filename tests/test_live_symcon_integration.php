@@ -121,4 +121,27 @@ it(count(array_filter($GLOBALS['calls'],static fn($v)=>$v[0]==='party'))===1,
 $h->setProperty('EnableControl',false);
 $h->Evaluate();
 it($h->value('Monitoring')===true,'Abschalten der Freigabe setzt Beobachtungsmodus');
+$GLOBALS['values'][30441]=4;
+$GLOBALS['deviceMode']=0;
+$GLOBALS['deviceFan']=4;
+$GLOBALS['deviceProgram']=4;
+$GLOBALS['getCalls']=0;
+$beforeFanOnly=count($GLOBALS['calls']);
+$h->Evaluate();
+$stage4=json_decode($h->value('DecisionJSON'),true);
+it(($stage4['fan_stage_attribution']['kind']??'')==='DEVICE_AUTOMATIC_WEEKLY_OR_NATIVE',
+    'Stufe4 bei HELIOS AUTO erkennt Wochenplan oder Geraeteregelung, nicht unberechtigten Smart-Boost');
+it(($stage4['fan_stage_attribution']['helio_smart_control_enabled']??true)===false,
+    'Nur beobachten trennt Fan-Freigabe strikt von eigenstaendiger Solepumpen-Automatik');
+it($GLOBALS['getCalls']>=3,
+    'Stufe4 wird auch bei Nur-Beobachten ueber lesende native Hersteller-Funktionen verifiziert');
+it(count($GLOBALS['calls'])===$beforeFanOnly,
+    'Lesende Stufe4-Ursachendiagnose sendet keinen einzigen Helios-Schaltbefehl');
+it(str_contains((string)$h->value('FanStageCause'),'NUR BEOBACHTEN'),
+    'Helios-Luefterstufe hat eigene sichtbare Gruende-Diagnose');
+$GLOBALS['deviceMode']=2;
+$h->Evaluate();
+$external=json_decode($h->value('DecisionJSON'),true);
+it(($external['fan_stage_attribution']['kind']??'')==='PARTY_NOT_OWNED',
+    'Fremde aktive Party bei Stufe4 wird nicht als eigenes Wochenprogramm ausgegeben');
 echo "ALLE $counter SYMCON-LIVE-INTEGRATIONSPRUEFUNGEN BESTANDEN\n";
