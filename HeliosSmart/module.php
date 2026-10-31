@@ -293,6 +293,7 @@ class HeliosSmart extends IPSModule
 
                 ['type'=>'Label','caption'=>'SOMMERPROFIL 4 -> NORMAL-/WINTERPROFIL 3 bei lokaler Kälte und nachweislich gesundem Helios AUTO. Kein dauerhaftes MANUELL: das Original geraeteregelt CO2/Feuchte/VOC und Wochenprogramm bleibt aktiv. Automatische Absenkung einer eventuell echten Sensor-Anforderung Stufe 4 ist nicht freigegeben.'],
                 ['type'=>'Button','caption'=>'SMART-LUEFTUNG JETZT AKTIVIEREN (Original pruefen, Programmautomatik und Zusatzsteuerung freigeben)','onClick'=>'echo JVHS_StartSmartFanControl($id);'],
+                ['type'=>'Button','caption'=>'SMART-LUEFTUNG STOPPEN – zurueck zum gespeicherten Helios-Wochenprogramm','onClick'=>'echo JVHS_StopSmartFanControl($id);'],
                 ['type'=>'CheckBox','name'=>'EnableNightQuiet','caption'=>'OPTIONAL: jederzeit Stufe 1 fuer 30 min bei geringem Bedarf mit Helios-Ruhebetrieb und Auto-Rueckfall (Modellluftmenge; Standard AUS)'],
                 ['type'=>'CheckBox','name'=>'AllowEstimatedAirflowLimitedParty','caption'=>'Modellbetrieb akzeptieren: Luftmengen NICHT gemessen; S3 max. 15 min oder separat freigegebener Nacht-Ruhebetrieb S1/30'],
                 ['type'=>'CheckBox','name'=>'MinimumVentilationValidated','caption'=>'Alternativ: reale Luftmengen fachlich eingemessen (nur bei vorhandenem Nachweis)'],
@@ -614,6 +615,36 @@ class HeliosSmart extends IPSModule
             }catch(Throwable $ignored){}
             $msg='SMART-LUEFTUNG NICHT FREIGEGEBEN (Prueffehler): '
                 .substr($e->getMessage(),0,160);
+            $this->SetValue('SmartFanControlStatus',$msg);
+            return $msg;
+        }
+    }
+
+    /** Operator stop: stop only our proven timed override, never a foreign party. */
+    public function StopSmartFanControl(): string
+    {
+        if(!function_exists('IPS_SetProperty')||!function_exists('IPS_ApplyChanges')){
+            $msg='STOP NICHT MOEGLICH – IP-Symcon Konfigurations-API fehlt';
+            $this->SetValue('SmartFanControlStatus',$msg);
+            return $msg;
+        }
+        try{
+            IPS_SetProperty($this->InstanceID,'EnableSmartFanTakeover',false);
+            IPS_SetProperty($this->InstanceID,'EnableProgramSwitch',false);
+            IPS_SetProperty($this->InstanceID,'EnableControl',false);
+            IPS_ApplyChanges($this->InstanceID);
+            $fallback=$this->ExecuteSmartFanTakeover([
+                'execute'=>false,'reason'=>'MANUAL_OPERATOR_STOP',
+                'fallback_weekly'=>true,
+            ],time());
+            $msg='SMART ABGESCHALTET | Original-HELIOS Wochenprogramm wieder vorrangig'
+                .' | '.($fallback['status']??'NATIVE_TIMER_FALLBACK');
+            $this->SetValue('SmartFanControlStatus',$msg);
+            return $msg;
+        }catch(Throwable $e){
+            $msg='STOP FEHLER – native zeitbegrenzte Smart-Party'
+                .' endet spaetestens durch Hersteller-Timer: '
+                .substr($e->getMessage(),0,120);
             $this->SetValue('SmartFanControlStatus',$msg);
             return $msg;
         }
