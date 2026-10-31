@@ -189,7 +189,7 @@ $GLOBALS['variables'][9002]=true;
 $GLOBALS['variableTimes'][9002]=time();
 $GLOBALS['onlineChangedAt']=time()-3600;
 // No new relay telemetry after a recent reconnect must remain UNKNOWN.
-$GLOBALS['onlineChangedAt']=time()+1;
+$GLOBALS['onlineChangedAt']=time()+10;
 $offline->RequestAction('EWTPumpModeManual',true);
 a(str_contains((string)$offline->value('EWTPumpActualStatus'),'UNBEKANNT'),
     'pre-reconnect output cannot certify actual relay state');
