@@ -34,6 +34,7 @@ require_once __DIR__ . '/../libs/FanAttribution.php';
 require_once __DIR__ . '/../libs/NativeHeliosCoordination.php';
 require_once __DIR__ . '/../libs/SeasonProgramControl.php';
 require_once __DIR__ . '/../libs/SmartFanAuto.php';
+require_once __DIR__ . '/../libs/ChatGPTDiagnostic.php';
 /** Vorhersagegestützter Beobachter; Aktor nur nach expliziter Freigabe. */
 class HeliosSmart extends IPSModule
 {
@@ -75,6 +76,7 @@ class HeliosSmart extends IPSModule
         $this->RegisterPropertyBoolean('EnableProgramSwitch',false);
         $this->RegisterPropertyBoolean('EnableSmartFanTakeover',false);
         $this->RegisterAttributeString('SmartFanTakeoverState','{}');
+        $this->RegisterAttributeString('ChatGPTDiagnosticState','{}');
         $this->RegisterPropertyBoolean('EnableNightQuiet',false);
         $this->RegisterAttributeString('RoomHistory', '{}');
         $this->RegisterAttributeString('LearningObservationState', '{}');
@@ -132,6 +134,8 @@ class HeliosSmart extends IPSModule
             'SMART-Lueftung – aktive Regelung / Uebernahme','',63);
         $this->RegisterVariableString('SmartFanTakeoverJSON',
             'SMART-Lueftung – aktive Stufenwahl / Fallback JSON','',64);
+        $this->RegisterVariableString('ChatGPTDiagnosis',
+            'Diagnose senden an ChatGPT','',65);
         if(method_exists($this,'EnableAction')) {
             $this->EnableAction('EWTPumpModeManual');
             $this->EnableAction('EWTPumpSwitch');
@@ -213,6 +217,9 @@ class HeliosSmart extends IPSModule
         // Keine komplette Evaluate()-Ausfuehrung: keine Party-Schaltmoeglichkeit.
         $this->RefreshLearningReport();
         $this->ReadNativeHeliosIntegration(null,false);
+        // Restore last evaluated diagnosis from a sanitized, bounded
+        // read-only state; a module update must not run actuators.
+        $this->RefreshChatGPTDiagnosis();
     }
 
     /** Aenderungs-Ereignisse der vorhandenen Bad-RH-Variablen statt fuenf Minuten Polling. */
@@ -306,6 +313,7 @@ class HeliosSmart extends IPSModule
                 ['type'=>'CheckBox','name'=>'DevicePartyReturnValidated','caption'=>'Party endet am Geraet eigenstaendig und Wochenprogramm laeuft wieder'],
             ],
             'actions'=>[
+                ['type'=>'Button','caption'=>'Diagnose senden an ChatGPT jetzt aktualisieren (NUR LESEN, keine Schaltung)','onClick'=>'JVHS_RefreshChatGPTDiagnosis($id);'],
                 ['type'=>'Button','caption'=>'Nur Lerndiagnose aktualisieren (keine Schaltung)','onClick'=>'JVHS_RefreshLearningReport($id);'],
                 ['type'=>'Button','caption'=>'Jetzt bewerten (bei Freigabe ggf. Party starten)','onClick'=>'JVHS_Evaluate($id);'],
             ]
@@ -1926,6 +1934,308 @@ class HeliosSmart extends IPSModule
         return $diagnosis;
     }
 
+    /**
+     * Single copy/paste diagnostic, refreshed on every completed 5-minute
+     * evaluation and also safely on module update. The manual action ONLY
+     * re-renders the last evaluated frame; no HELIOS / Shelly setters.
+     */
+    public function RefreshChatGPTDiagnosis():void
+    {
+        $now=time();
+        try{
+            $f=json_decode($this->ReadAttributeString('ChatGPTDiagnosticState'),true);
+            if(!is_array($f)||!isset($f['sampled_at'])){
+                $f=[
+                    'sampled_at'=>0,
+                    'warnings'=>[
+                        'Nach Modulaktualisierung noch keine vollstaendige SMART-Bewertung vorhanden.',
+                        'Die Diagnosedaten werden beim naechsten regulaeren 5-Minuten-Lauf erfasst.',
+                    ],
+                    'instances'=>['HELIOS_SMART'=>$this->InstanceID,
+                        'Original_HELIOS'=>$this->ReadPropertyInteger('HeliosInstance'),
+                        'WetterZentrale'=>$this->ReadPropertyInteger('WeatherCenterInstance'),
+                        'LCNClimateControl'=>$this->ReadPropertyInteger('ClimateControlInstance')],
+                    'flags'=>[
+                        'smart_fan_enabled'=>$this->ReadPropertyBoolean('EnableControl')
+                            && $this->ReadPropertyBoolean('EnableSmartFanTakeover'),
+                        'ewt_pump_enabled'=>$this->ReadPropertyBoolean('EnableEWTPumpControl'),
+                    ],
+                ];
+            }
+            $this->SetValue('ChatGPTDiagnosis',
+                JVHeliosChatGPTDiagnostic::render($f,$now));
+        }catch(Throwable $e){
+            $this->SetValue('ChatGPTDiagnosis',
+                "HELIOS SMART – DIAGNOSE SENDEN AN CHATGPT\n".
+                "ERSTELLUNG FEHLGESCHLAGEN: ".
+                substr($e->getMessage(),0,130)."\n".
+                "Keine Schaltbefehle durch die Diagnose.");
+        }
+    }
+
+    /** Read our OWN registered text variables only, never another module's settings. */
+    private function DiagnosticOwnText(string $ident,int $limit=6000):?string
+    {
+        if(!method_exists($this,'GetIDForIdent'))return null;
+        try{
+            $id=$this->GetIDForIdent($ident);
+            if(!is_int($id)||$id<=0||!IPS_VariableExists($id))return null;
+            $value=GetValue($id);
+            if(!is_string($value)||$value==='')return null;
+            return strlen($value)>$limit
+                ?substr($value,0,$limit).' [AUSZUG, weitere Daten im Lernprogramm]'
+                :$value;
+        }catch(Throwable $e){return null;}
+    }
+
+    /**
+     * Whitelist a snapshot of decisions, real device feedback, sensor ages
+     * and learning counts. Never serialize raw native config, IPS secrets,
+     * person identifiers, URLs, access tokens, or the full weather archive.
+     * This method only publishes; it NEVER touches actuators.
+     */
+    private function PublishChatGPTDiagnosis(
+        array $d,array $weather,array $rooms,array $missing,
+        array $humiditySources,int $now):void
+    {
+        try{
+            $pick=[JVHeliosChatGPTDiagnostic::class,'pick'];
+            $native=(array)($d['native_helios_integration']??[]);
+            $actual=(array)($d['fan_stage_attribution']??[]);
+            $device=(array)($d['device_status_check']??[]);
+            $plan=(array)($d['smart_fan_takeover']??[]);
+            $execution=(array)($d['smart_fan_execution']??[]);
+            $smartState=json_decode($this->ReadAttributeString('SmartFanTakeoverState'),true);
+            $smartState=is_array($smartState)?$smartState:[];
+            $ewt=(array)($d['ewt_pump']??[]);
+            $connectivity=(array)($ewt['connectivity']??[]);
+            $pumpState=json_decode($this->ReadAttributeString('EWTPumpControlState'),true);
+            $pumpState=is_array($pumpState)?$pumpState:[];
+            $ewtLearning=(array)($d['ewt_learning']??[]);
+            $nativeAir=(array)($d['native_air_evidence']??[]);
+            $lState=json_decode($this->ReadAttributeString('LearningObservationState'),true);
+            $lState=is_array($lState)?$lState:[];
+            $occState=json_decode($this->ReadAttributeString('OccupancyLearningState'),true);
+            $occState=is_array($occState)?$occState:[];
+            $calendar=json_decode($this->ReadAttributeString('CalendarPatternState'),true);
+            $calendar=is_array($calendar)?$calendar:[];
+            $current=is_array($weather['current']??null)?$weather['current']:[];
+            $soil=is_array($weather['soil_current_model']??null)
+                ?$weather['soil_current_model']:[];
+            $history=is_array($weather['soil_climatology']??null)
+                ?$weather['soil_climatology']:[];
+            $forecast=(array)($weather['forecast']??[]);
+            $warnings=[];
+            $weatherAge=isset($current['observed_at'])
+                ?($now-(int)$current['observed_at']):null;
+            $weatherQuality=(string)($weather['quality']??'UNAVAILABLE');
+            if(!in_array($weatherQuality,['VERIFIED','DWD_ONLY'],true)
+                ||$weatherAge===null||$weatherAge<0||$weatherAge>900)
+                $warnings[]='Wetter fuer SMART-Stufenwahl nicht frisch/verifiziert.';
+            if(($native['native_instance_status']??null)!==102)
+                $warnings[]='Original-Helios Instanz NICHT bestaetigt OK/102.';
+            if(($native['native_own_script_error']??false)===true)
+                $warnings[]='Original-Helios 209: Eigenes Skript ohne Skript-ID.';
+            if((int)($d['fresh_room_count']??0)<9
+                ||(int)($d['fresh_humidity_room_count']??0)<8)
+                $warnings[]='Raumtemperatur-/Luftfeuchteabdeckung nicht ausreichend.';
+            if(($d['ewt_pump']['connectivity']['online_confirmed']??false)!==true
+                && $this->ReadPropertyBoolean('EnableEWTPumpControl'))
+                $warnings[]='EWT-Shelly online nicht sicher bestaetigt.';
+            if(in_array((string)($execution['status']??''),[
+                'SMART_STAGE_SENT_READBACK_PENDING','AUTO_FALLBACK_PENDING',
+                'FALLBACK_PENDING_NATIVE_15MIN_TIMER_UNVERIFIED',
+                'FALLBACK_PENDING_NATIVE_TIMER_UNVERIFIED',
+                'SMART_STAGE_IO_ERROR','HELIOS_LIVE_READBACK_FAILED',
+            ],true))$warnings[]='SMART-Schaltung/Rueckfall NICHT durch Hersteller bestaetigt.';
+            if($this->ReadPropertyBoolean('AllowEstimatedAirflowLimitedParty')
+                && !$this->ReadPropertyBoolean('MinimumVentilationValidated'))
+                $warnings[]='S1/S2 nur modellbasierte Luftmengenfreigabe; keine gemessene Mindestluftmenge.';
+            if((int)($d['device_status_check']['fan']??0)===4)
+                $warnings[]='Iststufe 4: Herstellerbedarf und SMART-Absenkung getrennt bewerten.';
+            $roomRows=[];
+            foreach($rooms as $room){
+                if(is_array($room))$roomRows[]=JVHeliosChatGPTDiagnostic::roomRow($room,$now);
+                if(count($roomRows)>=20)break;
+            }
+            $rhOnly=[];
+            foreach($humiditySources as $source){
+                if(!is_array($source)||($source['humidity_only']??false)!==true)
+                    continue;
+                $rhOnly[]=$pick($source,['room','available','age_minutes',
+                    'relative_humidity','source']);
+            }
+            $f=[
+                'sampled_at'=>$now,
+                'warnings'=>array_slice($warnings,0,20),
+                'instances'=>[
+                    'HELIOS_SMART'=>$this->InstanceID,
+                    'Original_HELIOS'=>$this->ReadPropertyInteger('HeliosInstance'),
+                    'WetterZentrale'=>$this->ReadPropertyInteger('WeatherCenterInstance'),
+                    'LCNClimateControl'=>$this->ReadPropertyInteger('ClimateControlInstance'),
+                    'EWT_Shelly_Schalter'=>$this->ReadPropertyInteger('EWTPumpSwitchVariable'),
+                ],
+                'flags'=>[
+                    'EnableControl'=>$this->ReadPropertyBoolean('EnableControl'),
+                    'EnableSmartFanTakeover'=>$this->ReadPropertyBoolean('EnableSmartFanTakeover'),
+                    'EnableProgramSwitch'=>$this->ReadPropertyBoolean('EnableProgramSwitch'),
+                    'EnableNightQuiet'=>$this->ReadPropertyBoolean('EnableNightQuiet'),
+                    'MinimumVentilationValidated'=>$this->ReadPropertyBoolean('MinimumVentilationValidated'),
+                    'AllowEstimatedAirflowLimitedParty'=>$this->ReadPropertyBoolean('AllowEstimatedAirflowLimitedParty'),
+                    'EnableHighPowerParty'=>$this->ReadPropertyBoolean('EnableHighPowerParty'),
+                    'HighPowerSafetyValidated'=>$this->ReadPropertyBoolean('HighPowerSafetyValidated'),
+                    'CombustionSafetyValidated'=>$this->ReadPropertyBoolean('CombustionSafetyValidated'),
+                    'EnableEWTPumpControl'=>$this->ReadPropertyBoolean('EnableEWTPumpControl'),
+                ],
+                'device'=>[
+                    'ist_luefterstufe'=>$actual['actual_fan_level']??$device['fan']??null,
+                    'ist_betriebsart'=>$actual['helios_mode']??$device['mode']??null,
+                    'wochenprogramm'=>$actual['weekly_program']??$device['program']??null,
+                    'live_stand_bestaetigt'=>$actual['mode_status_fresh']??false,
+                    'letzte_stufenaenderung'=>$actual['fan_changed_at']??null,
+                    'native_geraetezustaende'=>$pick($device,['mode_fresh','fan_fresh',
+                        'program_fresh','module_verified']),
+                ],
+                'native'=>$pick($native,['native_instance_status','module_guid_verified',
+                    'status_ok','configuration_readable','write_allowed','reasons',
+                    'native_sensor_regulation_possible','sensor_control_reported',
+                    'native_party_preset_fan_level','native_party_preset_minutes',
+                    'native_poll_interval_seconds','native_log_fanlevel']),
+                'attribution'=>$pick($actual,['kind','own_party_active_plausible',
+                    'native_sensor_control_possible','native_module_fault',
+                    'fan_changed_minutes_ago']),
+                'native_air_sensors'=>$pick($nativeAir,['co2_sensor_count',
+                    'voc_sensor_count','max_co2_ppm','max_voc_ppm',
+                    'native_extract_rh','native_sensor_stale',
+                    'native_defrost_active','native_defrost_known']),
+                'smart_plan'=>$pick($plan,['status','reason','target_stage',
+                    'minutes','execute','fallback_weekly','route','evidence']),
+                'smart_execution'=>$pick($execution,['status','attempted','sent',
+                    'verified','fallback_weekly','target_stage','from_program',
+                    'to_program']),
+                'smart_effective'=>$d['smart_fan_effective_state']??'NICHT_BESTAETIGT',
+                'smart_ownership'=>$pick($smartState,['sent_at','until','stage',
+                    'mode','quiet_started_at','quiet_cooldown_until','error_retry_after']),
+                'season'=>[
+                    'signal'=>$d['season_signal']??null,
+                    'climate'=>$d['climate_mode']??null,
+                    'profile'=>$pick((array)($d['smart_profile_control']??[]),
+                        ['action','reason','target_program','may_send']),
+                    'execution'=>$pick((array)($d['smart_profile_execution']??[]),
+                        ['status','attempted','verified','from_program','to_program']),
+                ],
+                'legacy'=>[
+                    'party'=>$pick((array)($d['party_execution']??[]),
+                        ['status','attempted','sent','verified']),
+                    'quiet'=>$pick((array)($d['night_quiet_execution']??[]),
+                        ['status','attempted']),
+                    'legacy_guard'=>$pick((array)($d['party_safety']??[]),
+                        ['command_allowed','airflow_basis','reason']),
+                ],
+                'weather'=>[
+                    'quality'=>$weatherQuality,'messalter_s'=>$weatherAge,
+                    'snapshot_issued_at'=>$weather['issued_at']??null,
+                    'current'=>$pick($current,['temperature','rh','dewpoint',
+                        'absolute_humidity','observed_at','source','wind_speed',
+                        'precipitation','shortwave_radiation']),
+                ],
+                'air_ewt'=>[
+                    'aussen_vor_ewt_c'=>$current['temperature']??null,
+                    'helios_nach_ewt_c'=>$d['ewt_intake_temperature']??null,
+                    'ewt_luftwirkung_k'=>$d['ewt_effect_kelvin']??null,
+                    'zuluft_nach_wrg_c'=>$d['supply_temperature']??null,
+                    'effect_quality'=>$d['ewt_reference_quality']??null,
+                ],
+                'soil'=>[
+                    'ecmwf_current'=>$pick($soil,['source','deep_c','shallow_c',
+                        'time','retrieved_at','quality','depth_deep_cm']),
+                    'era5_reference'=>$pick($history,['source','quality','years',
+                        'years_complete','year_count']),
+                    'planning_source'=>$ewt['planning_source']??null,
+                    'planning_soil_c'=>$ewt['planning_sole_c']??null,
+                    'actual_sole_c'=>$ewt['sole_temperature_measured_c']??null,
+                ],
+                'energy'=>[
+                    'daily'=>$pick((array)($d['daily_strategy']??[]),
+                        ['season_signal','summary','recommended_profile']),
+                    'winter'=>$pick((array)($d['winter_room_air']??[]),
+                        ['room_air_need','heating_active','sensible_heat_w_per_100m3h',
+                        'temperature_rooms_current','humidity_rooms_current']),
+                    'summer'=>$pick((array)($d['summer_airflow']??[]),
+                        ['cooling_recommended','reason']),
+                    'mode'=>$d['mode']??null,
+                ],
+                'room_summary'=>[
+                    'temps_frisch'=>$d['fresh_room_count']??null,
+                    'rh_frisch'=>$d['fresh_humidity_room_count']??null,
+                    'raume_auslesbar'=>count($roomRows),
+                ],
+                'rooms'=>$roomRows,
+                'missing_rooms'=>array_slice(array_map('strval',$missing),0,25),
+                'humidity_only'=>$rhOnly,
+                'ventilation'=>[
+                    'need'=>$pick((array)($d['ventilation_need']??[]),
+                        ['classification','summary']),
+                    'comfort'=>$pick((array)($d['comfort_control']??[]),
+                        ['classification','requested_improvement']),
+                    'night'=>$pick((array)($d['night_strategy']??[]),
+                        ['quiet_eligible','priority_cooling','priority_humidity',
+                        'priority_cooking','low_demand_reason']),
+                ],
+                'events'=>[
+                    'wetroom'=>$pick((array)($d['wetroom_trend']??[]),
+                        ['observed_rises','summary']),
+                    'cooking'=>$pick((array)($d['cooking_advice']??[]),
+                        ['classification','summary','potential_odor_boost']),
+                    'occupancy'=>$pick((array)($d['occupancy_advice']??[]),
+                        ['status','source_fresh','reported_away_is_not_empty_house_proof']),
+                ],
+                'ewt_plan'=>$pick($ewt,['reason','command','desired_on',
+                    'frost_priority','outside_c','operator_mode','planning_source',
+                    'planning_gap_k','measured_effect_k','frost_threshold_on_c',
+                    'frost_threshold_release_c']),
+                'ewt_health'=>[
+                    'telemetrie'=>$pick($connectivity,['online_confirmed','reported',
+                        'power_conflict','watts','actuation_allowed','last_update_age_seconds']),
+                    'shelly_iststatus'=>$this->DiagnosticOwnText('EWTPumpActualStatus',450),
+                    'ewt_zustandsmeldung'=>$this->DiagnosticOwnText('EWTPumpStatus',900),
+                    'ewt_lernstatus'=>$this->DiagnosticOwnText('EWTPumpLearningStatus',500),
+                ],
+                'ewt_state'=>$pick($pumpState,['manual_mode','manual_target','last_on_at',
+                    'last_off_at','pending_target','last_error','command_at']),
+                'ewt_learning'=>$pick($ewtLearning,['samples','monthly_profiles',
+                    'conditioned_groups','last_result','paired_advice']),
+                'learning'=>[
+                    'learning_state_keys'=>array_slice(array_keys($lState),0,16),
+                    'letzte_lernbericht_aktualisierung'=>$lState['d']??null,
+                    'occupancy_samples'=>$occState['samples']??null,
+                    'calendar_patterns'=>count($calendar),
+                    'lernbericht_auszug'=>$this->DiagnosticOwnText('LernDiagnose',5600),
+                ],
+                'prediction'=>[
+                    'forecast_records'=>count($forecast),
+                    'forecast_summary'=>$pick((array)($d['forecast_advice']??[]),
+                        ['summary','quality']),
+                    'learning_stage_context'=>$pick((array)($d['smart_strategy']??[]),
+                        ['classification','summary']),
+                ],
+            ];
+            $json=json_encode($f,JSON_UNESCAPED_UNICODE
+                |JSON_INVALID_UTF8_SUBSTITUTE|JSON_PARTIAL_OUTPUT_ON_ERROR);
+            if(!is_string($json))throw new RuntimeException('Diagnose-Snapshot nicht kodierbar');
+            $this->WriteAttributeString('ChatGPTDiagnosticState',$json);
+            $this->SetValue('ChatGPTDiagnosis',
+                JVHeliosChatGPTDiagnostic::render($f,$now));
+        }catch(Throwable $e){
+            $this->SendDebug('ChatGPTDiagnostic',substr($e->getMessage(),0,120),0);
+            $this->SetValue('ChatGPTDiagnosis',
+                "HELIOS SMART – DIAGNOSE SENDEN AN CHATGPT\n".
+                "DIAGNOSE ERSTELLEN NICHT MOEGLICH: ".
+                substr($e->getMessage(),0,120)."\n".
+                "Der Fehler betrifft nur den Diagnosebericht, keine Geraeteschaltung.");
+        }
+    }
+
     public function Evaluate(): void
     {
         $now=time();
@@ -1956,6 +2266,10 @@ class HeliosSmart extends IPSModule
             $this->EvaluateEWTPump($weather,$now,null);
             $this->SetValue('Status','Stopp: fehlende Helios-Basisvariablen; keine Befehle');
             $this->SetValue('LernDiagnose','HELIOS SMART LERNDIAGNOSE | FEHLER: Helios-Basisvariablen fehlen. Keine Geraetebefehle und kein neues Lernen.');
+            $this->PublishChatGPTDiagnosis([
+                'smart_fan_effective_state'=>'STOPP: HELIOS-BASISVARIABLEN_FEHLEN',
+                'ewt_pump'=>['reason'=>'siehe EWT Einzelstatus'],
+            ],$weather,[],['Helios Stufe/Mode/Wochenprogramm fehlt'],[],$now);
             return;
         }
         $mode=(int)GetValue($modeID);$program=(int)GetValue($progID);
@@ -2231,6 +2545,7 @@ class HeliosSmart extends IPSModule
         $smartState=json_decode($this->ReadAttributeString('SmartFanTakeoverState'),true);
         if(!is_array($smartState))$smartState=[];
         $sensorEvidence=$this->ReadSmartFanSensorEvidence($now);
+        $decision['native_air_evidence']=$sensorEvidence;
         $wetActual=false;$strongWet=false;
         foreach((array)($decision['wetrooms']??[]) as $wet){
             if(!is_array($wet)||($wet['boost_recommended']??false)!==true)continue;
@@ -2510,5 +2825,9 @@ class HeliosSmart extends IPSModule
                 .' ('.($guard['airflow_basis']??'NO_AIRFLOW').')'
             .(!empty($decision['occupancy_advice']['away_status_reports'])
                 ? ' | Bewohner: '.$decision['occupancy_advice']['description'] : ''));
+        // Publish LAST, after both real SMART actuation and EWT status:
+        // one self-contained snapshot suitable for copy/paste.
+        $this->PublishChatGPTDiagnosis($decision,$weather,$tracking['rooms'],
+            $missingRooms,$humiditySources,$now);
     }
 }

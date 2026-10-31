@@ -160,6 +160,18 @@ it(($initialSensors['co2_voc_evidence']['co2_sensor_count']??-1)===0
     'no optional native CO2/VOC sensors is represented as zero installed, not failed');
 $before=json_decode($h->value('DecisionJSON'),true);
 it(count($GLOBALS['calls'])===0,'Nach Installation werkseitig Beobachtung, keine Helios-Schaltung');
+$diagnose=$h->value('ChatGPTDiagnosis');
+it(is_string($diagnose)
+    && str_contains($diagnose,'HELIOS SMART – DIAGNOSE SENDEN AN CHATGPT')
+    && str_contains($diagnose,'WETTER / ENERGIE / EWT-LUFT')
+    && str_contains($diagnose,'Raumdetails T/RH und Alter')
+    && str_contains($diagnose,'HELIOS Lernfortschritt'),
+    'one automatic full ChatGPT diagnosis after completed Evaluate');
+$beforeReadonly=count($GLOBALS['calls']);
+$h->RefreshChatGPTDiagnosis();
+it(count($GLOBALS['calls'])===$beforeReadonly
+    && str_contains((string)$h->value('ChatGPTDiagnosis'),'Auswertungsalter:'),
+    'manual diagnostic refresh only re-renders saved snapshot without any actuator command');
 it(($before['cooking_advice']['classification']??null)==='COOKING_LIKELY','Echte Mehrfach-Leistungsindizien erzeugen Kochhinweis');
 it(($before['party_candidate']['source']??null)==='COOKING','Geruchsbedarf priorisiert');
 // Test deliberate operator consent. This test has no real hardware.

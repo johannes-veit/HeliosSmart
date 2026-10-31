@@ -49,6 +49,7 @@ php tests/test_ewt_pump.php
 php tests/test_fan_attribution.php
 php tests/test_active_season_control.php
 php tests/test_smart_fan_auto.php
+php tests/test_chatgpt_diagnostic.php
 php tests/test_native_helios_coordination.php
 php tests/test_ewt_operator.php
 php tests/test_ewt_operator_integration.php
