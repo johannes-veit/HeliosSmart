@@ -46,6 +46,8 @@ php tests/test_smart_patterns.php
 php tests/test_moisture_comfort.php
 php tests/test_summer_airflow.php
 php tests/test_ewt_pump.php
+php tests/test_ewt_operator.php
+php tests/test_ewt_operator_integration.php
 php tests/test_soil_climatology.php
 
 php tests/test_theoretical_ventilation.php
