@@ -27,6 +27,9 @@ final class JVHeliosChatGPTDiagnostic
             '=== HELIOS SMART – DIAGNOSE SENDEN AN CHATGPT ===',
             'Schema: JVHS_DIAG_1 | Automatisch alle 5 min; manueller Refresh nur LESEN.',
             'WICHTIG: Diagnosekopie ist KEINE neue Geraeteabfrage/Schaltfreigabe.',
+            'Quelle: '.(string)($f['source_mode']??'NICHT_DEKLARIERT')
+                .' | Bericht erstellt: '
+                .gmdate('Y-m-d\\TH:i:s\\Z',(int)($f['report_created_at']??$copiedAt)),
             'Zeit Bezug: '.($at>0?gmdate('Y-m-d\TH:i:s\Z',$at):'NOCH_KEINE_AUSWERTUNG')
               .' UTC | jetzt: '.gmdate('Y-m-d\TH:i:s\Z',$copiedAt)
               .' | Auswertungsalter: '.($age===null?'UNBEKANNT':$age.' s'),
