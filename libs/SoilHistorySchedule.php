@@ -45,13 +45,15 @@ final class JVHeliosSoilHistorySchedule
         $progress=self::progress($store,$now,$years);
         if($progress['complete']) {
             $end=(int)gmdate('Y',$now)-1;
-            return max(60,self::annualReadyAt($end+1)-$now);
+            // Short internal timer (<=7 days) avoids a giant millisecond
+            // interval and never sends an HTTP request until next year.
+            return min(7*86400,max(60,self::annualReadyAt($end+1)-$now));
         }
         $end=(int)gmdate('Y',$now)-1;
         // If ONLY the latest previous year is missing, defer until the
         // official annual dataset is realistically available in January.
         if($progress['missing']===[$end] && $now<self::annualReadyAt($end))
-            return max(60,self::annualReadyAt($end)-$now);
+            return min(7*86400,max(60,self::annualReadyAt($end)-$now));
         $retry=(int)($store['retry_after']??0);
         if($retry>$now)return max(60,$retry-$now);
         return $firstTick?60:90;
