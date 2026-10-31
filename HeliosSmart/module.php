@@ -756,12 +756,25 @@ class HeliosSmart extends IPSModule
                 $out[$prefix==='SensorCO2_'?'co2_sensor_count':'voc_sensor_count']++;
                 $meta=IPS_GetVariable($id);
                 $age=$now-(int)($meta['VariableUpdated']??0);
-                if($age<0||$age>45*60){
-                    $out['native_sensor_stale']=true;
-                    continue;
-                }
-                $value=GetValue($id);
+                $value=($age>=0 && $age<=45*60)?GetValue($id):null;
                 $low=$prefix==='SensorCO2_'?250.0:0.0;
+                // On-change manufacturer variables can remain unchanged
+                // for hours although the sensor is alive. A fresh native
+                // GET of this INSTALLED sensor (never all 8 empty slots)
+                // is stronger evidence than an old Symcon timestamp.
+                if($value===null || !is_numeric($value)
+                    ||(float)$value<$low||(float)$value>10000){
+                    $fn=$prefix==='SensorCO2_'
+                        ?'HELIOS_CO2Sensor_Get':'HELIOS_VOCSensor_Get';
+                    if(function_exists($fn)){
+                        try{
+                            $live=$fn($native,$i);
+                            $field=$prefix==='SensorCO2_'?'CO2_ppm':'VOC_ppm';
+                            if(is_array($live)&&is_numeric($live[$field]??null))
+                                $value=$live[$field];
+                        }catch(Throwable $e){$value=null;}
+                    }
+                }
                 if(is_numeric($value) && (float)$value>=$low
                     && (float)$value<=10000)
                     $highest=max($highest??0,(float)$value);
