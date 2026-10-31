@@ -19,6 +19,12 @@ function IPS_VariableExists($id){return array_key_exists($id,$GLOBALS['values'])
 function IPS_GetVariable($id){return ['VariableUpdated'=>$GLOBALS['variableTime'],'VariableChanged'=>$GLOBALS['changedAt'][$id]??0];}
 function GetValue($id){return $GLOBALS['values'][$id];}
 function IPS_GetConfiguration($id){return $id===19285 ? json_encode($GLOBALS['nativeConfig']??['notif_script_active'=>false,'notifscript_id'=>0,'timerinterval'=>61,'log_fanlevel'=>false]) : json_encode(['Location'=>json_encode(['latitude'=>50,'longitude'=>7])]);}
+function IPS_SetProperty($id,$key,$value){
+    if(($GLOBALS['commissioningModule']??null) instanceof IPSModule)
+        $GLOBALS['commissioningModule']->setProperty($key,$value);
+    return true;
+}
+function IPS_ApplyChanges($id){return true;}
 function JVWC_Snapshot($id){return json_encode($GLOBALS['weatherForTest']??['quality'=>'VERIFIED','current'=>JVWeatherMath::readPair(5,100)+['observed_at'=>time()-120], 'forecast'=>[]]);}
 function HELIOS_WeekProgram_Set(...$args){$GLOBALS['calls'][]=['week',$args];$GLOBALS['deviceProgram']=(int)$args[1];return true;}
 function HELIOS_OperatingMode_Whisper_Set($id,$active,$fan,$duration){
@@ -264,4 +270,40 @@ it(($fallback['smart_fan_execution']['status']??'')==='AUTO_FALLBACK_CONFIRMED',
     'only own timed Party cancelled on loss of trustworthy weather');
 it($GLOBALS['deviceMode']===0,
     'manufacturer AUTO immediately resumes after smart error');
+$GLOBALS['deviceMode']=0;
+$GLOBALS['deviceFan']=4;
+$GLOBALS['deviceProgram']=3;
+$GLOBALS['values'][30441]=4;
+$GLOBALS['weatherForTest']=[
+    'quality'=>'VERIFIED',
+    'current'=>JVWeatherMath::readPair(7.0,89)+['observed_at'=>time()-35],
+    'forecast'=>[],
+];
+$commissioned=new HeliosSmart();$commissioned->Create();
+$commissioned->setProperty('WeatherCenterInstance',42);
+$GLOBALS['commissioningModule']=$commissioned;
+$started=$commissioned->StartSmartFanControl();
+it(str_contains($started,'SMART-LUEFTUNG AKTIV')
+    && $commissioned->ReadPropertyBoolean('EnableSmartFanTakeover')===true
+    && $commissioned->ReadPropertyBoolean('EnableControl')===true,
+    'one-click SMART commissioning enables real autonomous stages, not just monitoring');
+$full=json_decode($commissioned->value('DecisionJSON'),true);
+it(($full['smart_fan_execution']['status']??'')==='SMART_STAGE_CONFIRMED',
+    'commissioning immediately executes safe stage3 takeover and reads native return');
+$stopped=$commissioned->StopSmartFanControl();
+it($commissioned->ReadPropertyBoolean('EnableSmartFanTakeover')===false
+    && $commissioned->ReadPropertyBoolean('EnableControl')===false,
+    'one-click stop disables all SMART stage commands');
+it($GLOBALS['deviceMode']===0
+    && str_contains($stopped,'AUTO_FALLBACK_CONFIRMED'),
+    'operator STOP cancels only our own timed mode and restores vendor weekly');
+$GLOBALS['nativeStatus']=209;
+$blocked=new HeliosSmart();$blocked->Create();
+$blocked->setProperty('WeatherCenterInstance',42);
+$GLOBALS['commissioningModule']=$blocked;
+$refused=$blocked->StartSmartFanControl();
+it(str_contains($refused,'NICHT FREIGEGEBEN')
+    && !$blocked->ReadPropertyBoolean('EnableSmartFanTakeover'),
+    'invalid original Helios 209 cannot enable full smart control');
+$GLOBALS['nativeStatus']=102;
 echo "ALLE $counter SYMCON-LIVE-INTEGRATIONSPRUEFUNGEN BESTANDEN\n";
