@@ -341,13 +341,16 @@ $commissioned=new HeliosSmart();$commissioned->Create();
 $commissioned->setProperty('WeatherCenterInstance',42);
 $GLOBALS['commissioningModule']=$commissioned;
 $started=$commissioned->StartSmartFanControl();
-it(str_contains($started,'SMART-LUEFTUNG AKTIV')
+it(str_contains($started,'SMART-LUEFTUNG FREIGEGEBEN')
     && $commissioned->ReadPropertyBoolean('EnableSmartFanTakeover')===true
     && $commissioned->ReadPropertyBoolean('EnableControl')===true,
     'one-click SMART commissioning enables real autonomous stages, not just monitoring');
 $full=json_decode($commissioned->value('DecisionJSON'),true);
 it(($full['smart_fan_execution']['status']??'')==='SMART_STAGE_CONFIRMED',
     'commissioning immediately executes safe stage3 takeover and reads native return');
+it(str_contains((string)$commissioned->value('SmartFanControlStatus'),
+        'SMART-STUFE AM GERAET BESTAETIGT'),
+    'start button preserves real actuator status instead of overwriting with generic AKTIV banner');
 $stopped=$commissioned->StopSmartFanControl();
 it($commissioned->ReadPropertyBoolean('EnableSmartFanTakeover')===false
     && $commissioned->ReadPropertyBoolean('EnableControl')===false,
