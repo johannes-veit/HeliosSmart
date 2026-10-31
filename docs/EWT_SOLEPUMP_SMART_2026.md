@@ -403,3 +403,45 @@ Helios-Lueftungs-EWT-Pumpe ein. Die separate FBH-Kuehlpumpe und
 Taupunktwaechtersteuerung bleiben unberuehrt. Helios-Fan/Party-Logik,
 unabhaengiger Frostschutz und Shelly-Erreichbarkeitspruefung
 werden nicht abgeschaltet oder umgangen.
+
+## Neue EWT Frostschutztemperatur und Unterscheidung Stufe 4 (31.10.2026)
+
+Nach Angabe des Anlagenbetreibers liegt der Luftansaugpunkt ungefaehr
+3 m hoch am Haus; das Solegemisch enthaelt Frostschutzmittel. Deshalb
+gilt fuer die **gesonderte Luft-EWT-Pumpe** ab diesem Modulstand
+eine softwareseitige Vorsorgeanforderung **EIN bei bestaetigter
+Wetter-Aussentemperatur <= +3,0 °C**, bei bereits laufender Pumpe
+Hysterese bis **>= +5,0 °C**. Bei unbrauchbarem Wetter bleibt
+der bisherige konservative Fehlerzustand **Pumpe SOLL EIN**.
+Bestaetigte vorauseilende Prognosen von <= +1,0 °C in den
+naechsten drei Stunden duerfen vorsorglich Einschalten ausloesen.
+Dies ist eine Prognose-Vorsorge und kein bei +3 °C gemessener Frost.
+
+**Abgrenzung:** Die Sole-Frostschutzmischung schuetzt nur gegen
+Gefrieren der Sole; sie garantiert nicht selbst den Frostschutz
+des Helios-Enthalpiewaermetauschers oder der Zuluftkanaele.
+Eine 3 m hohe Luftansaugung kann bei Frost ebenfalls unter 0 °C
+fallen. Die herstellerseitige Frostschutzlogik darf weiterhin
+uneingeschraenkt arbeiten. Bei Aussentemperaturen ueber 3 °C
+kann die EWT-Pumpe trotzdem aus **thermischem Nutzen**
+(EWT-Luftvorwaermung bzw. Sommer-Kuehlung) aktiv bleiben;
+das ist nicht als Frostschutz-Lauf zu interpretieren.
+
+**Helios-Luefterstufe 4:** Die normale Helios-Lueftung wird weiterhin
+durch den im Geraet gespeicherten Wochenplan betrieben. HELIOS SMART
+kann nur bei gesonderter Freigabe eine zeitbegrenzte Party-/Ruhe-
+Funktion starten. Mit Variable `Nur beobachten=An` sind
+Luefter-Party-Befehle von HELIOS SMART gesperrt, unabhaengig
+davon ob die separate EWT-Pumpenautomatik aktiv ist.
+
+Die neue `Helios Lüfterstufe – Betrieb / Ursache` und zugehoerige
+JSON-Diagnose ordnen eine beobachtete Stufe 4 anhand der
+Helios-Betriebsart (0 Automatik / 1 Manuell / 2 Party /
+3 Ruhe / 4 Urlaub), Wochenprogramm-ID, eigener Party-Historie
+und letzter Stufen-Aenderungszeit grob ein. In Modus 0 kann
+HELIOS SMART ohne Kenntnis des aktuell aktiven Wochenprogramm-
+Zeitschaltpunkts die Ursache **Wochenplan vs. interne
+Helios-Sensorregelung** nicht eindeutig unterscheiden.
+Die reine Lernmeldung `FAN_LEVEL_NOT_STABLE_10_MIN`
+bedeutet nur, dass kurz zuvor die Stufe gewechselt hat; sie
+ist keine Aussage ueber Quelle oder Zweck der Stufe 4.
