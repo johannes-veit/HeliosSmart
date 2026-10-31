@@ -381,4 +381,16 @@ $networkSim->setProperty('EnableControl',false);
 $networkSim->setProperty('EnableSmartFanTakeover',false);
 $GLOBALS['nativeDefrost']=false;
 $GLOBALS['nativeExtractRh']=53;
+// Program #5 is implemented by a Symcon event, not a device-resident
+// weekly fallback: reject SMART commissioning rather than promise
+// hardware-autonomous recovery that would not be guaranteed.
+$GLOBALS['deviceMode']=0;$GLOBALS['deviceProgram']=5;
+$unsupported=new HeliosSmart();$unsupported->Create();
+$unsupported->setProperty('WeatherCenterInstance',42);
+$GLOBALS['commissioningModule']=$unsupported;
+$unsupportedReport=$unsupported->StartSmartFanControl();
+it(str_contains($unsupportedReport,'NICHT FREIGEGEBEN')
+    && !$unsupported->ReadPropertyBoolean('EnableSmartFanTakeover'),
+    'Symcon event-backed programme 5 cannot be used as autonomous weekly fallback');
+$GLOBALS['deviceProgram']=3;
 echo "ALLE $counter SYMCON-LIVE-INTEGRATIONSPRUEFUNGEN BESTANDEN\n";
