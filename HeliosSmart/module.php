@@ -604,12 +604,14 @@ class HeliosSmart extends IPSModule
             IPS_SetProperty($this->InstanceID,'EnableSmartFanTakeover',true);
             IPS_ApplyChanges($this->InstanceID);
             $this->Evaluate();
-            $msg='SMART-LUEFTUNG AKTIV | nativer Zeitbefehl bis 15 Min'
-                .' | alle 5 Min Sensorlage pruefen'
-                .' | HELIOS-Wochenprogramm NUR Rueckfall'
-                .' | Details: SmartFanControlStatus / SmartFanTakeoverJSON';
-            $this->SetValue('SmartFanControlStatus',$msg);
-            return $msg;
+            // Enabling the property is NOT proof that a fan command
+            // was accepted. Evaluate() has already written the live
+            // target / acknowledgement / fallback reason to this status.
+            // Do not overwrite it with an optimistic activation banner.
+            return 'SMART-LUEFTUNG FREIGEGEBEN | Automatische Auswertung gestartet'
+                .' | die tatsaechlich bestaetigte Stufe oder den Rueckfallgrund'
+                .' bitte direkt in der Variable SmartFanControlStatus lesen'
+                .' | SmartFanTakeoverJSON enthaelt die Einzelheiten';
         }catch(Throwable $e){
             // A partially applied opt-in is not left armed following a
             // failed commissioning step. Device commands, if already sent,
