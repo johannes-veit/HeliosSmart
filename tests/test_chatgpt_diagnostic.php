@@ -39,6 +39,31 @@ assertDiag(str_contains($text,'Fehlende Sensoren: UNBEKANNT'),
 $old=JVHeliosChatGPTDiagnostic::render($frame,$now+1800);
 assertDiag(str_contains($old,'Daten alt/fehlend'),
     'Read-only manual refresh cannot hide stale underlying data');
+// The real persisted occupancy schema uses 'p'; calendar uses 'bins'.
+$metrics=JVHeliosChatGPTDiagnostic::learningMetrics([
+    'v'=>1,'p'=>[
+        ['t'=>$now-7200,'o'=>'BOTH_HOME_HINT'],
+        ['t'=>$now,'o'=>'MIXED_OR_UNKNOWN'],
+    ],
+],[
+    'v'=>1,'bins'=>[
+        'TRANSITION-6-7'=>['n'=>1,'valid'=>1],
+        'TRANSITION-6-8'=>['n'=>2,'valid'=>0],
+        'TRANSITION-6-9'=>['n'=>1,'valid'=>1],
+    ],
+]);
+assertDiag($metrics['occupancy_samples']===2,
+    'Actual occupancy records counted, not nonexistent state.samples');
+assertDiag($metrics['calendar_patterns']===3
+    && $metrics['calendar_patterns_with_fresh_status']===2,
+    'Actual calendar bins counted, not outer v/bins wrapper');
+assertDiag($metrics['occupancy_status_counts']['BOTH_HOME_HINT']===1
+    && $metrics['no_presence_proof']===true,
+    'Occupancy patterns remain hints, never proof of presence');
+$emptyMetrics=JVHeliosChatGPTDiagnostic::learningMetrics([],[]);
+assertDiag($emptyMetrics['occupancy_samples']===0
+    && $emptyMetrics['calendar_patterns']===0,
+    'Empty learning is reported as zero, not null or fictitious two');
 $row=$frame['rooms'][0];
 assertDiag($row['t_alter_min']===2 && $row['rh_alter_min']===6,
     'Temperature and RH ages are distinct and rounded up');

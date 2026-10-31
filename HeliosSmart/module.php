@@ -2129,6 +2129,7 @@ class HeliosSmart extends IPSModule
             $history=is_array($weather['soil_climatology']??null)
                 ?$weather['soil_climatology']:[];
             $forecast=(array)($weather['forecast']??[]);
+            $learningMetrics=JVHeliosChatGPTDiagnostic::learningMetrics($occState,$calendar);
             $warnings=[];
             if($evaluatedAt!==null)
                 $warnings[]='BERICHT AUS VORHERIGEM ENTSCHEIDUNGS-SNAPSHOT REKONSTRUIERT:'
@@ -2342,8 +2343,12 @@ class HeliosSmart extends IPSModule
                 'learning'=>[
                     'learning_state_keys'=>array_slice(array_keys($lState),0,16),
                     'letzte_lernbericht_aktualisierung'=>$lState['d']??null,
-                    'occupancy_samples'=>$occState['samples']??null,
-                    'calendar_patterns'=>count($calendar),
+                    'occupancy_samples'=>$learningMetrics['occupancy_samples'],
+                    'occupancy_status_counts'=>$learningMetrics['occupancy_status_counts'],
+                    'calendar_patterns'=>$learningMetrics['calendar_patterns'],
+                    'calendar_patterns_with_fresh_status'
+                        =>$learningMetrics['calendar_patterns_with_fresh_status'],
+                    'occupancy_is_not_presence_proof'=>true,
                     'lernbericht_auszug'=>$this->DiagnosticOwnText('LernDiagnose',5600),
                 ],
                 'prediction'=>[
@@ -2351,7 +2356,9 @@ class HeliosSmart extends IPSModule
                     'forecast_summary'=>$pick((array)($d['forecast_advice']??[]),
                         ['summary','quality']),
                     'learning_stage_context'=>$pick((array)($d['smart_strategy']??[]),
-                        ['classification','summary']),
+                        ['recommended_stage','stage_is_advisory',
+                        'auto_commands_from_learned_pattern','calendar_confidence',
+                        'future_scheduling_candidate','reason']),
                 ],
             ];
             $json=json_encode($f,JSON_UNESCAPED_UNICODE

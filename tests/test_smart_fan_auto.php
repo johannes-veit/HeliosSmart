@@ -63,7 +63,7 @@ ckFan($dec(['native_sensor_stale'=>true,'actual_fan'=>2])['reason']
 ckFan($dec(['native_sensor_stale'=>true,'actual_fan'=>3])['fallback_weekly']===true,
  'stale sensor blocks SMART Party at native S3');
 ckFan($dec(['native_sensor_control_unverified'=>true,'actual_fan'=>2])
-    ['reason']==='NATIVE_S4_SENSOR_DEMAND_UNVERIFIABLE',
+    ['reason']==='NATIVE_SENSOR_REGULATION_UNVERIFIED',
  'unverifiable native controller blocks takeover even before S4');
 ckFan($dec(['native_extract_rh'=>65.0,'actual_fan'=>2,
     'native_humidity_control_enabled'=>true])['reason']

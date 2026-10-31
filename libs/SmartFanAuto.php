@@ -83,12 +83,12 @@ final class JVHeliosSmartFanAuto
             $out['reason']='NATIVE_DEFROST_STATUS_UNKNOWN_NEAR_FREEZING';
             return $out;
         }
-        // Existing sensor-driven stage4 cannot be downgraded merely
-        // because its CO2/VOC or exhaust RH telemetry is absent. When a
+        // Manufacturer sensor-driven stages must not be overridden merely
+        // because their CO2/VOC or exhaust RH telemetry is absent. When a
         // controller is enabled but its measurement is not represented
         // in the SMART inputs, let the original regulator stay in charge.
         if(($d['native_sensor_control_unverified']??false)===true){
-            $out['reason']='NATIVE_S4_SENSOR_DEMAND_UNVERIFIABLE';
+            $out['reason']='NATIVE_SENSOR_REGULATION_UNVERIFIED';
             return $out;
         }
         $wet=(bool)($d['wet_need']??false);
