@@ -705,7 +705,7 @@ class HeliosSmart extends IPSModule
             && (int)($state['until']??0)>=$now
             && in_array((int)($state['mode']??0),[2,3],true);
         if(!function_exists('IPS_SemaphoreEnter')||!function_exists('IPS_SemaphoreLeave'))
-            return $result+['status'=>'SYSCON_LOCK_UNAVAILABLE'];
+            return array_replace($result,['status'=>'SYMCON_LOCK_UNAVAILABLE']);
         $lock='JVHeliosParty_'.$this->InstanceID;
         if(!IPS_SemaphoreEnter($lock,1000)){
             $result['status']='DEVICE_COMMAND_BUSY';return $result;
@@ -763,6 +763,10 @@ class HeliosSmart extends IPSModule
             }
             // Never more than one action per tick, record intent before RPC
             // so timeout/restart will not trigger a command flood.
+            $wasQuiet=(int)($state['stage']??0)===1
+                && (int)($state['quiet_started_at']??0)>0;
+            $cooldown=(int)($state['quiet_cooldown_until']??0);
+            if($wasQuiet && $level!==1)$cooldown=$now+90*60;
             $state=[
                 'sent_at'=>$now,
                 'until'=>$now+15*60,
@@ -770,7 +774,9 @@ class HeliosSmart extends IPSModule
                 'mode'=>$desiredMode,
                 'prior_program'=>$live['program']??null,
                 'quiet_started_at'=>$level===1
-                    ?(int)($state['quiet_started_at']??$now):0,
+                    ?((int)($state['quiet_started_at']??0)>0
+                        ?(int)$state['quiet_started_at']:$now):0,
+                'quiet_cooldown_until'=>$cooldown,
             ];
             $this->WriteAttributeString('SmartFanTakeoverState',json_encode($state));
             $result['attempted']=true;
