@@ -195,4 +195,14 @@ $offline->RequestAction('EWTPumpModeManual',true);
 a(str_contains((string)$offline->value('EWTPumpActualStatus'),'UNBEKANNT'),
     'pre-reconnect output cannot certify actual relay state');
 $GLOBALS['onlineChangedAt']=time()-3600;
+$GLOBALS['variables'][9992]=true;
+$wrong=new HeliosSmart();
+$wrong->Create();
+$wrong->setProperty('EWTPumpSwitchVariable',9001);
+$wrong->setProperty('EWTPumpOnlineVariable',9992);
+$wrong->setProperty('WeatherCenterInstance',42);
+$wrong->setProperty('EnableEWTPumpControl',true);
+$wrong->RequestAction('EWTPumpModeManual',true);
+a($wrong->value('EWTPumpOnline')===false,
+    'online signal from unrelated Symcon instance cannot certify EWT plug');
 echo "EWT WebFront controls and actuator safety integration OK\\n";
