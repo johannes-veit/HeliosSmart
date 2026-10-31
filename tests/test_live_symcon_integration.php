@@ -14,9 +14,13 @@ function IPS_SemaphoreEnter($name,$timeout){return true;}
 function IPS_SemaphoreLeave($name){return true;}
 function IPS_InstanceExists($id){return in_array($id,[11842,16987,19285,17597,42,32969],true);}
 function IPS_GetInstance($id){return ['InstanceStatus'=>$id===19285?($GLOBALS['nativeStatus']??102):102,'ModuleInfo'=>['ModuleID'=>$id===32969?'{D94700DB-96B0-490C-9F23-E6AE39677384}':($id===42?'{685106B4-47EC-43C9-9CA9-9BAE53E4B304}':($id===19285?'{889DFBC4-09A6-4D77-9928-738E5D494362}':'{OTHER-INSTANCE}'))]];}
-function IPS_GetObjectIDByIdent($ident,$instance){return $instance===32969?(['JohannesPresence'=>60001,'CarinaPresence'=>60002,'EvidenceJSON'=>60003][$ident]??0):0;}
+function IPS_GetObjectIDByIdent($ident,$instance){
+    if($instance===19285)return $GLOBALS['nativeSensorIDs'][$ident]??0;
+    return $instance===32969?(['JohannesPresence'=>60001,
+        'CarinaPresence'=>60002,'EvidenceJSON'=>60003][$ident]??0):0;
+}
 function IPS_VariableExists($id){return array_key_exists($id,$GLOBALS['values']);}
-function IPS_GetVariable($id){return ['VariableUpdated'=>$GLOBALS['variableTime'],'VariableChanged'=>$GLOBALS['changedAt'][$id]??0];}
+function IPS_GetVariable($id){return ['VariableUpdated'=>$GLOBALS['variableTimeByID'][$id]??$GLOBALS['variableTime'],'VariableChanged'=>$GLOBALS['changedAt'][$id]??0];}
 function GetValue($id){return $GLOBALS['values'][$id];}
 function IPS_GetConfiguration($id){return $id===19285 ? json_encode($GLOBALS['nativeConfig']??['notif_script_active'=>false,'notifscript_id'=>0,'timerinterval'=>61,'log_fanlevel'=>false]) : json_encode(['Location'=>json_encode(['latitude'=>50,'longitude'=>7])]);}
 function IPS_SetProperty($id,$key,$value){
@@ -47,6 +51,16 @@ function HELIOS_Defrost_State_Get($id){
 }
 function HELIOS_HumidityControl_Internal_ExhaustAir_Get($id){
     return $GLOBALS['nativeExtractRh']??53;
+}
+function HELIOS_CO2Sensor_Get($id,$index){
+    $GLOBALS['nativeCo2Polls']=($GLOBALS['nativeCo2Polls']??0)+1;
+    return isset($GLOBALS['nativeCo2LiveValue'])
+        ?['CO2_ppm'=>$GLOBALS['nativeCo2LiveValue']]:false;
+}
+function HELIOS_VOCSensor_Get($id,$index){
+    $GLOBALS['nativeVocPolls']=($GLOBALS['nativeVocPolls']??0)+1;
+    return isset($GLOBALS['nativeVocLiveValue'])
+        ?['VOC_ppm'=>$GLOBALS['nativeVocLiveValue']]:false;
 }
 function HELIOS_FanLevel_Get($id){$GLOBALS['getCalls']++;return $GLOBALS['deviceFan'];}
 function HELIOS_WeekProgram_Get($id){$GLOBALS['getCalls']++;return $GLOBALS['deviceProgram'];}
@@ -393,4 +407,37 @@ it(str_contains($unsupportedReport,'NICHT FREIGEGEBEN')
     && !$unsupported->ReadPropertyBoolean('EnableSmartFanTakeover'),
     'Symcon event-backed programme 5 cannot be used as autonomous weekly fallback');
 $GLOBALS['deviceProgram']=3;
+// Original Bayaro HELIOS variables update only on a changed value. A
+// physically connected CO2 sensor can be stable for >45 minutes:
+// validate it via a fresh native GET, never assume its last value is live.
+$GLOBALS['nativeSensorIDs']=['SensorCO2_1'=>61001,'SensorVOC_1'=>61002];
+$GLOBALS['values'][61001]=1550;
+$GLOBALS['values'][61002]=32;
+$GLOBALS['variableTimeByID'][61001]=time()-3*3600;
+$GLOBALS['variableTimeByID'][61002]=time()-3*3600;
+$GLOBALS['nativeCo2LiveValue']=1400;
+$GLOBALS['nativeVocLiveValue']=20;
+$GLOBALS['nativeCo2Polls']=0;$GLOBALS['nativeVocPolls']=0;
+$GLOBALS['deviceFan']=4;$GLOBALS['deviceMode']=0;$GLOBALS['values'][30441]=4;
+$onChange=new HeliosSmart();$onChange->Create();
+$onChange->setProperty('WeatherCenterInstance',42);
+$onChange->setProperty('EnableControl',true);
+$onChange->setProperty('EnableSmartFanTakeover',true);
+$onChange->Evaluate();
+$staleObserved=json_decode($onChange->value('DecisionJSON'),true);
+it(($staleObserved['smart_fan_takeover']['reason']??'')
+        ==='NATIVE_CO2_VOC_HIGH_NO_S4_APPROVAL'
+    && ($staleObserved['smart_fan_execution']['attempted']??true)===false,
+    'three-hour unchanged Symcon CO2 value is re-read at manufacturer before any S4 reduction');
+it($GLOBALS['nativeCo2Polls']===1 && $GLOBALS['nativeVocPolls']===1,
+    'only actually installed, old CO2/VOC sensors generate native GETs');
+$GLOBALS['nativeCo2LiveValue']=650;
+$onChange->Evaluate();
+$freshObserved=json_decode($onChange->value('DecisionJSON'),true);
+it(($freshObserved['smart_fan_execution']['status']??'')
+        ==='SMART_STAGE_CONFIRMED'
+    && ($freshObserved['co2_voc_evidence']['max_co2_ppm']??0)===650,
+    'live safe CO2 clears stale high cache and permits the SMART energy-saving stage');
+unset($GLOBALS['nativeSensorIDs'],$GLOBALS['variableTimeByID'],
+    $GLOBALS['nativeCo2LiveValue'],$GLOBALS['nativeVocLiveValue']);
 echo "ALLE $counter SYMCON-LIVE-INTEGRATIONSPRUEFUNGEN BESTANDEN\n";
