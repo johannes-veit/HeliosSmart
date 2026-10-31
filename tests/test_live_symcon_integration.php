@@ -82,7 +82,8 @@ function HELIOS_WeekProgram_Get($id){$GLOBALS['getCalls']++;return $GLOBALS['dev
 function HELIOS_OperatingMode_RemainingMinutes_Get($id){$GLOBALS['getCalls']++;return $GLOBALS['remaining'];}
 class IPSModule {
     public int $InstanceID=52187;
-    private array $props=[],$attributes=[],$values=[],$timers=[];
+    private array $props=[],$attributes=[],$values=[],$timers=[],$identIDs=[];
+    private static int $nextVariableId=900000;
     public function Create():void{} public function ApplyChanges():void{}
     public function RegisterPropertyInteger($key,$value){$this->props[$key]=$value;}
     public function RegisterPropertyBoolean($key,$value){$this->props[$key]=$value;}
@@ -102,8 +103,22 @@ class IPSModule {
     public function SetTimerInterval($key,$period){$this->timers[$key]=$period;}
     public function RegisterVariableFloat($key,$name,$profile='',$pos=0){$this->values[$key]=null;}
     public function RegisterVariableBoolean($key,$name,$profile='',$pos=0){$this->values[$key]=null;}
-    public function RegisterVariableString($key,$name,$profile='',$pos=0){$this->values[$key]=null;}
-    public function SetValue($key,$value){$this->values[$key]=$value;}
+    public function RegisterVariableString($key,$name,$profile='',$pos=0){
+        $this->values[$key]=null;
+        $id=self::$nextVariableId++;
+        $this->identIDs[$key]=$id;
+        $GLOBALS['values'][$id]='';
+        $GLOBALS['variableTimeByID'][$id]=0;
+    }
+    public function GetIDForIdent($ident){return $this->identIDs[$ident]??0;}
+    public function SetValue($key,$value){
+        $this->values[$key]=$value;
+        if(isset($this->identIDs[$key])){
+            $id=$this->identIDs[$key];
+            $GLOBALS['values'][$id]=$value;
+            $GLOBALS['variableTimeByID'][$id]=time();
+        }
+    }
     public function value($key){return $this->values[$key]??null;}
     public function setProperty($key,$value){$this->props[$key]=$value;}
     public function RegisterMessage($id,$msg){$this->watch[(int)$id]=(int)$msg;return true;}
@@ -172,6 +187,30 @@ $h->RefreshChatGPTDiagnosis();
 it(count($GLOBALS['calls'])===$beforeReadonly
     && str_contains((string)$h->value('ChatGPTDiagnosis'),'Auswertungsalter:'),
     'manual diagnostic refresh only re-renders saved snapshot without any actuator command');
+// Simulate an already-running installation where an update creates the
+// NEW diagnosis variable, but old DecisionJSON and fan/room values exist.
+// The update must render a useful read-only report immediately, BEFORE
+// the next 5-minute Evaluate and without any Helios/Shelly command.
+$h->WriteAttributeString('ChatGPTDiagnosticState','{}');
+$beforeBootstrapCalls=count($GLOBALS['calls']);
+$h->ApplyChanges();
+$bootstrapped=(string)$h->value('ChatGPTDiagnosis');
+it(str_contains($bootstrapped,
+        'ZWISCHENSTAND_AUS_BESTEHENDEN_DIAGNOSEN_NUR_LESEN')
+    && str_contains($bootstrapped,'BERICHT AUS VORHERIGEM')
+    && str_contains($bootstrapped,'Raumdetails T/RH und Alter')
+    && !str_contains($bootstrapped,'NOCH_KEINE_AUSWERTUNG')
+    && count($GLOBALS['calls'])===$beforeBootstrapCalls,
+    'after update immediately reconstruct previous evaluated state without device writes');
+$decisionId=$h->GetIDForIdent('DecisionJSON');
+$GLOBALS['variableTimeByID'][$decisionId]=time()-1500;
+$h->WriteAttributeString('ChatGPTDiagnosticState','{}');
+$h->RefreshChatGPTDiagnosis();
+$oldBootstrap=(string)$h->value('ChatGPTDiagnosis');
+it(str_contains($oldBootstrap,'Daten alt/fehlend')
+    && str_contains($oldBootstrap,'Auswertungsalter: 1500 s'),
+    'reconstructed snapshot preserves old original evaluation timestamp');
+$GLOBALS['variableTimeByID'][$decisionId]=time();
 it(($before['cooking_advice']['classification']??null)==='COOKING_LIKELY','Echte Mehrfach-Leistungsindizien erzeugen Kochhinweis');
 it(($before['party_candidate']['source']??null)==='COOKING','Geruchsbedarf priorisiert');
 // Test deliberate operator consent. This test has no real hardware.
