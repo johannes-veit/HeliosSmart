@@ -136,12 +136,15 @@ class HeliosSmart extends IPSModule
             $this->EnableAction('EWTPumpModeManual');
             $this->EnableAction('EWTPumpSwitch');
         }
-        $this->SetValue('Monitoring',true);
+        // Keep status consistent after module hot-reload even before a
+        // scheduled Evaluate tick. Create() runs for existing instances too.
+        $this->SetValue('Monitoring',!$this->ReadPropertyBoolean('EnableControl'));
     }
 
     public function ApplyChanges(): void
     {
         parent::ApplyChanges();
+        $this->SetValue('Monitoring',!$this->ReadPropertyBoolean('EnableControl'));
         $this->SetTimerInterval('SmartTick',5*60*1000);
         // Pending Shelly readback timer is enabled only while awaiting feedback.
         $ewtState=json_decode($this->ReadAttributeString('EWTPumpControlState'),true);
@@ -794,6 +797,14 @@ class HeliosSmart extends IPSModule
             $live=$this->ReadHeliosLive();
             $mode=$live['mode']??null;
             if(!$plan['execute']){
+                // A failed device readback never proves that the weekly
+                // programme has resumed. The native timer remains our
+                // secondary fallback if the SymBox is unreachable.
+                if($live===null && $owned) {
+                    $result['status']='FALLBACK_PENDING_NATIVE_15MIN_TIMER_UNVERIFIED';
+                    $result['fallback_weekly']=false;
+                    return $result;
+                }
                 // The only early cancel allowed is for our OWN verified
                 // timed command; never cancel a foreign Party/Whisper.
                 if($owned && $mode===(int)$state['mode']
@@ -807,7 +818,14 @@ class HeliosSmart extends IPSModule
                         $result['status']=$ok!==false && ($after['mode']??null)===0
                             ?'AUTO_FALLBACK_CONFIRMED':'AUTO_FALLBACK_PENDING';
                         $result['verified']=($after['mode']??null)===0;
+                        if(!$result['verified']){
+                            $result['status']='FALLBACK_PENDING_NATIVE_TIMER_UNVERIFIED';
+                            $result['fallback_weekly']=false;
+                        }
                     }
+                } elseif ($owned && $mode!==(int)$state['mode']) {
+                    $result['status']='ORIGINAL_DEVICE_MODE_CHANGED_DO_NOT_CANCEL';
+                    $result['fallback_weekly']=false;
                 }
                 if($result['verified'] || !$owned)
                     $this->WriteAttributeString('SmartFanTakeoverState',
@@ -2327,8 +2345,11 @@ class HeliosSmart extends IPSModule
         $decision['execution_status']=$smartEnabled
             ?(string)($smartExecution['status']??'BLOCKED')
             :(string)($execution['status']??'BLOCKED');
-        $decision['helios_mode']=$mode;
+        $decision['helios_mode']=$deviceStatus['mode'];
+        $decision['helios_fan_actual_before_command']=$deviceStatus['fan'];
         $decision['observation_only']=!$this->ReadPropertyBoolean('EnableControl');
+        $decision['effective_smart_command']=$smartEnabled
+            ?$smartExecution['status']:null;
         // Source attribution uses actual HELIOS mode; a high stage alone
         // does not prove that a weekly-program slot or a smart boost fired.
         $fanVariableInfo=IPS_GetVariable($fanID);
@@ -2344,10 +2365,17 @@ class HeliosSmart extends IPSModule
             'fan_changed_at'=>$fanChangedAt,
             'control_enabled'=>$this->ReadPropertyBoolean('EnableControl'),
             'high_power_opt_in'=>$this->ReadPropertyBoolean('EnableHighPowerParty'),
-            'owned_level'=>$this->OptionalAttributeInt('OwnedPartyLevel'),
-            'owned_until'=>$this->OptionalAttributeInt('OwnedPartyExpiresAt'),
-            'last_command_at'=>$this->OptionalAttributeInt('LastCommandAt'),
-            'command_attempted'=>(bool)($execution['attempted']??false),
+            'owned_level'=>$smartEnabled
+                ?(int)($smartState['stage']??0)
+                :$this->OptionalAttributeInt('OwnedPartyLevel'),
+            'owned_until'=>$smartEnabled
+                ?(int)($smartState['until']??0)
+                :$this->OptionalAttributeInt('OwnedPartyExpiresAt'),
+            'last_command_at'=>$smartEnabled
+                ?(int)($smartState['sent_at']??0)
+                :$this->OptionalAttributeInt('LastCommandAt'),
+            'command_attempted'=>(bool)(($execution['attempted']??false)
+                ||($smartExecution['attempted']??false)),
             'native_sensor_control_possible'=>($native['native_sensor_regulation_possible']??false)===true,
             'native_module_fault'=>($native['write_allowed']??false)!==true,
             'native_status'=>$native['native_instance_status']??null,
@@ -2356,7 +2384,10 @@ class HeliosSmart extends IPSModule
         $this->SetValue('FanStageCause',$fanCause['status']);
         $this->SetValue('FanStageCauseJSON',
             json_encode($fanCause,JSON_UNESCAPED_UNICODE));
-        $decision['safe_to_execute']=($guard['command_allowed']??false)===true;
+        $decision['safe_to_execute']=$smartEnabled
+            ?($smartPlan['execute']??false)===true
+                && ($native['write_allowed']??false)===true
+            :($guard['command_allowed']??false)===true;
         $decision['party_protocol_draft']['transmitted']=($execution['sent']??false)===true;
         $decision['party_protocol_draft']['note']='v0.12: echte Hersteller-Partyfunktion nur nach Einzel-Freigaben; keine automatische Rueckschaltung durch Symcon';
         $this->SetValue('DecisionJSON',json_encode($decision,JSON_UNESCAPED_UNICODE));
@@ -2390,7 +2421,11 @@ class HeliosSmart extends IPSModule
                 .', Zuluftwirkung '.($decision['winter_room_air']['sensible_heat_w_per_100m3h']??'?')
                 .' W/100m3h)'
             .' | Kochen: '.$decision['cooking_advice']['summary']
-            .' | Party: '.$decision['execution_status'].' / '.($guard['command_allowed']?'FREIGABE':'GESPERRT'). ' ('.($guard['airflow_basis']??'NO_AIRFLOW').')'
+            .' | SMART-Stufe: '.($smartPlan['target_stage']??'RUECKFALL')
+                .' / '.($smartExecution['status']??'NICHT_AKTIV')
+                .' | Alt-Party: '.$execution['status']
+                .' / '.($guard['command_allowed']?'FREIGABE':'GESPERRT')
+                .' ('.($guard['airflow_basis']??'NO_AIRFLOW').')'
             .(!empty($decision['occupancy_advice']['away_status_reports'])
                 ? ' | Bewohner: '.$decision['occupancy_advice']['description'] : ''));
     }
