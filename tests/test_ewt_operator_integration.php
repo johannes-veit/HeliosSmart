@@ -113,12 +113,19 @@ try{$hs->RequestAction('EWTPumpSwitch',true);a(false,'AUTO output manually writa
 catch(Exception $e){}
 a(count($GLOBALS['commands'])===$before,'manual output rejected in auto');
 a($hs->value('EWTPumpSwitch')===true,'auto action does not fake physical state');
-// Command failures remain visible and do not set pretend state.
-$hs->RequestAction('EWTPumpModeManual',true);
-$GLOBALS['sendActionSuccess']=false;
+// Separate fresh harness: failed write must neither fake a state nor be hidden
+// behind a still-pending command issued earlier in this test.
 $GLOBALS['variables'][9001]=false;
-$hs->RequestAction('EWTPumpSwitch',true);
-a($hs->value('EWTPumpSwitch')===false,'failed Shelly command not optimistic');
-a(str_contains((string)$hs->value('EWTPumpStatus'),'SHELLY_ACTION_ERROR'),
-    'Shelly API return FALSE generates explicit failure status');
-echo "EWT WebFront controls and actuator safety integration OK\n";
+$GLOBALS['sendActionSuccess']=false;
+$failure=new HeliosSmart();
+$failure->Create();
+$failure->setProperty('EWTPumpSwitchVariable',9001);
+$failure->setProperty('WeatherCenterInstance',42);
+$failure->setProperty('EnableEWTPumpControl',true);
+$failure->RequestAction('EWTPumpModeManual',true);
+$failure->RequestAction('EWTPumpSwitch',true);
+a($failure->value('EWTPumpSwitch')===false,
+    'failed Shelly command never falsely marks device ON');
+a(str_contains((string)$failure->value('EWTPumpStatus'),'SHELLY_ACTION_ERROR'),
+    'Shelly API return FALSE produces explicit failure status');
+echo "EWT WebFront controls and actuator safety integration OK\\n";
