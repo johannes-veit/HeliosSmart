@@ -1,0 +1,59 @@
+name: TEMPORARY ECMWF soil model comparison for Brauneberg
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/soil-compare-temporary.yml"
+jobs:
+  compare-ecmwf-model:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read the same Open-Meteo ECMWF IFS 100-255cm values as the module
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import datetime,json,urllib.request,urllib.parse
+          from zoneinfo import ZoneInfo
+          params={
+              'latitude':49.9044,'longitude':6.9781,
+              'models':'ecmwf_ifs','past_days':1,'forecast_days':1,
+              'hourly':'soil_temperature_28_to_100cm,soil_temperature_100_to_255cm',
+              'timezone':'UTC','timeformat':'unixtime',
+          }
+          url='https://api.open-meteo.com/v1/forecast?'+urllib.parse.urlencode(params)
+          req=urllib.request.Request(url,headers={'User-Agent':'HeliosSmart-Brauneberg-soil-comparison/1.0'})
+          with urllib.request.urlopen(req,timeout=30) as response:
+              raw=json.load(response)
+          print('SOURCE URL:',url)
+          print('LOCATION:',raw.get('latitude'),raw.get('longitude'))
+          print('QUERY EXECUTED (UTC):',datetime.datetime.now(datetime.timezone.utc).isoformat())
+          hourly=raw.get('hourly',{})
+          times=hourly.get('time',[])
+          deep=hourly.get('soil_temperature_100_to_255cm',[])
+          shallow=hourly.get('soil_temperature_28_to_100cm',[])
+          local=ZoneInfo('Europe/Berlin')
+          now=int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+          matches=[]
+          for t,a,b in zip(times,shallow,deep):
+              if not isinstance(t,(int,float)) or t>now+300 or t<now-12*3600:
+                  continue
+              if not isinstance(a,(int,float)) or not isinstance(b,(int,float)):continue
+              matches.append((int(t),float(a),float(b)))
+          print('VALID CURRENT MODEL VALUES (last 12h):',len(matches))
+          for t,a,b in matches[-12:]:
+              stamp=datetime.datetime.fromtimestamp(t,datetime.timezone.utc).astimezone(local)
+              print('MODEL:',stamp.isoformat(),'28-100cm',a,'C','100-255cm',b,'C',
+                    'MEASURED_SOLE_BEFORE_MINUS_MODEL',round(15.4-b,2),'K',
+                    'MEASURED_SOLE_AFTER_MINUS_MODEL',round(14.5-b,2),'K')
+          if not matches:
+              print('NO CURRENT MODEL READING; do not invent model value')
+          else:
+              t,a,b=matches[-1]
+              print('COMPARISON_RESULT:',json.dumps({
+                  'timestamp_local':datetime.datetime.fromtimestamp(t,datetime.timezone.utc).astimezone(local).isoformat(),
+                  'model_deep_c':b,'model_shallow_c':a,
+                  'sole_in_c':15.4,'sole_out_c':14.5,'sole_spread_k':0.9,
+                  'in_minus_model_k':round(15.4-b,2),
+                  'out_minus_model_k':round(14.5-b,2),
+                  'source':'ECMWF IFS via Open-Meteo; model not direct ground measurement'
+              }))
+          PY
