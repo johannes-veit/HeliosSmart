@@ -1,7 +1,8 @@
 <?php
 /** Offline EWT WebFront action test: fake Shelly is a readback-only test double. */
 define('VM_UPDATE',10603);
-$GLOBALS['variables']=[9001=>true,9002=>true,9003=>15.0,28581=>11.0];
+$GLOBALS['variables']=[9001=>true,9002=>true,9003=>15.0,28581=>11.0,
+    32748=>false,35794=>true,19705=>0.0];
 $GLOBALS['variableTimes']=[];
 $GLOBALS['onlineChangedAt']=time()-3600;
 $GLOBALS['commands']=[];
@@ -15,10 +16,17 @@ function IPS_GetVariable($id){return [
     'VariableChanged'=>$id===9002?$GLOBALS['onlineChangedAt']:time()-3600,
 ];}
 function GetValue($id){return $GLOBALS['variables'][$id];}
-function IPS_InstanceExists($id){return $id===42;}
+function IPS_InstanceExists($id){return in_array($id,[42,58021,40477],true);}
 function IPS_GetInstance($id){return ['ModuleInfo'=>['ModuleID'=>'{685106B4-47EC-43C9-9CA9-9BAE53E4B304}']];}
-function HasAction($id){return $id===9001;} 
-function IPS_GetParent($id){return in_array($id,[9001,9002,9003],true)?777:60000;}
+function IPS_GetName($id){return [58021=>'EWT Pumpe Lüftungsanlage',32748=>'Status',35794=>'Erreichbar',19705=>'Wirkleistung'][$id]??'UNKNOWN';}
+function HasAction($id){return in_array($id,[9001,32748],true);} 
+function IPS_GetParent($id){return in_array($id,[9001,9002,9003],true)?777:
+    (in_array($id,[32748,35794,19705],true)?58021:60000);}
+function IPS_SetProperty($id,$name,$value){
+    $GLOBALS['installerModule']->setProperty($name,$value);
+    return true;
+}
+function IPS_ApplyChanges($id){return true;}
 function RequestAction($id,$value){
     $GLOBALS['commands'][]=['id'=>$id,'value'=>$value];
     return $GLOBALS['sendActionSuccess'];
@@ -238,4 +246,40 @@ $method->invoke($recovered,[
 $st=json_decode($recovered->ReadAttributeString('EWTPumpControlState'),true);
 a(($st['last_error']??'')==='SHELLY_NO_STATE_CONFIRMATION',
     'a real unconfirmed actuator command remains diagnosable');
+// One-click commissioning of the exact ShellyDevice shown in the screenshot.
+$GLOBALS['sendActionSuccess']=true;
+$GLOBALS['variables'][32748]=false;
+$GLOBALS['variables'][35794]=true;
+$GLOBALS['variables'][19705]=0.0;
+$GLOBALS['onlineChangedAt']=time()-3600;
+$GLOBALS['weather']=['quality'=>'VERIFIED',
+    'current'=>['temperature'=>14.0,'observed_at'=>time()-30]];
+$GLOBALS['variableTimes'][32748]=time()-60;
+$GLOBALS['variableTimes'][35794]=time()-60;
+$GLOBALS['variableTimes'][19705]=time()-30;
+$install=new HeliosSmart();$install->Create();
+$GLOBALS['installerModule']=$install;
+$summary=$install->InstallExistingEWTShelly();
+a(str_contains($summary,'CONFIGURIERT / AUTOMATIK FREIGEGEBEN'),
+    'one-click installation maps all correct Shelly variables');
+a($install->ReadPropertyInteger('EWTPumpSwitchVariable')===32748
+    && $install->ReadPropertyInteger('EWTPumpOnlineVariable')===35794
+    && $install->ReadPropertyInteger('EWTPumpPowerVariable')===19705
+    && $install->ReadPropertyInteger('EWTPumpHeartbeatVariable')===19705,
+    'installer links screenshot relay/availability/power/heartbeat IDs');
+a($install->ReadPropertyBoolean('EnableEWTPumpControl')===true
+    && $install->value('EWTPumpModeManual')===false,
+    'commissioned installation released in AUTO');
+a($install->value('EWTPumpOnline')===true,
+    'device online verified with recent power telemetry');
+a(str_contains((string)$install->value('EWTPumpLearningStatus'),'bereit'),
+    'learner initialized visibly');
+$second=new HeliosSmart();$second->Create();
+$GLOBALS['installerModule']=$second;
+$GLOBALS['variables'][35794]=false;
+$failed=$second->InstallExistingEWTShelly();
+a(str_contains($failed,'NICHT FREIGEGEBEN')
+    && !$second->ReadPropertyBoolean('EnableEWTPumpControl'),
+    'installer does not release an offline Shelly');
+$GLOBALS['variables'][35794]=true;
 echo "EWT WebFront controls and actuator safety integration OK\\n";
