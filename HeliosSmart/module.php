@@ -1370,6 +1370,8 @@ class HeliosSmart extends IPSModule
         $recent=is_array($weather['current']??null)?$weather['current']:[];
         $environment=is_array($weather['environment_context']??null)
             ?$weather['environment_context']:[];
+        $soilLive=is_array($weather['soil_current_model']??null)
+            ?$weather['soil_current_model']:[];
         $control=json_decode($this->ReadAttributeString('EWTPumpControlState'),true);
         if(!is_array($control))$control=[];
         $out=$pump['outside_c']??null;
