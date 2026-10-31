@@ -1886,6 +1886,7 @@ class HeliosSmart extends IPSModule
             'intake_at'=>$intakeExists
                 ?(int)(IPS_GetVariable($intakeID)['VariableUpdated']??0):0,
             'shelly_online'=>$health['online_confirmed']??false,
+            'shelly_link'=>$health['link']??'NOT_CONFIGURED',
             'pump_state'=>$health['reported']??'UNKNOWN',
             'command_pending'=>is_bool($control['pending_target']??null),
             'command_error'=>($control['last_error']??'')!=='',
@@ -1929,7 +1930,11 @@ class HeliosSmart extends IPSModule
             .' | Monatstabellen '.$diagnosis['monthly_profiles']
             .' | vergleichbare Gruppen '.$diagnosis['conditioned_groups']
             .' | '.($diagnosis['last_result']??'UNBEKANNT')
-            .' | Verwertbarkeit '.($diagnosis['paired_advice']['quality']??'KEINE'));
+            .' | Verwertbarkeit '.($diagnosis['paired_advice']['quality']??'KEINE')
+            .' | Shelly '.($diagnosis['shelly_link']??'UNBEKANNT')
+            .' | Luefter stabil '.($diagnosis['fan_stable_minutes']??'?').' min'
+            .' | Pumpe stabil '.($diagnosis['pump_stable_minutes']??'?').' min'
+            .' | Ausschluesse: 30-Minuten-Fenster, historische 5-Minuten-Pruefungen separat');
         $this->SetValue('EWTPumpLearningJSON',json_encode($diagnosis,JSON_UNESCAPED_UNICODE));
         return $diagnosis;
     }
