@@ -21,9 +21,15 @@ function GetValue($id){return $GLOBALS['values'][$id];}
 function IPS_GetConfiguration($id){return $id===19285 ? json_encode($GLOBALS['nativeConfig']??['notif_script_active'=>false,'notifscript_id'=>0,'timerinterval'=>61,'log_fanlevel'=>false]) : json_encode(['Location'=>json_encode(['latitude'=>50,'longitude'=>7])]);}
 function JVWC_Snapshot($id){return json_encode($GLOBALS['weatherForTest']??['quality'=>'VERIFIED','current'=>JVWeatherMath::readPair(5,100)+['observed_at'=>time()-120], 'forecast'=>[]]);}
 function HELIOS_WeekProgram_Set(...$args){$GLOBALS['calls'][]=['week',$args];$GLOBALS['deviceProgram']=(int)$args[1];return true;}
+function HELIOS_OperatingMode_Whisper_Set($id,$active,$fan,$duration){
+ $GLOBALS['calls'][]=['whisper',[$id,$active,$fan,$duration]];
+ if(!$active){$GLOBALS['deviceMode']=0;return true;}
+ $GLOBALS['deviceMode']=3;$GLOBALS['deviceFan']=$fan;return true;
+}
 function HELIOS_OperatingMode_Party_Set(...$args){
     $GLOBALS['calls'][]=['party',$args];
     if(($GLOBALS['failParty']??false)===true)return false;
+    if(($args[1]??false)===false){$GLOBALS['deviceMode']=0;return true;}
     $GLOBALS['deviceMode']=2;$GLOBALS['deviceFan']=(int)$args[2];$GLOBALS['remaining']=(int)$args[3];return true;
 }
 function HELIOS_OperatingMode_Get($id){$GLOBALS['getCalls']++;return $GLOBALS['deviceMode'];}
@@ -217,4 +223,40 @@ $active->Evaluate();
 $repeat=json_decode($active->value('DecisionJSON'),true);
 it(($repeat['smart_profile_execution']['attempted']??true)===false,
     'no same-day repeated profile switch after auto readback');
+// Full SMART takeover of manufacturer's summer stage4. Device-owned
+// 15min Party overrides stage without permanent MANUELL or new fan setter.
+$GLOBALS['deviceMode']=0;
+$GLOBALS['deviceFan']=4;
+$GLOBALS['deviceProgram']=3;
+$GLOBALS['values'][30441]=4;
+$active->setProperty('EnableSmartFanTakeover',true);
+$beforeSmart=count($GLOBALS['calls']);
+$active->Evaluate();
+$auto=json_decode($active->value('DecisionJSON'),true);
+it(($auto['smart_fan_takeover']['execute']??false)===true,
+    'SMART fan overrides manufacturer weekly after fresh room and weather checks');
+it(($auto['smart_fan_takeover']['target_stage']??null)===3,
+    'uncalibrated airflow selects nominal stage3, never unvalidated stage1/2');
+it(($auto['smart_fan_execution']['status']??'')==='SMART_STAGE_CONFIRMED',
+    'device timed Party S3 confirmed by live device readback');
+it($GLOBALS['deviceMode']===2 && $GLOBALS['deviceFan']===3,
+    'manufacturer-timed Party takes control, NOT permanent manual mode');
+$smartCalls=array_slice($GLOBALS['calls'],$beforeSmart);
+it(count(array_filter($smartCalls,
+    static fn($c)=>$c[0]==='party' && $c[1][1]===true
+        && $c[1][2]===3 && $c[1][3]===15))===1,
+    'single 15 minute manufacturer timed-stage command');
+$active->Evaluate();
+$smartWait=json_decode($active->value('DecisionJSON'),true);
+it(($smartWait['smart_fan_execution']['status']??'')==='SMART_OWNED_ACTIVE_WAIT_RENEWAL',
+    'no command flood during first 10 minutes');
+$GLOBALS['weatherForTest']=['quality'=>'UNAVAILABLE','current'=>null,'forecast'=>[]];
+$active->Evaluate();
+$fallback=json_decode($active->value('DecisionJSON'),true);
+it(($fallback['smart_fan_takeover']['fallback_weekly']??false)===true,
+    'invalid weather forces stored weekly plan fallback');
+it(($fallback['smart_fan_execution']['status']??'')==='AUTO_FALLBACK_CONFIRMED',
+    'only own timed Party cancelled on loss of trustworthy weather');
+it($GLOBALS['deviceMode']===0,
+    'manufacturer AUTO immediately resumes after smart error');
 echo "ALLE $counter SYMCON-LIVE-INTEGRATIONSPRUEFUNGEN BESTANDEN\n";
