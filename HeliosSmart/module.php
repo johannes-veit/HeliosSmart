@@ -1945,6 +1945,12 @@ class HeliosSmart extends IPSModule
         try{
             $f=json_decode($this->ReadAttributeString('ChatGPTDiagnosticState'),true);
             if(!is_array($f)||!isset($f['sampled_at'])){
+                // A module update registers the new variable before the first
+                // 5-minute tick. Reuse the previous DecisionJSON and its
+                // original timestamp without running Evaluate or actuators.
+                if($this->BootstrapChatGPTDiagnosisFromLastDecision($now)){
+                    return; // The bootstrap already published a diagnosis.
+                }
                 $f=[
                     'sampled_at'=>0,
                     'warnings'=>[
@@ -1973,6 +1979,77 @@ class HeliosSmart extends IPSModule
         }
     }
 
+    /**
+     * Read-only initial report assembled from existing, persisted decision
+     * variables. Never call Evaluate() from module-update / refresh: it can
+     * perform a real native Party or EWT Shelly action.
+     *
+     * Important: retain the LAST DECISION timestamp, rather than mark an old
+     * decision as freshly evaluated. Current room and weather source ages
+     * are kept independently, and the report explicitly notes mixed times.
+     */
+    private function BootstrapChatGPTDiagnosisFromLastDecision(int $now):bool
+    {
+        if(!method_exists($this,'GetIDForIdent'))return false;
+        try{
+            $id=$this->GetIDForIdent('DecisionJSON');
+            if(!is_int($id)||$id<=0||!IPS_VariableExists($id))
+                return false;
+            $text=GetValue($id);
+            if(!is_string($text)||$text===''||strlen($text)>700000)
+                return false;
+            $decision=json_decode($text,true);
+            if(!is_array($decision)
+                || !isset($decision['mode'])
+                || !isset($decision['weather_quality']))
+                return false;
+            $meta=IPS_GetVariable($id);
+            $sampledAt=(int)($meta['VariableUpdated']??0);
+            if($sampledAt<=0||$sampledAt>$now+120)
+                return false;
+
+            // Last actuator evidence belongs to the older evaluation.
+            // Current HELIOS/room/weather values may have updated since.
+            // Do not reinterpret them as a newly executed command.
+            $smartRaw=$this->DiagnosticOwnText('SmartFanTakeoverJSON',70000);
+            $smart=is_string($smartRaw)?json_decode($smartRaw,true):null;
+            if(is_array($smart)){
+                $decision['smart_fan_takeover']=(array)($smart['plan']
+                    ??$decision['smart_fan_takeover']??[]);
+                $decision['smart_fan_execution']=(array)($smart['execution']
+                    ??$decision['smart_fan_execution']??[]);
+                $decision['native_air_evidence']=(array)($smart['co2_voc_evidence']
+                    ??$decision['native_air_evidence']??[]);
+            }
+            $nativeRaw=$this->DiagnosticOwnText('NativeHeliosJSON',18000);
+            $native=is_string($nativeRaw)?json_decode($nativeRaw,true):null;
+            if(is_array($native))
+                $decision['native_helios_integration']=$native;
+            $fanRaw=$this->DiagnosticOwnText('FanStageCauseJSON',12000);
+            $fan=is_string($fanRaw)?json_decode($fanRaw,true):null;
+            if(is_array($fan))$decision['fan_stage_attribution']=$fan;
+
+            $weather=['quality'=>'UNAVAILABLE','current'=>null,
+                'forecast'=>[]];
+            [$wid]=$this->FindWeatherCenter();
+            if($wid>0&&function_exists('JVWC_Snapshot')){
+                try{
+                    $raw=JVWC_Snapshot($wid);
+                    $w=json_decode((string)$raw,true);
+                    if(is_array($w))$weather=$w;
+                }catch(Throwable $ignored){}
+            }
+            [$rooms,$missing,$humiditySources]=$this->ReadRooms($now);
+            $this->PublishChatGPTDiagnosis($decision,$weather,$rooms,
+                $missing,$humiditySources,$now,$sampledAt);
+            return true;
+        }catch(Throwable $e){
+            $this->SendDebug('ChatGPTBootstrap',
+                substr($e->getMessage(),0,130),0);
+            return false;
+        }
+    }
+
     /** Read our OWN registered text variables only, never another module's settings. */
     private function DiagnosticOwnText(string $ident,int $limit=6000):?string
     {
@@ -1996,7 +2073,7 @@ class HeliosSmart extends IPSModule
      */
     private function PublishChatGPTDiagnosis(
         array $d,array $weather,array $rooms,array $missing,
-        array $humiditySources,int $now):void
+        array $humiditySources,int $now,?int $evaluatedAt=null):void
     {
         try{
             $pick=[JVHeliosChatGPTDiagnostic::class,'pick'];
@@ -2026,6 +2103,10 @@ class HeliosSmart extends IPSModule
                 ?$weather['soil_climatology']:[];
             $forecast=(array)($weather['forecast']??[]);
             $warnings=[];
+            if($evaluatedAt!==null)
+                $warnings[]='BERICHT AUS VORHERIGEM ENTSCHEIDUNGS-SNAPSHOT REKONSTRUIERT:'
+                    .' keine neue SMART-Bewertung, kein Schaltbefehl.'
+                    .' Geraete-, Wetter- und Raumwerte koennen unterschiedlich alt sein.';
             $weatherAge=isset($current['observed_at'])
                 ?($now-(int)$current['observed_at']):null;
             $weatherQuality=(string)($weather['quality']??'UNAVAILABLE');
@@ -2066,7 +2147,11 @@ class HeliosSmart extends IPSModule
                     'relative_humidity','source']);
             }
             $f=[
-                'sampled_at'=>$now,
+                'sampled_at'=>$evaluatedAt??$now,
+                'source_mode'=>$evaluatedAt!==null
+                    ?'ZWISCHENSTAND_AUS_BESTEHENDEN_DIAGNOSEN_NUR_LESEN'
+                    :'VOLLSTAENDIGE_SMART_AUSWERTUNG',
+                'report_created_at'=>$now,
                 'warnings'=>array_slice($warnings,0,20),
                 'instances'=>[
                     'HELIOS_SMART'=>$this->InstanceID,
