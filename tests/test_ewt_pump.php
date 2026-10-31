@@ -96,4 +96,73 @@ $holdOff=$plan(['outside_temperature'=>14,'indoor_temperature'=>null,
     'plug_on'=>false,'state'=>['last_off_at'=>$now-3600]]);
 checkEwt($holdOff['desired_on']===false,
     'stale indoor context does not gratuitously start an off pump');
+// Current ECMWF IFS 100-255cm model becomes preferred planning evidence,
+// while one near match (15.4 C Sole vs 15.5 C model) is NOT full calibration.
+$model=[
+    'source'=>'OPEN_METEO_ECMWF_IFS_FORECAST_MODEL',
+    'quality'=>'MODEL_FORECAST_NOT_MEASURED',
+    'depth_deep_cm'=>'100-255','deep_c'=>15.5,
+    'time'=>$now-3600,'retrieved_at'=>$now-180,
+];
+$live=$plan(['outside_temperature'=>11.0,
+    'soil_current_model'=>$model,'plug_on'=>false]);
+checkEwt($live['planning_source']==='ECMWF_IFS_100_255CM_LIVE_MODEL',
+    'six-hour live soil model prioritized over old 13-14 C monthly guess');
+checkEwt($live['planning_sole_c']===15.5 && $live['desired_on']===true
+    && $live['reason']==='HEATING_PROBE_START',
+    'sensible 4.5K predicted difference can launch 15-minute trial');
+checkEwt($live['soil_model_quality']==='MODEL_FORECAST_NOT_MEASURED'
+    && $live['planning_probe_margin_k']===2.0,
+    'modeled ground value has conservative 2K probe margin');
+$measured=$plan(['outside_temperature'=>11.0,
+    'soil_current_model'=>$model,'sole_temperature'=>12.0,
+    'sole_updated_at'=>$now-60]);
+checkEwt($measured['planning_source']==='MEASURED_SOLE'
+    && $measured['planning_sole_c']===12.0
+    && $measured['desired_on']===false,
+    'real Sole sensor overrides optimistic ground model');
+$stale=$plan(['outside_temperature'=>11.0,
+    'soil_current_model'=>array_replace($model,['retrieved_at'=>$now-11*3600])]);
+checkEwt($stale['planning_source']==='SEASONAL_ESTIMATE',
+    'soil snapshot older than nine hours cannot drive EWT');
+$wrongModel=$plan(['outside_temperature'=>11.0,
+    'soil_current_model'=>array_replace($model,['source'=>'OTHER_SOURCE'])]);
+checkEwt($wrongModel['planning_source']==='SEASONAL_ESTIMATE',
+    'source attribution must be correct');
+$futureModel=$plan(['outside_temperature'=>11.0,
+    'soil_current_model'=>array_replace($model,['time'=>$now+4*3600])]);
+checkEwt($futureModel['planning_source']==='SEASONAL_ESTIMATE',
+    'future soil forecast cannot pose as a current modeled temperature');
+$oldSensor=$plan(['outside_temperature'=>11.0,
+    'soil_current_model'=>$model,'sole_temperature'=>6.0,
+    'sole_updated_at'=>$now-3700]);
+checkEwt($oldSensor['planning_source']==='ECMWF_IFS_100_255CM_LIVE_MODEL',
+    'old Sole sensor does not beat timely model');
+// Current actual heat-effect is a stronger outcome signal than
+// any model and must stop after minimum run if effect is absent.
+$ineffective=$plan(['outside_temperature'=>11.0,
+    'soil_current_model'=>$model,'plug_on'=>true,
+    'intake_after_ewt'=>11.2,
+    'state'=>['last_on_at'=>$now-3600]]);
+checkEwt($ineffective['desired_on']===false
+    && $ineffective['reason']==='HEATING_NO_SUFFICIENT_EFFECT',
+    'measured weak air heat effect vetoes ongoing model-based preheating');
+$observed=$plan(['outside_temperature'=>11.0,
+    'soil_current_model'=>array_replace($model,['deep_c'=>8.0]),
+    'plug_on'=>true,'intake_after_ewt'=>14.0,
+    'state'=>['last_on_at'=>$now-3600]]);
+checkEwt($observed['desired_on']===true
+    && $observed['reason']==='HEATING_EFFECT_CONFIRMED',
+    'measured air warming wins over pessimistic soil model');
+$frostWithSoil=$plan(['outside_temperature'=>-3.0,
+    'soil_current_model'=>array_replace($model,['deep_c'=>25.0]),
+    'plug_on'=>false]);
+checkEwt($frostWithSoil['frost_priority']===true
+    && $frostWithSoil['desired_on']===true,
+    'soil model cannot disable outdoor frost protection');
+// Current-model field is ignored entirely when metadata is absent.
+$spoof=$plan(['outside_temperature'=>11.0,
+    'soil_current_model'=>['deep_c'=>15.5,'time'=>$now-60,'retrieved_at'=>$now-60]]);
+checkEwt($spoof['planning_source']==='SEASONAL_ESTIMATE',
+    'unqualified model values cannot trigger pump decisions');
 echo "EWTPump decision tests OK\n";
