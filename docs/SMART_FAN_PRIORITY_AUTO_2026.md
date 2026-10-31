@@ -217,3 +217,16 @@ Modellannahmen. S4 wird bei echtem Bedarf und ohne
 bestaetigte HighPower-/Feuerstaettensicherheit nicht
 kuenstlich erzwungen; stattdessen entscheidet der
 Original-Helios-Regler.
+
+9. **Helios-CO2-/VOC-Heartbeat:** Das Originalmodul
+   aktualisiert Symcon-Sensorwerte teilweise nur bei
+   Wertveraenderungen. Wenn ein tatsaechlich installierter
+   nativer CO2-/VOC-Sensor seit mehr als 45 min keinen neuen
+   Variablenwert hat, fragt SMART exakt diesen einen
+   Herstellerfuehler per `HELIOS_CO2Sensor_Get()` oder
+   `HELIOS_VOCSensor_Get()` erneut ab. Bei frischem
+   erfolgreichem Ergebnis gilt der live gelesene Wert,
+   auch wenn der gespeicherte Symcon-Zeitstempel noch alt
+   erscheint. Bei fehlgeschlagenem Abruf gilt der Sensor
+   konservativ als nicht bestaetigt. Es werden KEINE
+   leeren Sensor-Slots blind zyklisch abgefragt.
