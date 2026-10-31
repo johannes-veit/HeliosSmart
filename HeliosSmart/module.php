@@ -1194,6 +1194,8 @@ class HeliosSmart extends IPSModule
             'weather_quality'=>$weather['quality']??'UNAVAILABLE',
             'soil_climatology'=>is_array($weather['soil_climatology']??null)
                 ?$weather['soil_climatology']:null,
+            'soil_current_model'=>is_array($weather['soil_current_model']??null)
+                ?$weather['soil_current_model']:null,
             'outside_temperature'=>$current['temperature']??null,
             'outside_observed_at'=>$current['observed_at']??0,
             'forecast'=>is_array($weather['forecast']??null)?$weather['forecast']:[],
@@ -1339,13 +1341,16 @@ class HeliosSmart extends IPSModule
             .' | '.$plan['reason'].' | '.$command
             .(($state['last_error']??'')!==''?' | FEHLER: '.$state['last_error']:'')
             .' | Referenz '.$plan['planning_source']
-            .' | Sole '.($plan['sole_temperature_measured_c']!==null
-                ?number_format($plan['sole_temperature_measured_c'],1,',','.').' °C gemessen'
-                :number_format($plan['sole_temperature_reference']['low_c'],1,',','.')
-                    .'–'.number_format($plan['sole_temperature_reference']['high_c'],1,',','.')
-                    .' °C '.(($plan['sole_temperature_reference']['source']??'')==='ERA5_LAND_REANALYSIS_OPEN_METEO'
-                        ?'ERA5-Land-Bodenmodell 100–255 cm':'vorlaeufige Saison-Schaetzung')
-                    .' (kein Sole-Messwert)')
+            .' | Sole/Boden '.($plan['sole_temperature_measured_c']!==null
+                ?number_format($plan['sole_temperature_measured_c'],1,',','.').' °C SOLE GEMESSEN'
+                :($plan['soil_current_model_c']!==null
+                    ?number_format($plan['soil_current_model_c'],1,',','.').' °C'
+                        .' ECMWF Bodenmodell 100–255 cm (KEINE Solemessung)'
+                    :number_format($plan['sole_temperature_reference']['low_c'],1,',','.')
+                        .'–'.number_format($plan['sole_temperature_reference']['high_c'],1,',','.')
+                        .' °C '.(($plan['sole_temperature_reference']['source']??'')==='ERA5_LAND_REANALYSIS_OPEN_METEO'
+                            ?'ERA5-Land-Jahresmodell 100–255 cm':'vorlaeufige Saison-Schaetzung')
+                        .' (kein Sole-Messwert)'))
             .' | '.($power!==null?number_format($power,1,',','.').' W':'Leistung nicht verifiziert');
         $this->SetValue('EWTPumpStatus',$status);
         $this->SetValue('EWTPumpAlarm',
@@ -1413,6 +1418,8 @@ class HeliosSmart extends IPSModule
             'environment_source'=>$environment['source']??'NONE',
             'environment_quality'=>$environment['quality']??'UNAVAILABLE',
             'soil_reference_c'=>$pump['sole_temperature_reference']['mean_c']??null,
+            'soil_planning_c'=>$pump['planning_sole_c']??null,
+            'soil_planning_source'=>$pump['planning_source']??'NONE',
             'soil_current_model_c'=>$soilLive['deep_c']??null,
             'soil_current_model_source'=>$soilLive['source']??'NONE',
             'soil_measured_c'=>$pump['sole_temperature_measured_c']??null,
