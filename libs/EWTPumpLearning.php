@@ -95,6 +95,8 @@ final class JVHeliosEWTPumpLearning
             'environment_quality'=>$x['environment_quality']??'UNAVAILABLE',
             'environment_source'=>$x['environment_source']??'NONE',
             'soil_model_c'=>$x['soil_reference_c']??null,
+            'soil_planning_c'=>$x['soil_planning_c']??null,
+            'soil_planning_source'=>$x['soil_planning_source']??'NONE',
             'soil_current_model_c'=>$x['soil_current_model_c']??null,
             'soil_current_model_source'=>$x['soil_current_model_source']??'NONE',
             'soil_measured_c'=>$x['soil_measured_c']??null,
