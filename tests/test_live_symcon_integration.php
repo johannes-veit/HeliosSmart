@@ -20,7 +20,7 @@ function IPS_GetVariable($id){return ['VariableUpdated'=>$GLOBALS['variableTime'
 function GetValue($id){return $GLOBALS['values'][$id];}
 function IPS_GetConfiguration($id){return $id===19285 ? json_encode($GLOBALS['nativeConfig']??['notif_script_active'=>false,'notifscript_id'=>0,'timerinterval'=>61,'log_fanlevel'=>false]) : json_encode(['Location'=>json_encode(['latitude'=>50,'longitude'=>7])]);}
 function JVWC_Snapshot($id){return json_encode($GLOBALS['weatherForTest']??['quality'=>'VERIFIED','current'=>JVWeatherMath::readPair(5,100)+['observed_at'=>time()-120], 'forecast'=>[]]);}
-function HELIOS_WeekProgram_Set(...$args){$GLOBALS['calls'][]=['week',$args];return true;}
+function HELIOS_WeekProgram_Set(...$args){$GLOBALS['calls'][]=['week',$args];$GLOBALS['deviceProgram']=(int)$args[1];return true;}
 function HELIOS_OperatingMode_Party_Set(...$args){
     $GLOBALS['calls'][]=['party',$args];
     if(($GLOBALS['failParty']??false)===true)return false;
@@ -178,4 +178,43 @@ $h->Evaluate();
 $good=json_decode($h->value('DecisionJSON'),true);
 it(($good['native_helios_integration']['write_allowed']??false)===true,
     'valid original Helios 102 restoration is recognized without rewriting configuration');
+// Operator explicitly starts SMART takeover while original Helios AUTO
+// still uses the user's hot-summer programme 4 at verified 7C outside.
+$GLOBALS['nativeStatus']=102;
+$GLOBALS['nativeConfig']=['notif_script_active'=>false,'notifscript_id'=>0,
+    'timerinterval'=>61,'log_fanlevel'=>false];
+$GLOBALS['deviceMode']=0;
+$GLOBALS['deviceFan']=4;
+$GLOBALS['deviceProgram']=4;
+$GLOBALS['values'][30441]=4;
+$GLOBALS['values'][12877]=4;
+$GLOBALS['values'][58762]=0;
+$GLOBALS['weatherForTest']=[
+    'quality'=>'VERIFIED',
+    'current'=>JVWeatherMath::readPair(7.0,89)+['observed_at'=>time()-35],
+    'forecast'=>[],
+];
+$active=new HeliosSmart();$active->Create();
+$active->setProperty('WeatherCenterInstance',42);
+$active->setProperty('EnableControl',true);
+$active->setProperty('EnableProgramSwitch',true);
+$initialCalls=count($GLOBALS['calls']);
+$active->Evaluate();
+$season=json_decode($active->value('DecisionJSON'),true);
+it(($season['smart_profile_control']['may_send']??false)===true,
+    'verified 7C heating with hot-summer weekly profile qualifies for active SMART takeover');
+it(($season['smart_profile_execution']['status']??'')==='WINTER_PROGRAM_3_CONFIRMED_AUTO',
+    'SMART sets manufacturer custom winter program 3 and confirms readback');
+it($GLOBALS['deviceMode']===0 && $GLOBALS['deviceProgram']===3,
+    'original Helios stays AUTOMATIC with stored winter programme');
+it(count(array_filter(array_slice($GLOBALS['calls'],$initialCalls),
+    static fn($call)=>$call[0]==='week'))===1,
+    'single durable season programme write');
+it(count(array_filter(array_slice($GLOBALS['calls'],$initialCalls),
+    static fn($call)=>$call[0]==='party'))===0,
+    'no conflicting Party in same evaluation as season takeover');
+$active->Evaluate();
+$repeat=json_decode($active->value('DecisionJSON'),true);
+it(($repeat['smart_profile_execution']['attempted']??true)===false,
+    'no same-day repeated profile switch after auto readback');
 echo "ALLE $counter SYMCON-LIVE-INTEGRATIONSPRUEFUNGEN BESTANDEN\n";
