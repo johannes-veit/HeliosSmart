@@ -274,3 +274,39 @@ Schaltgrenzen und darf niemals den Frostschutz übersteuern. Die
 historische Bewertung liefert die Grundlage für eine spätere validierte
 Optimierung der Schaltzeiten und Wirtschaftlichkeit. Ohne echte
 Luftmengenmessung ist eine exakte Netto-Strom-/Wärmebilanz nicht möglich.
+
+## Ein-Klick-Einrichtung des bereits eingebauten Shelly #58021 (31.10.2026)
+
+Geraet: EWT Pumpe Lueftungsanlage, ShellyDevice #58021, WLAN-IP 192.168.103.72.
+Konkrete Zuordnungen: HELIOS SMART #52187, Relais Status #32748,
+lokales Erreichbar #35794, Wirkleistung #19705 zugleich regelmaessige
+MQTT-Telemetrie fuer Heartbeat. Cloud Status #24078 wird NICHT zur
+Erreichbarkeitskontrolle verwendet. WetterZentrale #40477.
+
+Im aktualisierten Konfigurationsformular ist die Schaltflaeche
+"EWT-Shelly #58021 automatisch zuordnen, pruefen und Automatik freigeben".
+Die Methode JVHS_InstallExistingEWTShelly wird NUR durch Bedienung dieses
+Buttons ausgefuehrt, nicht durch GitHub-Update oder Modulinstallation.
+
+Das System prueft vorher exakt den Instanznamen, die Variablennamen,
+Datentypen und Elternzuordnung, die schaltbare Relais-Aktion sowie
+Online=true und eine frische Watt-Meldung. Nach bestandener Pruefung
+werden die Modulparameter zugeordnet, der Betriebsmodus auf Automatik
+gesetzt und ausschliesslich EnableEWTPumpControl freigegeben;
+Helios-Party-/Fan-Freigaben bleiben unberuehrt. Eine unmittelbare
+EWT-Bewertung darf jetzt auch einen echten Shelly-Befehl absetzen.
+Das ist keine garantierte Pumpenbestaetigung: Nur neue Relaisdaten
+und nach Moeglichkeit frische Leistungswerte helfen, die Ausfuehrung
+zu beurteilen. Die neue Variable EWTPumpSetupReport zeigt die
+Ergebnisse und moegliche Sperrgruende.
+
+Bei fehlender Online- oder Leistungsaktualisierung sowie falschem
+Variablenmapping wird die Automatik NICHT freigegeben.
+Ein unveraenderter Shelly-Relaiszustand darf unter staendig frischer
+Watt-/MQTT-Telemetrie derselben Instanz laenger als 15 Minuten gelten.
+Bei Verbindungsausfall oder neuerem Reconnect als die Relaismeldung
+bleibt er grundsaetzlich UNBEKANNT.
+
+Vor dem Klick Elektroanschluss, Pumpenlast, unabhaengigen Sole-Frostschutz,
+Restart/Power-on-Zustand des Shelly und Verhalten bei Strom-/Netzausfall
+pruefen. Die Tests in GitHub sind simuliert und kein realer Durchflussnachweis.

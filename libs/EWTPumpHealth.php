@@ -38,8 +38,15 @@ final class JVHeliosEWTPumpHealth
         // After a new MQTT session, old retained output must be refreshed.
         $postReconnect=$onlineChanged<=0 ||
             ($switchUpdated>0 && $switchUpdated >= $onlineChanged);
+        // Gen2 ShellyDevice often publishes the output only on changes,
+        // while its active power telemetry refreshes every minute.
+        // A fresh heartbeat from the SAME device keeps that last output
+        // report usable, but NEVER overrides an offline indicator or
+        // a relay status predating a reconnect.
+        $liveHeartbeat=$heartbeatAge!==null && $heartbeatAge<=240;
         $freshOutput=$switch!==null && is_bool($switch)
-            && $switchAge!==null && $switchAge<=900 && $postReconnect;
+            && $switchAge!==null && $postReconnect
+            && ($switchAge<=900 || $liveHeartbeat);
         $reported=($link==='ONLINE_FRESH' && $freshOutput)
             ? ($switch?'ON_REPORTED':'OFF_REPORTED')
             :'UNKNOWN';

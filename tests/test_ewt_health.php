@@ -43,4 +43,19 @@ hcheck(JVHeliosEWTPumpHealth::ack($x,false,$now-10)===false,
  'previous OFF report cannot acknowledge new OFF command');
 hcheck(JVHeliosEWTPumpHealth::ack($h(['online'=>false]),false,$now-200)===false,
  'offline cannot acknowledge action');
+$hourStable=$h(['switch_updated_at'=>$now-3600,
+    'online_changed_at'=>$now-7200,'heartbeat_updated_at'=>$now-15]);
+hcheck($hourStable['reported']==='OFF_REPORTED',
+    'unchanged relay remains valid with fresh same-device telemetry after one hour');
+hcheck($hourStable['actuation_allowed']===true,
+    'fresh power heartbeat prevents 15-minute false offline/block in stable operation');
+$hourWithoutHeartbeat=$h(['switch_updated_at'=>$now-3600,
+    'online_changed_at'=>$now-7200,
+    'heartbeat_updated_at'=>$now-3600,'online_updated_at'=>$now-3600]);
+hcheck($hourWithoutHeartbeat['reported']==='UNKNOWN',
+    'without fresh telemetry an hour-old relay OFF is untrusted');
+$afterReconnect=$h(['switch_updated_at'=>$now-3600,
+    'online_changed_at'=>$now-20,'heartbeat_updated_at'=>$now-5]);
+hcheck($afterReconnect['reported']==='UNKNOWN',
+    'fresh watts never conceal stale relay preceding actual reconnect');
 echo "Shelly online, output freshness and power consistency tests OK\n";
