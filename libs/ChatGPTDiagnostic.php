@@ -104,7 +104,7 @@ final class JVHeliosChatGPTDiagnostic
             ?max(0,(int)ceil(($now-$when)/60)):null;
         $t=$r['temperature']??null;$rh=$r['rh']??null;
         return [
-            'raum'=>mb_substr((string)($r['name']??'UNBEKANNT'),0,60),
+            'raum'=>substr((string)($r['name']??'UNBEKANNT'),0,80),
             'c'=>is_numeric($t)?round((float)$t,2):null,
             'rh_pct'=>is_numeric($rh)?round((float)$rh,1):null,
             't_alter_min'=>$age($tAt),
