@@ -912,6 +912,14 @@ class HeliosSmart extends IPSModule
             if(($health['actuation_allowed']??false)!==true)
                 throw new RuntimeException('Shelly Live-Status nicht verifiziert: '
                     .($health['warning']??'UNBEKANNT'));
+            // Commissioning explicitly hands control to AUTOMATIK, never to
+            // a previously saved manual target from an unrelated test.
+            $existing=json_decode($this->ReadAttributeString('EWTPumpControlState'),true);
+            if(!is_array($existing))$existing=[];
+            $existing['manual_mode']=false;
+            unset($existing['manual_target']);
+            $this->WriteAttributeString('EWTPumpControlState',json_encode($existing));
+            $this->SetValue('EWTPumpModeManual',false);
             if(!IPS_SetProperty($this->InstanceID,'EnableEWTPumpControl',true))
                 throw new RuntimeException('Freigabe konnte nicht gespeichert werden');
             IPS_ApplyChanges($this->InstanceID);
@@ -935,6 +943,9 @@ class HeliosSmart extends IPSModule
                 $report='STOERUNG NACH FREIGABE – '.$report;
             }
             $this->SetValue('EWTPumpSetupReport',$report);
+            $this->SetValue('EWTPumpLearningStatus',
+                'EWT-Lernen bereit | 30-Minuten-Takt | zuerst stabile'
+                .' Shelly- und Wetterdaten sammeln | NUR LESEN');
             return $report;
         } catch(Throwable $e) {
             // Configuration may have been partially applied. It must not
