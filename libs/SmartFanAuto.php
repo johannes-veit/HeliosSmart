@@ -22,6 +22,14 @@ final class JVHeliosSmartFanAuto
             || !in_array($d['mode']??null,[0,2,3],true)){
             $out['reason']='NATIVE_NOT_HEALTHY_OR_NOT_AUTO';return $out;
         }
+        $program=$d['native_week_program']??3;
+        // Native programme 5 is the *Symcon* weekly-event mode, not a
+        // manufacturer-stored schedule. It may send parallel events and
+        // does not satisfy the promised hardware fallback on SymBox loss.
+        if(!is_int($program)||$program<0||$program>4){
+            $out['reason']='NATIVE_WEEKLY_FALLBACK_NOT_DEVICE_STORED';
+            return $out;
+        }
         $mode=$d['mode']??null;
         if($mode===2||$mode===3){
             // Distinguish a device-timed mode we own from a human/external party.
