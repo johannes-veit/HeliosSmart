@@ -27,7 +27,8 @@ final class JVHeliosSmartFanAuto
             // Distinguish a device-timed mode we own from a human/external party.
             if(($d['owned_mode']??null)!==$mode
                 || ($d['owned_until']??0)<$now
-                || ($d['owned_last_at']??0)<=0){
+                || ($d['owned_last_at']??0)<=0
+                ||($d['owned_stage']??null)!==($d['actual_fan']??null)){
                 $out['reason']='FOREIGN_PARTY_OR_WHISPER';return $out;
             }
         }
