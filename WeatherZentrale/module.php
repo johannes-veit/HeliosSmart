@@ -50,6 +50,8 @@ class WetterZentrale extends IPSModule
             'Bodenmodell aktuell – 6-Stunden-Status', '', 130);
         $this->RegisterVariableString('SoilCurrentJSON',
             'Bodenmodell aktuell – Datenquelle und Zeitpunkt JSON', '', 140);
+        $this->RegisterVariableString('SoilCurrentHistoryJSON',
+            'Bodenmodell 6-h-Verlauf – letzte 90 Tage JSON', '', 150);
         $this->SetValue('Quality', 'UNAVAILABLE');
     }
 
@@ -448,6 +450,30 @@ class WetterZentrale extends IPSModule
                 $state['snapshot']=$model;
                 $state['last_success_at']=$now;
                 $state['error']='';
+                $history=is_array($state['recent']??null)?$state['recent']:[];
+                $sample=[
+                    'time'=>$model['time'],
+                    'retrieved_at'=>$now,
+                    'shallow_c'=>$model['shallow_c'],
+                    'deep_c'=>$model['deep_c'],
+                ];
+                $last=end($history);
+                if(is_array($last) && ($last['time']??null)===$sample['time'])
+                    $history[count($history)-1]=$sample;
+                else
+                    $history[]=$sample;
+                // 6h samples x 90 days max, no unbounded hourly database.
+                $history=array_values(array_filter($history,
+                    static fn($row)=>is_array($row)
+                        && (int)($row['retrieved_at']??0)>=$now-90*86400));
+                if(count($history)>360)$history=array_slice($history,-360);
+                $state['recent']=$history;
+                $this->SetValue('SoilCurrentHistoryJSON',json_encode([
+                    'source'=>JVHeliosCurrentSoilModel::SOURCE,
+                    'quality'=>'MODEL_FORECAST_NOT_MEASURED',
+                    'max_days'=>90,'points'=>count($history),
+                    'samples'=>$history,
+                ],JSON_UNESCAPED_UNICODE));
                 $this->SetValue('SoilCurrentShallowC',$model['shallow_c']);
                 $this->SetValue('SoilCurrentDeepC',$model['deep_c']);
                 $this->SetValue('SoilCurrentJSON',json_encode($model,JSON_UNESCAPED_UNICODE));
