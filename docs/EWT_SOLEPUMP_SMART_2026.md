@@ -348,3 +348,58 @@ sechs-stuendiges Abrufintervall erforderlich. Die neue aktuelle
 Bodenmodellreihe wird lediglich an das *nur lesende* HELIOS-EWT-
 Lernprogramm uebergeben, ohne selbst die Pumpe zu schalten oder die
 Wetterqualitaet kuenstlich zu verbessern.
+
+## Einbindung des aktuellen ECMWF-IFS-Bodenmodells in die EWT-Automatik (31.10.2026)
+
+Standort Brauneberg: Am 31.10.2026 um 09:00 (Europe/Berlin) hatte
+Open-Meteo/ECMWF IFS fuer 100–255 cm einen Modellwert von **15,5 °C**.
+Die vom Betreiber einmalig angegebenen Solewerte waren **15,4 °C
+vor EWT** und **14,5 °C nach EWT** (Spreizung 0,9 K).
+Das ist nur **ein** Vergleichspunkt mit 0,1 K Abweichung, keine
+statistisch nachgewiesene Winter-Kalibrierung. Das Modell kann die
+Bodentemperatur anders darstellen als die reale Sole im Rohr.
+
+**Planungsprioritaet im EWT-Pumpenregler:**
+1. Gemessene, ausreichend frische Soletemperatur der *richtigen*
+   Helios-EWT-Leitung, wenn eine reale Symcon-Temperaturvariable
+   hinterlegt ist; diese hat immer Vorrang.
+2. Aktuelles **ECMWF IFS** Bodenmodell 100–255 cm aus der gemeinsamen
+   WetterZentrale (Abruf alle 6 Stunden), wenn Quelle, Qualitaet,
+   Modellschicht und Zeitstempel korrekt sind.
+3. Mindestens 3 vollstaendige historische ERA5-Land-Jahre als
+   Monatsreferenz, wenn kein frisches aktuelles Modell vorliegt.
+4. Die vorlaeufige Betreiber-Monatskurve als letzte Plausibilitaetshilfe.
+
+Beim aktuellen ECMWF-Modell gelten strenge Verwendbarkeitskriterien:
+vom Modellabruf nicht aelter als neun Stunden; modellierter
+Messzeitpunkt nicht aelter als zwoelf Stunden und nicht in der Zukunft,
+physikalisch plausible Werte, ausdrueckliche Datenart
+`MODEL_FORECAST_NOT_MEASURED`. Das angegebene tiefe Schichtmittel
+ist **keine Soletemperaturmessung**. Es erfolgt **keine**
+weitere starre Phasenverschiebung, weil diese in der tiefen
+Bodenschicht bereits modelliert wird.
+
+Ein **modellierter** Temperaturvorteil von mindestens 2,0 K kann
+in passender Heiz-/Kuehlsituation einen zeitlich begrenzten
+EWT-Probelauf ausloesen. Bei einem echten Solefuehler bleibt die
+bisherige 1,5-K-Schwelle erhalten. Die eigentliche Wirkung wird am
+Helios-Aussenlufteintritt NACH dem EWT gegen die reale
+Wetter-Aussenluft abgeglichen. Wenn die Pumpe laeuft, aber die
+gemessene Luftwirkung nicht ausreichend ist, darf der Bodenmodellwert
+den Weiterbetrieb nicht erzwingen. Kein Pumpen-ON aufgrund
+eines Modellwerts bei unzuverlaessiger lokaler Aussentemperatur:
+dann gilt stattdessen die bestehende konservative Frostschutzlogik.
+
+`EWTPumpStatus` dokumentiert die tatsaechlich verwendete Quelle:
+`MEASURED_SOLE`, `ECMWF_IFS_100_255CM_LIVE_MODEL`,
+`ERA5_LAND_MULTIYEAR_LAYER_MODEL` oder `SEASONAL_ESTIMATE`.
+`EWTPumpLearningState` speichert neben der Boden-Modelltemperatur
+auch die zum Zeitpunkt der Entscheidung verwendete Planungsquelle.
+So lassen sich nach einigen Wochen/Monaten Modellfehler, Aussenluft-
+Wirkung und Pumpleistung nachpruefen.
+
+Diese Aenderung greift **nur** in die Nutzenbeurteilung der
+Helios-Lueftungs-EWT-Pumpe ein. Die separate FBH-Kuehlpumpe und
+Taupunktwaechtersteuerung bleiben unberuehrt. Helios-Fan/Party-Logik,
+unabhaengiger Frostschutz und Shelly-Erreichbarkeitspruefung
+werden nicht abgeschaltet oder umgangen.
