@@ -39,4 +39,35 @@ $bs=['sources'=>[['id'=>15,'observation_type'=>'historical','station_name'=>'Ber
     'weather'=>[['timestamp'=>gmdate('c',$now),'source_id'=>15,'temperature'=>6,'relative_humidity'=>80]]];
 $bsRows=JVWeatherLogic::parseBrightSky($bs,$now,false);
 verify(count($bsRows)===1 && $bsRows[0]['distance_m']===23000.0, 'Historische DWD Stationtraegheit mitsamt Stationsmetadaten erhalten');
+// Snapshot quality MUST survive a reload but must not outlive observed measurements.
+$cachedGood=[
+    'issued_at'=>$now-120,
+    'quality'=>'VERIFIED',
+    'current'=>JVWeatherMath::readPair(7.0,89)+[
+        'observed_at'=>$now-240,'source'=>'PWS'],
+    'forecast'=>[],
+    'reason'=>'Lokale Station und nahe DWD-Messung stimmen ueberein',
+];
+verify(JVWeatherLogic::validatedSnapshot($cachedGood,$now)['quality']==='VERIFIED',
+    'frischer VERIFIED-Cache darf nach Modul-Neustart erhalten bleiben');
+verify(JVWeatherLogic::validatedSnapshot($cachedGood,$now)['current']['temperature']===7.0,
+    'frischer Snapshot gibt originale Messdaten unveraendert weiter');
+verify(JVWeatherLogic::validatedSnapshot(
+    array_replace($cachedGood,['issued_at'=>$now-36*60]),$now)['quality']==='UNAVAILABLE',
+    '35-Minuten-Snapshot-Grenze bleibt nach Reload aktiv');
+verify(JVWeatherLogic::validatedSnapshot(
+    array_replace($cachedGood,['current'=>array_replace($cachedGood['current'],
+        ['observed_at'=>$now-47*60])]),$now)['quality']==='UNAVAILABLE',
+    'alte PWS-Messung kann sich nicht mit jungem Cache als VERIFIED tarnen');
+verify(JVWeatherLogic::validatedSnapshot(
+    array_replace($cachedGood,['issued_at'=>$now+300]),$now)['quality']==='UNAVAILABLE',
+    'ungueltiger Zukunfts-Snapshot wird zurueckgewiesen');
+verify(JVWeatherLogic::validatedSnapshot(
+    array_replace($cachedGood,['quality'=>'FANTASY']),$now)['quality']==='UNAVAILABLE',
+    'unbekannte Qualitaetsstufe wird nicht bestaetigt');
+verify(JVWeatherLogic::validatedSnapshot(
+    array_replace($cachedGood,['quality'=>'CONFLICT','current'=>null]),$now)['quality']==='CONFLICT',
+    'tatsaechlicher Quellkonflikt bleibt sichtbar, nicht als VERIFIED behandelt');
+verify(JVWeatherLogic::validatedSnapshot(null,$now)['quality']==='UNAVAILABLE',
+    'fehlender Wettercache bleibt sicher ungueltig');
 echo "ALLE REDUNDANZTESTS BESTANDEN\n";
