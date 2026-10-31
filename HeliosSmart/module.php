@@ -2244,7 +2244,7 @@ class HeliosSmart extends IPSModule
             'last_command_at'=>$this->OptionalAttributeInt('LastCommandAt'),
             'command_attempted'=>(bool)($execution['attempted']??false),
             'native_sensor_control_possible'=>($native['native_sensor_regulation_possible']??false)===true,
-            'native_module_fault'=>!$nativeCanWrite,
+            'native_module_fault'=>($native['write_allowed']??false)!==true,
             'native_status'=>$native['native_instance_status']??null,
         ],$now);
         $decision['fan_stage_attribution']=$fanCause;
