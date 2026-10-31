@@ -9,12 +9,15 @@ final class JVHeliosEWTPump
     /**
      * Standort-Hypothese Brauneberg / 2,5 m Erdreich:
      * vom Betreiber genannte plausible Monatsbereiche der Soletemperatur.
+     * Auf Grundlage des bislang niedrigsten vom Betreiber beobachteten
+     * Solewerts von 8 °C sind die alten Februar-Mai-Schaetzungen nach oben
+     * korrigiert. Das ist keine 12-Monats-Messreihe und kein garantiertes Minimum.
      * Weder Istwerte noch Garantiewerte oder Frostschutz-Solltemperaturen.
      * Die Werte werden ausschließlich zur Planung von Probeläufen benutzt.
      */
     private const SEASONAL_SOLE_C = [
-        1=>[8.0,9.0], 2=>[6.0,7.0], 3=>[5.0,6.0],
-        4=>[6.0,7.0], 5=>[7.0,9.0], 6=>[9.0,11.0],
+        1=>[8.0,9.0], 2=>[8.0,9.0], 3=>[8.0,9.0],
+        4=>[8.0,9.0], 5=>[8.0,9.0], 6=>[9.0,11.0],
         7=>[11.0,13.0], 8=>[13.0,14.0], 9=>[14.0,15.0],
         10=>[13.0,14.0], 11=>[11.0,13.0], 12=>[9.0,11.0],
     ];
