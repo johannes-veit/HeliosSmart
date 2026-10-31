@@ -30,12 +30,30 @@ final class JVHeliosSoilHistorySchedule
             'total'=>count($wanted),'complete'=>$missing===[]];
     }
 
+    /**
+     * Historical reanalysis is delayed by several days. A completed 5-year
+     * profile needs NO daily/year-round HTTP requests. Check again on Jan 10
+     * when the previous calendar year should be complete.
+     */
+    public static function annualReadyAt(int $year): int
+    {
+        return gmmktime(2,0,0,1,10,$year+1);
+    }
+
     public static function delaySeconds(array $store,int $now,int $years,bool $firstTick=false): int
     {
         $progress=self::progress($store,$now,$years);
-        if($progress['complete'])return 24*3600;
+        if($progress['complete']) {
+            $end=(int)gmdate('Y',$now)-1;
+            return max(60,self::annualReadyAt($end+1)-$now);
+        }
+        $end=(int)gmdate('Y',$now)-1;
+        // If ONLY the latest previous year is missing, defer until the
+        // official annual dataset is realistically available in January.
+        if($progress['missing']===[$end] && $now<self::annualReadyAt($end))
+            return max(60,self::annualReadyAt($end)-$now);
         $retry=(int)($store['retry_after']??0);
-        if($retry>$now)return max(60,min(6*3600,$retry-$now));
+        if($retry>$now)return max(60,$retry-$now);
         return $firstTick?60:90;
     }
 }
