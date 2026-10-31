@@ -140,7 +140,14 @@ final class JVHeliosEWTPumpLearning
     {
         if(!in_array($x['weather_quality']??'',['VERIFIED','DWD_ONLY'],true))
             return 'NO_VERIFIED_WEATHER';
-        if(!($x['shelly_online']??false)) return 'SHELLY_OFFLINE_OR_UNVERIFIED';
+        if(!($x['shelly_online']??false)){
+            return match((string)($x['shelly_link']??'')){
+                'NOT_CONFIGURED'=>'SHELLY_MONITORING_NOT_CONFIGURED',
+                'ONLINE_STALE_NO_HEARTBEAT'=>'SHELLY_HEARTBEAT_STALE',
+                'OFFLINE'=>'SHELLY_OFFLINE_OR_UNVERIFIED',
+                default=>'SHELLY_OFFLINE_OR_UNVERIFIED',
+            };
+        }
         if(!in_array($x['pump_state']??'',['ON_REPORTED','OFF_REPORTED'],true))
             return 'PUMP_STATE_UNKNOWN';
         if(($x['switch_contradiction']??false)===true)return 'CONTRADICTORY_SHELLY_POWER';
@@ -203,6 +210,30 @@ final class JVHeliosEWTPumpLearning
     public static function diagnose(array $state,array $x,string $lastReason,int $now): array
     {
         $advice=self::pairedAdvice($state,$x);
+        // Reporting only: the energy balance cannot be proved without a
+        // measured airflow and a matched pump-OFF baseline. Provide a useful
+        // *theoretical* break-even ventilation volume, not a net saving claim.
+        $airEffect=is_numeric($x['outside_c']??null)
+            &&is_numeric($x['intake_c']??null)
+            ?round((float)$x['intake_c']-(float)$x['outside_c'],2):null;
+        $pumpPower=is_numeric($x['pump_power_w']??null)
+            ?(float)$x['pump_power_w']:null;
+        $pumpOn=($x['pump_state']??'')==='ON_REPORTED';
+        $breakEven=$pumpOn && $pumpPower!==null && $pumpPower>=0
+            && $airEffect!==null && abs($airEffect)>=0.25
+            ?round($pumpPower/(0.34*abs($airEffect)),1):null;
+        $energy=[
+            'temperature_effect_c'=>$airEffect,
+            'pump_power_measured_w'=>$pumpPower,
+            'hypothetical_min_airflow_m3h_to_balance_electric_power'
+                =>$breakEven,
+            'airflow_actually_measured'=>false,
+            'energy_saving_proven'=>false,
+            'only_sensible_heat_not_WRG_or_total_Electricity'=>true,
+            'notice'=>'Nur theoretische Grenzgroesse mit 0,34 Wh/(m3 K).'
+                .' Reale Nettoersparnis braucht Volumenstrom, Vergleich Pumpe AUS,'
+                .' Luefterstrom und Waermerueckgewinnung; keine automatische Schaltfreigabe.',
+        ];
         return ['version'=>1,'samples'=>(int)($state['samples']??0),
             'period_minutes'=>30,'monthly_profiles'=>count((array)($state['monthly']??[])),
             'conditioned_groups'=>count((array)($state['contexts']??[])),
@@ -226,6 +257,8 @@ final class JVHeliosEWTPumpLearning
             'fan_stage'=>$x['fan_stage']??null,
             'shelly_online_confirmed'=>($x['shelly_online']??false)===true,
             'paired_advice'=>$advice,
+            'energy_tradeoff'=>$energy,
+            'shelly_link'=>$x['shelly_link']??'UNKNOWN',
             'storage_bounded'=>true,
             'learning_action'=>'OBSERVATION_ONLY_FROST_UNCHANGED',
             'missing_inputs'=>array_values(array_keys(array_filter([
