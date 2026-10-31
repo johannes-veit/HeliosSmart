@@ -770,7 +770,20 @@ class HeliosSmart extends IPSModule
                     ."Kalendermuster: ".json_encode($calendar['advice'],JSON_UNESCAPED_UNICODE)."\n"
                     ."NUR BEOBACHTUNG: Telefonstatus beweist weder Anwesenheit noch leeres Haus; "
                     ."Stichproben belegen keine Dauer und keinen kausalen Lueftungseffekt.";
-                $this->SetValue('LernDiagnose',$learning['report'].$line);
+                $ewtLearn=json_decode($this->ReadAttributeString('EWTPumpLearningState'),true);
+                $ewtLearn=is_array($ewtLearn)?$ewtLearn:[];
+                $ewtText="\n--- SOLE-EWT PUMPE / LERNMODELL – NUR LESEN ---\n"
+                    ."30-min-Stichproben: ".(int)($ewtLearn['samples']??0)
+                    ." | 12 Monatsstatistiken: ".count((array)($ewtLearn['monthly']??[]))
+                    ." | Konditionierte Szenarien: ".count((array)($ewtLearn['contexts']??[]))."\n"
+                    ."Einfluesse: echte Aussenluft, Wetterqualitaet, Feuchte/Taupunkt, "
+                    ."Sole/Bodenmodell, Zuluft vor WRG, Ventilatorstufe, Bypass, "
+                    ."Raumtemperatur, Heiz-/Kuehlmodus, Anwesenheit, Tageszeit, "
+                    ."Stromaufnahme und frischer Shelly-Online-Status. "
+                    ."Wind/Niederschlag/Sonneneinstrahlung nur bei vorhandenen Daten.\n"
+                    ."Vergleich EIN/AUS ist BEOBACHTUNG und kein Kausalbeweis. "
+                    ."Frostschutz und bisherige Schaltregeln werden nicht durch Lernen geaendert.";
+                $this->SetValue('LernDiagnose',$learning['report'].$line.$ewtText);
             }
         } catch(Throwable $e) {
             $this->SendDebug('LearningDiagnosis',substr($e->getMessage(),0,120),0);
@@ -979,8 +992,8 @@ class HeliosSmart extends IPSModule
         $actual=$health['reported']==='UNKNOWN'?null:(bool)GetValue($plugId);
         if($actual!==null && (!array_key_exists('last_seen_on',$state)
             || (bool)$state['last_seen_on']!==$actual)) {
-            // An already running pump is not treated as having just started.
-            $state[$actual?'last_on_at':'last_off_at']=isset($state['last_seen_on'])?$now:$now-900;
+            // Unknown commissioning age must NOT count as a stable learning window.
+            $state[$actual?'last_on_at':'last_off_at']=$now;
             $state['last_seen_on']=$actual;
         }
         $current=is_array($weather['current']??null)?$weather['current']:[];
@@ -1020,8 +1033,9 @@ class HeliosSmart extends IPSModule
         $this->SetValue('EWTPumpModeManual',$manual);
         if($actual!==null)$this->SetValue('EWTPumpSwitch',$actual);
         // A Boolean widget cannot display UNKNOWN. Separate status is authoritative.
-        $this->SetValue('EWTPumpAlarm',$enabled=$this->ReadPropertyBoolean('EnableEWTPumpControl')
-            ?!$health['actuation_allowed'] || $health['power_conflict']:false);
+        $this->SetValue('EWTPumpAlarm',
+            $this->ReadPropertyBoolean('EnableEWTPumpControl')
+                && (!$health['actuation_allowed'] || $health['power_conflict']));
         $enabled=$this->ReadPropertyBoolean('EnableEWTPumpControl');
         $command='NO_COMMAND';
         if(!$enabled) {
@@ -1093,7 +1107,7 @@ class HeliosSmart extends IPSModule
         $plan['switch_variable_id']=$validType?$plugId:null;
         $plan['power_w']=$power;
         $plan['power_confirmed_on']=$actual===true && $power!==null && $power>=2.0;
-        $plan['feedback']=$actual===null?'NOT_CONFIGURED'
+        $plan['feedback']=$actual===null?'UNKNOWN_OR_UNREACHABLE'
             :($power!==null?($plan['power_confirmed_on']?'POWER_DETECTED'
                 :($actual?'NO_POWER_DETECTED':'OFF_REPORTED')):'SWITCH_STATE_ONLY');
         unset($plan['state']);
@@ -1114,6 +1128,74 @@ class HeliosSmart extends IPSModule
             .' | '.($power!==null?number_format($power,1,',','.').' W':'Leistung nicht verifiziert');
         $this->SetValue('EWTPumpStatus',$status);
         return $plan;
+    }
+
+
+    /**
+     * Passive 30-minute EWT evidence: matched ON/OFF contexts, not a
+     * self-training control override. Automatic EWT switching keeps the
+     * existing frost and measured-effect rules until evidence is reviewed.
+     */
+    private function RecordEWTPumpLearning(array $decision,array $weather,int $now): array
+    {
+        $prior=json_decode($this->ReadAttributeString('EWTPumpLearningState'),true);
+        if(!is_array($prior))$prior=[];
+        $pump=(array)($decision['ewt_pump']??[]);
+        $health=(array)($pump['connectivity']??[]);
+        $recent=is_array($weather['current']??null)?$weather['current']:[];
+        $control=json_decode($this->ReadAttributeString('EWTPumpControlState'),true);
+        if(!is_array($control))$control=[];
+        $out=$pump['outside_c']??null;
+        $intakeID=$this->ReadPropertyInteger('HeliosIntakeAfterEWT');
+        $intakeExists=$intakeID>0 && IPS_VariableExists($intakeID);
+        $fanID=$this->ReadPropertyInteger('HeliosFanVariable');
+        $fan=$fanID>0 && IPS_VariableExists($fanID)?(int)GetValue($fanID):null;
+        $lastChange=($health['reported']??'UNKNOWN')==='ON_REPORTED'
+            ?(int)($control['last_on_at']??0)
+            :(int)($control['last_off_at']??0);
+        $occ=(array)($decision['occupancy_advice']??[]);
+        $x=[
+            'weather_quality'=>$weather['quality']??'UNAVAILABLE',
+            'outside_at'=>$recent['observed_at']??0,
+            'outside_c'=>$out,
+            'intake_c'=>$intakeExists?GetValue($intakeID):null,
+            'intake_at'=>$intakeExists
+                ?(int)(IPS_GetVariable($intakeID)['VariableUpdated']??0):0,
+            'shelly_online'=>$health['online_confirmed']??false,
+            'pump_state'=>$health['reported']??'UNKNOWN',
+            'switch_contradiction'=>$health['power_conflict']??false,
+            'last_pump_change_at'=>$lastChange,
+            'pump_power_w'=>$health['watts']??null,
+            'fan_stage'=>$fan,
+            'bypass'=>$decision['bypass_actual']??null,
+            'indoor_c'=>$decision['indoor_temperature']??null,
+            'indoor_ah_gm3'=>$decision['indoor_absolute_humidity']??null,
+            'outside_ah_gm3'=>$recent['absolute_humidity']??null,
+            'outside_dewpoint_c'=>$recent['dewpoint']??null,
+            'outside_rh'=>$recent['rh']??null,
+            'wind_speed'=>$recent['wind_speed']??$recent['wind_speed_10m']??null,
+            'rain'=>$recent['precipitation']??null,
+            'solar'=>$recent['shortwave_radiation']??null,
+            'soil_reference_c'=>$pump['sole_temperature_reference']['mean_c']??null,
+            'soil_measured_c'=>$pump['sole_temperature_measured_c']??null,
+            'climate'=>$decision['season_signal']??'UNKNOWN',
+            'occupancy'=>$occ['status_now']??$occ['description']??'UNKNOWN',
+            'operator_mode'=>$pump['operator_mode']??'AUTOMATIK',
+        ];
+        $learn=JVHeliosEWTPumpLearning::update($prior,$x,$now);
+        if($learn['state']!==$prior) {
+            $this->WriteAttributeString('EWTPumpLearningState',
+                json_encode($learn['state'],JSON_UNESCAPED_UNICODE));
+        }
+        $diagnosis=$learn['diagnosis'];
+        $this->SetValue('EWTPumpLearningStatus',
+            'EWT LERNEN – NUR LESEN | 30 Min | Stichproben '.$diagnosis['samples']
+            .' | Monatstabellen '.$diagnosis['monthly_profiles']
+            .' | vergleichbare Gruppen '.$diagnosis['conditioned_groups']
+            .' | '.($diagnosis['last_result']??'UNBEKANNT')
+            .' | Verwertbarkeit '.($diagnosis['paired_advice']['quality']??'KEINE'));
+        $this->SetValue('EWTPumpLearningJSON',json_encode($diagnosis,JSON_UNESCAPED_UNICODE));
+        return $diagnosis;
     }
 
     public function Evaluate(): void
@@ -1337,6 +1419,9 @@ class HeliosSmart extends IPSModule
             array_replace($decision,['party_candidate'=>$candidate]),(int)GetValue($fanID),$now);
         $decision['smart_strategy']=JVHeliosSmartStrategy::assess(
             $decision,$decision['calendar_learning'],$decision['night_strategy']);
+        // EWT is separately sampled at 30-minute intervals and kept compact.
+        // The learning never decides or directly sends Shelly commands.
+        $decision['ewt_learning']=$this->RecordEWTPumpLearning($decision,$weather,$now);
         // Lernbeobachtung vor jeder moeglichen Geraeteausfuehrung schreiben.
         // Ein spaeterer Fehler in Safety/Party/JSON darf die Meldung nicht blockieren.
         $this->WriteLearningReport($rooms,[
