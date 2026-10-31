@@ -34,6 +34,7 @@ require_once __DIR__ . '/../libs/FanAttribution.php';
 require_once __DIR__ . '/../libs/NativeHeliosCoordination.php';
 require_once __DIR__ . '/../libs/SeasonProgramControl.php';
 require_once __DIR__ . '/../libs/SmartFanAuto.php';
+require_once __DIR__ . '/../libs/SmartFanCoolingGate.php';
 require_once __DIR__ . '/../libs/ChatGPTDiagnostic.php';
 /** Vorhersagegestützter Beobachter; Aktor nur nach expliziter Freigabe. */
 class HeliosSmart extends IPSModule
@@ -2241,6 +2242,9 @@ class HeliosSmart extends IPSModule
                     'actual_sole_c'=>$ewt['sole_temperature_measured_c']??null,
                 ],
                 'energy'=>[
+                    'smart_cooling_gate'=>$pick((array)($d['smart_cooling_gate']??[]),
+                        ['cooling_confirmed','reason','supply_gap_k',
+                        'moisture_confirmed','comfort_confirmed','room_cooling_floor_safe']),
                     'daily'=>$pick((array)($d['daily_strategy']??[]),
                         ['season_signal','summary','recommended_profile']),
                     'winter'=>$pick((array)($d['winter_room_air']??[]),
@@ -2288,8 +2292,11 @@ class HeliosSmart extends IPSModule
                 ],
                 'ewt_state'=>$pick($pumpState,['manual_mode','manual_target','last_on_at',
                     'last_off_at','pending_target','last_error','command_at']),
-                'ewt_learning'=>$pick($ewtLearning,['samples','monthly_profiles',
-                    'conditioned_groups','last_result','paired_advice']),
+                'ewt_learning'=>$pick($ewtLearning,['samples','period_minutes',
+                    'monthly_profiles','conditioned_groups','recent_count',
+                    'last_sample_at','last_result','rejected',
+                    'rejection_counter_semantics','paired_advice',
+                    'comparison_progress','missing_inputs','learning_action']),
                 'learning'=>[
                     'learning_state_keys'=>array_slice(array_keys($lState),0,16),
                     'letzte_lernbericht_aktualisierung'=>$lState['d']??null,
@@ -2654,6 +2661,8 @@ class HeliosSmart extends IPSModule
             ($native['sensor_control_reported']['HumidityControlInternal']??false)===true;
         $sensorSourceUnverified=$nativeHumidityConfigured
             && $sensorEvidence['native_extract_rh']===null;
+        $coolingGate=JVHeliosSmartCoolingGate::decide($decision);
+        $decision['smart_cooling_gate']=$coolingGate;
         $smartPlan=JVHeliosSmartFanAuto::decide([
             'enabled'=>$smartEnabled,
             'native_ok'=>($native['write_allowed']??false)===true,
@@ -2683,8 +2692,7 @@ class HeliosSmart extends IPSModule
             'strong_wet_need'=>$strongWet,
             'cooking_confirmed'=>$cookingConfirmed,
             'strong_cooking_need'=>$cookingStrong,
-            'cooling_confirmed'=>($decision['mode']??'')==='PASSIVE_COOLING'
-                &&($decision['weather_usable_for_advice']??false)===true,
+            'cooling_confirmed'=>($coolingGate['cooling_confirmed']??false)===true,
             'quiet_requested'=>($decision['night_strategy']['quiet_eligible']??false)===true,
             'quiet_started_at'=>(int)($smartState['quiet_started_at']??0),
             'quiet_cooldown_until'=>(int)($smartState['quiet_cooldown_until']??0),

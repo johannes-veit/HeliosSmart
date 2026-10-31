@@ -41,6 +41,9 @@ jobs:
           php -l libs/SmartFanAuto.php
           php -l tests/test_smart_fan_auto.php
           php tests/test_smart_fan_auto.php
+          php -l libs/SmartFanCoolingGate.php
+          php -l tests/test_smart_fan_cooling_gate.php
+          php tests/test_smart_fan_cooling_gate.php
           php -l libs/ChatGPTDiagnostic.php
           php -l tests/test_chatgpt_diagnostic.php
           php tests/test_chatgpt_diagnostic.php
