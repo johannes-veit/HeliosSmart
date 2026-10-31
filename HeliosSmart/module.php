@@ -872,12 +872,13 @@ class HeliosSmart extends IPSModule
      */
     private function EWTPumpConfigurationReport(): string
     {
-        return 'CONFIGURIERT / AUTOMATIK FREIGEGEBEN'
-            .' | Shelly #58021 | Relais #32748 | Online #35794'
-            .' | Wirkleistung+Heartbeat #19705'
+        return 'CONFIGURIERT / EWT-STEUERUNG FREIGEGEBEN'
+            .' | Relais #'.$this->ReadPropertyInteger('EWTPumpSwitchVariable')
+            .' | Online #'.$this->ReadPropertyInteger('EWTPumpOnlineVariable')
+            .' | Wirkleistung #'.$this->ReadPropertyInteger('EWTPumpPowerVariable')
             .' | EINRICHTUNGSBERICHT (kein Live-Istzustand)'
-            .' | Aktuell: Sole-EWT Pumpe #49264, Istzustand #32294'
-            .' und Schaltfehler #12142';
+            .' | Aktueller Betrieb: Sole-EWT Pumpe / EWT-Pumpe Istzustand'
+            .' / EWT-Pumpe Schaltfehler';
     }
 
     /**
