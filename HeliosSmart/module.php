@@ -604,12 +604,14 @@ class HeliosSmart extends IPSModule
             IPS_SetProperty($this->InstanceID,'EnableSmartFanTakeover',true);
             IPS_ApplyChanges($this->InstanceID);
             $this->Evaluate();
-            $msg='SMART-LUEFTUNG AKTIV | nativer Zeitbefehl bis 15 Min'
-                .' | alle 5 Min Sensorlage pruefen'
-                .' | HELIOS-Wochenprogramm NUR Rueckfall'
-                .' | Details: SmartFanControlStatus / SmartFanTakeoverJSON';
-            $this->SetValue('SmartFanControlStatus',$msg);
-            return $msg;
+            // Enabling the property is NOT proof that a fan command
+            // was accepted. Evaluate() has already written the live
+            // target / acknowledgement / fallback reason to this status.
+            // Do not overwrite it with an optimistic activation banner.
+            return 'SMART-LUEFTUNG FREIGEGEBEN | Automatische Auswertung gestartet'
+                .' | die tatsaechlich bestaetigte Stufe oder den Rueckfallgrund'
+                .' bitte direkt in der Variable SmartFanControlStatus lesen'
+                .' | SmartFanTakeoverJSON enthaelt die Einzelheiten';
         }catch(Throwable $e){
             // A partially applied opt-in is not left armed following a
             // failed commissioning step. Device commands, if already sent,
@@ -746,13 +748,26 @@ class HeliosSmart extends IPSModule
             else
                 $out['native_sensor_stale']=true;
         }
-        if(!function_exists('IPS_GetObjectIDByIdent'))return $out;
+        // Symcon's IPS_GetObjectIDByIdent() emits PHP warnings for a
+        // missing ident (try/catch does NOT suppress those warnings).
+        // The original Helios module creates CO2/VOC variables only for
+        // physically configured sensors. Discover existing children ONCE;
+        // never request absent slots 1..8 by ident.
+        if(!function_exists('IPS_GetChildrenIDs')
+            || !function_exists('IPS_GetObject'))return $out;
+        $installed=['SensorCO2_'=>[], 'SensorVOC_'=>[]];
+        foreach(IPS_GetChildrenIDs($native) as $child){
+            if(!is_int($child)||$child<=0||!IPS_VariableExists($child))continue;
+            $object=IPS_GetObject($child);
+            $ident=(string)($object['ObjectIdent']??'');
+            if(preg_match('/^Sensor(CO2|VOC)_([1-8])$/D',$ident,$match)!==1)
+                continue;
+            $prefix='Sensor'.$match[1].'_';
+            $installed[$prefix][(int)$match[2]]=$child;
+        }
         foreach(['SensorCO2_'=>'max_co2_ppm','SensorVOC_'=>'max_voc_ppm'] as $prefix=>$key){
             $highest=null;
-            for($i=1;$i<=8;$i++){
-                try{$id=IPS_GetObjectIDByIdent($prefix.$i,$native);}
-                catch(Throwable $e){continue;}
-                if(!is_int($id)||$id<=0||!IPS_VariableExists($id))continue;
+            foreach($installed[$prefix] as $i=>$id){
                 $out[$prefix==='SensorCO2_'?'co2_sensor_count':'voc_sensor_count']++;
                 $meta=IPS_GetVariable($id);
                 $age=$now-(int)($meta['VariableUpdated']??0);

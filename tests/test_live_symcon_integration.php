@@ -15,9 +15,24 @@ function IPS_SemaphoreLeave($name){return true;}
 function IPS_InstanceExists($id){return in_array($id,[11842,16987,19285,17597,42,32969],true);}
 function IPS_GetInstance($id){return ['InstanceStatus'=>$id===19285?($GLOBALS['nativeStatus']??102):102,'ModuleInfo'=>['ModuleID'=>$id===32969?'{D94700DB-96B0-490C-9F23-E6AE39677384}':($id===42?'{685106B4-47EC-43C9-9CA9-9BAE53E4B304}':($id===19285?'{889DFBC4-09A6-4D77-9928-738E5D494362}':'{OTHER-INSTANCE}'))]];}
 function IPS_GetObjectIDByIdent($ident,$instance){
-    if($instance===19285)return $GLOBALS['nativeSensorIDs'][$ident]??0;
+    if($instance===19285){
+        $GLOBALS['nativeIdentLookups']=($GLOBALS['nativeIdentLookups']??0)+1;
+        if(!isset($GLOBALS['nativeSensorIDs'][$ident])){
+            trigger_error('Objekt mit Ident '.$ident.' wurde nicht gefunden',E_USER_WARNING);
+            return false;
+        }
+        return $GLOBALS['nativeSensorIDs'][$ident];
+    }
     return $instance===32969?(['JohannesPresence'=>60001,
         'CarinaPresence'=>60002,'EvidenceJSON'=>60003][$ident]??0):0;
+}
+function IPS_GetChildrenIDs($parent){
+    return $parent===19285
+        ?array_values($GLOBALS['nativeSensorIDs']??[]):[];
+}
+function IPS_GetObject($id){
+    $ident=array_search($id,$GLOBALS['nativeSensorIDs']??[],true);
+    return ['ObjectIdent'=>$ident===false?'':$ident,'ObjectType'=>2];
 }
 function IPS_VariableExists($id){return array_key_exists($id,$GLOBALS['values']);}
 function IPS_GetVariable($id){return ['VariableUpdated'=>$GLOBALS['variableTimeByID'][$id]??$GLOBALS['variableTime'],'VariableChanged'=>$GLOBALS['changedAt'][$id]??0];}
@@ -117,12 +132,32 @@ $counter=0;
 function it($v,$why){global $counter;$counter++;if(!$v){fwrite(STDERR,"FAIL $why\n");exit(1);}echo "PASS $why\n";}
 $h=new HeliosSmart();$h->Create();$h->setProperty('WeatherCenterInstance',42);$h->ApplyChanges();
 $now=time();
+// On this actual installation all 8 optional CO2 and 8 optional VOC
+// ids are absent. The old code used IPS_GetObjectIDByIdent() sixteen
+// times and the real Symcon emits warnings even inside try/catch.
+// Test that the new child enumeration avoids ALL such lookups.
+$GLOBALS['nativeIdentLookups']=0;
+$nativeSensorWarnings=[];
+set_error_handler(static function($severity,$message)use(&$nativeSensorWarnings){
+    if(str_contains($message,'Objekt mit Ident Sensor')){
+        $nativeSensorWarnings[]=$message;
+        return true;
+    }
+    return false;
+});
 $h->WriteAttributeString('CookingAdviceState',json_encode([
  'high_power_since'=>$now-83,'last_high_sample_at'=>$now-83,
  'last_high_updated_at'=>$now-82,'high_power_samples'=>1,
  'baseline_power_w'=>750,'baseline_at'=>$now-450,
 ]));
 $h->Evaluate();
+restore_error_handler();
+it($GLOBALS['nativeIdentLookups']===0 && count($nativeSensorWarnings)===0,
+    '16 absent optional CO2/VOC slots cause zero lookup warnings in Symcon');
+$initialSensors=json_decode($h->value('SmartFanTakeoverJSON'),true);
+it(($initialSensors['co2_voc_evidence']['co2_sensor_count']??-1)===0
+    && ($initialSensors['co2_voc_evidence']['voc_sensor_count']??-1)===0,
+    'no optional native CO2/VOC sensors is represented as zero installed, not failed');
 $before=json_decode($h->value('DecisionJSON'),true);
 it(count($GLOBALS['calls'])===0,'Nach Installation werkseitig Beobachtung, keine Helios-Schaltung');
 it(($before['cooking_advice']['classification']??null)==='COOKING_LIKELY','Echte Mehrfach-Leistungsindizien erzeugen Kochhinweis');
@@ -306,13 +341,16 @@ $commissioned=new HeliosSmart();$commissioned->Create();
 $commissioned->setProperty('WeatherCenterInstance',42);
 $GLOBALS['commissioningModule']=$commissioned;
 $started=$commissioned->StartSmartFanControl();
-it(str_contains($started,'SMART-LUEFTUNG AKTIV')
+it(str_contains($started,'SMART-LUEFTUNG FREIGEGEBEN')
     && $commissioned->ReadPropertyBoolean('EnableSmartFanTakeover')===true
     && $commissioned->ReadPropertyBoolean('EnableControl')===true,
     'one-click SMART commissioning enables real autonomous stages, not just monitoring');
 $full=json_decode($commissioned->value('DecisionJSON'),true);
 it(($full['smart_fan_execution']['status']??'')==='SMART_STAGE_CONFIRMED',
     'commissioning immediately executes safe stage3 takeover and reads native return');
+it(str_contains((string)$commissioned->value('SmartFanControlStatus'),
+        'SMART-STUFE AM GERAET BESTAETIGT'),
+    'start button preserves real actuator status instead of overwriting with generic AKTIV banner');
 $stopped=$commissioned->StopSmartFanControl();
 it($commissioned->ReadPropertyBoolean('EnableSmartFanTakeover')===false
     && $commissioned->ReadPropertyBoolean('EnableControl')===false,
@@ -429,8 +467,9 @@ it(($staleObserved['smart_fan_takeover']['reason']??'')
         ==='NATIVE_CO2_VOC_HIGH_NO_S4_APPROVAL'
     && ($staleObserved['smart_fan_execution']['attempted']??true)===false,
     'three-hour unchanged Symcon CO2 value is re-read at manufacturer before any S4 reduction');
-it($GLOBALS['nativeCo2Polls']===1 && $GLOBALS['nativeVocPolls']===1,
-    'only actually installed, old CO2/VOC sensors generate native GETs');
+it($GLOBALS['nativeCo2Polls']===1 && $GLOBALS['nativeVocPolls']===1
+    && ($GLOBALS['nativeIdentLookups']??-1)===0,
+    'only installed old CO2/VOC sensors cause manufacturer GETs; no absent-ident lookup');
 $GLOBALS['nativeCo2LiveValue']=650;
 $onChange->Evaluate();
 $freshObserved=json_decode($onChange->value('DecisionJSON'),true);
