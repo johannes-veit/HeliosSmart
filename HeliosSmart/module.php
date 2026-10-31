@@ -2077,14 +2077,78 @@ class HeliosSmart extends IPSModule
         $seasonResult=$this->TrySeasonProgramSwitch($seasonControl,$now);
         $decision['smart_profile_control']=$seasonControl;
         $decision['smart_profile_execution']=$seasonResult;
+        $smartEnabled=$this->ReadPropertyBoolean('EnableControl')
+            && $this->ReadPropertyBoolean('EnableSmartFanTakeover');
+        $smartState=json_decode($this->ReadAttributeString('SmartFanTakeoverState'),true);
+        if(!is_array($smartState))$smartState=[];
+        $sensorEvidence=$this->ReadSmartFanSensorEvidence($now);
+        $wetActual=false;$strongWet=false;
+        foreach((array)($decision['wetrooms']??[]) as $wet){
+            if(!is_array($wet)||($wet['boost_recommended']??false)!==true)continue;
+            $wetActual=true;
+            if(is_numeric($wet['relative_humidity']??null)
+                &&(float)$wet['relative_humidity']>=75.0
+                &&is_numeric($wet['gradient_to_outside_gm3']??null)
+                &&(float)$wet['gradient_to_outside_gm3']>=4.0)
+                $strongWet=true;
+        }
+        $cookStatus=(string)($decision['cooking_advice']['classification']??'');
+        $cookingConfirmed=($decision['cooking_advice']['potential_odor_boost']??false)===true
+            &&in_array($cookStatus,[
+                'COOKING_LIKELY','COOKING_ACTIVITY_LIKELY',
+                'COOKING_RECENTLY_LIKELY','COOKING_ACTIVITY_RECENT'],true);
+        $cookingStrong=$cookingConfirmed && $cookStatus==='COOKING_LIKELY'
+            &&($decision['cooking_advice']['power_multiple_samples']??false)===true;
+        $smartPlan=JVHeliosSmartFanAuto::decide([
+            'enabled'=>$smartEnabled,
+            'native_ok'=>($native['write_allowed']??false)===true,
+            'live_fresh'=>$live!==null,
+            'mode'=>$deviceStatus['mode'],
+            'actual_fan'=>$deviceStatus['fan'],
+            'owned_mode'=>(int)($smartState['mode']??0),
+            'owned_until'=>(int)($smartState['until']??0),
+            'owned_last_at'=>(int)($smartState['sent_at']??0),
+            'weather_quality'=>$decision['weather_quality']??'UNAVAILABLE',
+            'weather_age_seconds'=>isset($weather['current']['observed_at'])
+                ?$now-(int)$weather['current']['observed_at']:PHP_INT_MAX,
+            'room_temp_count'=>$decision['fresh_room_count']??0,
+            'room_humidity_count'=>$decision['fresh_humidity_room_count']??0,
+            'max_co2_ppm'=>$sensorEvidence['max_co2_ppm'],
+            'max_voc_ppm'=>$sensorEvidence['max_voc_ppm'],
+            'wet_need'=>$wetActual,
+            'strong_wet_need'=>$strongWet,
+            'cooking_confirmed'=>$cookingConfirmed,
+            'strong_cooking_need'=>$cookingStrong,
+            'cooling_confirmed'=>($decision['mode']??'')==='PASSIVE_COOLING'
+                &&($decision['weather_usable_for_advice']??false)===true,
+            'quiet_requested'=>($decision['night_strategy']['quiet_eligible']??false)===true,
+            'quiet_started_at'=>(int)($smartState['quiet_started_at']??0),
+            'quiet_cooldown_until'=>(int)($smartState['quiet_cooldown_until']??0),
+            'minimum_airflow_validated'=>$this->ReadPropertyBoolean('MinimumVentilationValidated'),
+            'model_airflow_accepted'=>$this->ReadPropertyBoolean('AllowEstimatedAirflowLimitedParty'),
+            'high_power_enabled'=>$this->ReadPropertyBoolean('EnableHighPowerParty'),
+            'high_power_safety'=>$this->ReadPropertyBoolean('HighPowerSafetyValidated'),
+            'combustion_safe'=>$this->ReadPropertyBoolean('CombustionSafetyValidated'),
+        ],$now);
+        if($smartEnabled && ($seasonResult['attempted']??false)!==true)
+            $smartExecution=$this->ExecuteSmartFanTakeover($smartPlan,$now);
+        else
+            $smartExecution=['status'=>($seasonResult['attempted']??false)
+                ?'SEASON_PROGRAM_CHANGE_FIRST':'SMART_DISABLED',
+                'attempted'=>false,'fallback_weekly'=>true];
+        $decision['smart_fan_takeover']=$smartPlan;
+        $decision['smart_fan_execution']=$smartExecution;
+        $this->SetValue('SmartFanTakeoverJSON',
+            json_encode(['plan'=>$smartPlan,'execution'=>$smartExecution,
+                'original_helios'=>$native['status']??'UNAVAILABLE',
+                'co2_voc_evidence'=>$sensorEvidence],JSON_UNESCAPED_UNICODE));
         $this->SetValue('SmartFanControlStatus',
-            'SMART-LUEFTUNG '.($this->ReadPropertyBoolean('EnableControl')
-                ?'AKTIV':'NUR BEOBACHTEN')
-            .' | Profilregelung '.($this->ReadPropertyBoolean('EnableProgramSwitch')
-                ?'AN':'AUS')
-            .' | '.$seasonResult['status']
-            .' | Helios AUTO/Wochenplan mit interner CO2-/Feuchteregelung'
-            .' | Manuell NICHT erforderlich');
+            'SMART-LUEFTUNG '.($smartEnabled?'AKTIV':'NUR BEOBACHTEN')
+            .' | Ziel '.($smartPlan['target_stage']??'WOCHENPROGRAMM')
+            .' | '.$smartExecution['status']
+            .' | '.($smartExecution['fallback_weekly']??true
+                ?'Wochenprogramm Rueckfallebene':'SMART hat Vorrang')
+            .' | Original-Helios '.($native['native_instance_status']??'UNBEKANNT'));
         $approvals=[
             'estimated_flow_trial'=>$this->ReadPropertyBoolean('AllowEstimatedAirflowLimitedParty'),
             'high_power_opt_in'=>$this->ReadPropertyBoolean('EnableHighPowerParty'),
@@ -2120,18 +2184,22 @@ class HeliosSmart extends IPSModule
         // No overlapping Party/Whisper in the same evaluation as a weekly
         // programme change or a write with uncertain result.
         $nativeCanWrite=$nativeCanWrite
-            && ($seasonResult['attempted']??false)!==true;
+            && ($seasonResult['attempted']??false)!==true
+            && !$smartEnabled;
         $execution=$nativeCanWrite
             ?$this->TryOwnParty($candidate,$deviceStatus,$approvals,$now)
-            :['status'=>'NATIVE_HELIOS_CONFIG_BLOCKED','attempted'=>false,
-                'sent'=>false,'verified'=>false];
+            :['status'=>$smartEnabled?'SMART_FAN_TAKEOVER'
+                    :'NATIVE_HELIOS_CONFIG_BLOCKED',
+                'attempted'=>false,'sent'=>false,'verified'=>false];
         $decision['party_execution']=$execution;
         $decision['night_quiet_priority_return']=$nativeCanWrite
             ?$this->EndOwnNightQuietIfNeeded($decision['night_strategy'],$deviceStatus,$now)
-            :['status'=>'NATIVE_HELIOS_CONFIG_BLOCKED','attempted'=>false];
+            :['status'=>$smartEnabled?'SMART_FAN_TAKEOVER'
+                :'NATIVE_HELIOS_CONFIG_BLOCKED','attempted'=>false];
         $decision['night_quiet_execution']=$nativeCanWrite
             ?$this->TryNightQuiet($decision['night_strategy'],$candidate,$deviceStatus,$now)
-            :['status'=>'NATIVE_HELIOS_CONFIG_BLOCKED','attempted'=>false];
+            :['status'=>$smartEnabled?'SMART_FAN_TAKEOVER'
+                :'NATIVE_HELIOS_CONFIG_BLOCKED','attempted'=>false];
         // After a successful/uncertain write this diagnostic is based on new
         // durable ownership; subsequent ticks only observe its state.
         if (($execution['attempted']??false)===true) {
@@ -2142,8 +2210,12 @@ class HeliosSmart extends IPSModule
                 'original_program'=>$this->OptionalAttributeInt('OwnedPartyProgram'),
             ],$this->ReadHeliosLive(),$now);
         }
-        $decision['hardware_command_attempts']=($execution['attempted']??false)?1:0;
-        $decision['execution_status']=(string)($execution['status']??'BLOCKED');
+        $decision['hardware_command_attempts']
+            =(($execution['attempted']??false)||($smartExecution['attempted']??false)
+                ||($seasonResult['attempted']??false))?1:0;
+        $decision['execution_status']=$smartEnabled
+            ?(string)($smartExecution['status']??'BLOCKED')
+            :(string)($execution['status']??'BLOCKED');
         $decision['helios_mode']=$mode;
         $decision['observation_only']=!$this->ReadPropertyBoolean('EnableControl');
         // Source attribution uses actual HELIOS mode; a high stage alone
