@@ -45,6 +45,7 @@ php tests/test_occupancy_learning.php
 php tests/test_smart_patterns.php
 php tests/test_moisture_comfort.php
 php tests/test_summer_airflow.php
+php tests/test_ewt_pump.php
 
 php tests/test_theoretical_ventilation.php
 php tests/test_horizon_planner.php
