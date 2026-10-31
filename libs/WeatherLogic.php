@@ -110,6 +110,49 @@ final class JVWeatherLogic
         return $out;
     }
 
+    /**
+     * A configuration/module reload must never destroy an otherwise fresh
+     * weather quality. Conversely, a cached VERIFIED flag is no license
+     * to reuse a stale observation: validate both the snapshot and the
+     * underlying measurement age before returning it to consumers.
+     * This is read-only: it never executes a new provider query.
+     */
+    public static function validatedSnapshot(?array $snapshot,int $now): array
+    {
+        $fallback=[
+            'issued_at'=>$now,
+            'quality'=>'UNAVAILABLE',
+            'current'=>null,
+            'forecast'=>[],
+            'reason'=>'Kein aktueller verifizierter Wetter-Snapshot',
+        ];
+        if(!is_array($snapshot))return $fallback;
+        $issued=(int)($snapshot['issued_at']??0);
+        if($issued<=0 || $issued>$now+120 || $now-$issued>35*60) {
+            $fallback['reason']='WetterZentrale-Snapshot aelter als 35 Minuten oder ungueltig';
+            return $fallback;
+        }
+        $quality=(string)($snapshot['quality']??'UNAVAILABLE');
+        $known=['VERIFIED','DWD_ONLY','DWD_REMOTE',
+            'MODEL_SUPPORTED','PWS_ONLY','CONFLICT','UNAVAILABLE'];
+        if(!in_array($quality,$known,true)) {
+            $fallback['reason']='Unbekannte Wetterqualitaet im Snapshot';
+            return $fallback;
+        }
+        if(in_array($quality,['VERIFIED','DWD_ONLY','DWD_REMOTE',
+            'MODEL_SUPPORTED','PWS_ONLY'],true)) {
+            $current=is_array($snapshot['current']??null)
+                ?$snapshot['current']:null;
+            if(!self::isFresh($current,$now,2700)) {
+                $fallback['reason']='Messzeitstempel nicht frisch: Qualitaet UNAVAILABLE';
+                return $fallback;
+            }
+        }
+        if($quality==='CONFLICT' || $quality==='UNAVAILABLE')
+            $snapshot['current']=null;
+        return $snapshot;
+    }
+
     public static function isFresh(?array $v, int $now, int $maxAge): bool
     {
         return $v !== null && isset($v['observed_at'], $v['temperature'], $v['rh'], $v['dewpoint'])
