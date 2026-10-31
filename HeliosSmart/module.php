@@ -136,12 +136,15 @@ class HeliosSmart extends IPSModule
             $this->EnableAction('EWTPumpModeManual');
             $this->EnableAction('EWTPumpSwitch');
         }
-        $this->SetValue('Monitoring',true);
+        // Keep status consistent after module hot-reload even before a
+        // scheduled Evaluate tick. Create() runs for existing instances too.
+        $this->SetValue('Monitoring',!$this->ReadPropertyBoolean('EnableControl'));
     }
 
     public function ApplyChanges(): void
     {
         parent::ApplyChanges();
+        $this->SetValue('Monitoring',!$this->ReadPropertyBoolean('EnableControl'));
         $this->SetTimerInterval('SmartTick',5*60*1000);
         // Pending Shelly readback timer is enabled only while awaiting feedback.
         $ewtState=json_decode($this->ReadAttributeString('EWTPumpControlState'),true);
@@ -583,9 +586,13 @@ class HeliosSmart extends IPSModule
             return $msg;
         }
         $live=$this->ReadHeliosLive();
-        if($live===null || $live['mode']!==0){
+        if($live===null || $live['mode']!==0
+            || ($live['program']??5)>4){
             $msg='SMART-LUEFTUNG NICHT FREIGEGEBEN | Original-Helios muss'
-                .' aktuell AUTOMATISCH (0) sein und frische Rueckmeldungen liefern';
+                .' AUTOMATISCH (0) mit intern gespeichertem Wochenprogramm'
+                .' 0–4 laufen und frische Rueckmeldungen liefern.'
+                .' Programm 5 ist ein Symcon-Wochenplan und kein'
+                .' geräteautonomer Rückfall.';
             $this->SetValue('SmartFanControlStatus',$msg);
             return $msg;
         }
@@ -697,8 +704,24 @@ class HeliosSmart extends IPSModule
     {
         $native=$this->ReadPropertyInteger('HeliosInstance');
         $out=['max_co2_ppm'=>null,'max_voc_ppm'=>null,
-            'native_extract_rh'=>null,'native_sensor_stale'=>false];
+            'native_extract_rh'=>null,'native_sensor_stale'=>false,
+            'co2_sensor_count'=>0,'voc_sensor_count'=>0,
+            'native_defrost_active'=>false,'native_defrost_known'=>false];
         if(!IPS_InstanceExists($native))return $out;
+        // Manufacturer's anti-icing status takes precedence over every
+        // energy-saving command. A missing status below +5 C is not
+        // proof that the exchanger is safely thawed.
+        if($this->ReadPropertyBoolean('EnableSmartFanTakeover')
+            && function_exists('HELIOS_Defrost_State_Get')){
+            try{
+                $defrost=HELIOS_Defrost_State_Get($native);
+                if(is_array($defrost)
+                    && is_bool($defrost['HeatExchanger']??null)){
+                    $out['native_defrost_known']=true;
+                    $out['native_defrost_active']=$defrost['HeatExchanger'];
+                }
+            }catch(Throwable $e){}
+        }
         // Prefer a true fresh manufacturer GET to an old Symcon variable
         // timestamp. The original module writes unchanged RH values only
         // on change, so VariableUpdated alone is NOT a freshness heartbeat.
@@ -730,15 +753,33 @@ class HeliosSmart extends IPSModule
                 try{$id=IPS_GetObjectIDByIdent($prefix.$i,$native);}
                 catch(Throwable $e){continue;}
                 if(!is_int($id)||$id<=0||!IPS_VariableExists($id))continue;
+                $out[$prefix==='SensorCO2_'?'co2_sensor_count':'voc_sensor_count']++;
                 $meta=IPS_GetVariable($id);
                 $age=$now-(int)($meta['VariableUpdated']??0);
-                if($age<0||$age>45*60){
-                    $out['native_sensor_stale']=true;
-                    continue;
+                $value=($age>=0 && $age<=45*60)?GetValue($id):null;
+                $low=$prefix==='SensorCO2_'?250.0:0.0;
+                // On-change manufacturer variables can remain unchanged
+                // for hours although the sensor is alive. A fresh native
+                // GET of this INSTALLED sensor (never all 8 empty slots)
+                // is stronger evidence than an old Symcon timestamp.
+                if($value===null || !is_numeric($value)
+                    ||(float)$value<$low||(float)$value>10000){
+                    $fn=$prefix==='SensorCO2_'
+                        ?'HELIOS_CO2Sensor_Get':'HELIOS_VOCSensor_Get';
+                    if(function_exists($fn)){
+                        try{
+                            $live=$fn($native,$i);
+                            $field=$prefix==='SensorCO2_'?'CO2_ppm':'VOC_ppm';
+                            if(is_array($live)&&is_numeric($live[$field]??null))
+                                $value=$live[$field];
+                        }catch(Throwable $e){$value=null;}
+                    }
                 }
-                $value=GetValue($id);
-                if(is_numeric($value) && (float)$value>=250 && (float)$value<=10000)
+                if(is_numeric($value) && (float)$value>=$low
+                    && (float)$value<=10000)
                     $highest=max($highest??0,(float)$value);
+                else
+                    $out['native_sensor_stale']=true;
             }
             $out[$key]=$highest;
         }
@@ -773,6 +814,14 @@ class HeliosSmart extends IPSModule
             $live=$this->ReadHeliosLive();
             $mode=$live['mode']??null;
             if(!$plan['execute']){
+                // A failed device readback never proves that the weekly
+                // programme has resumed. The native timer remains our
+                // secondary fallback if the SymBox is unreachable.
+                if($live===null && $owned) {
+                    $result['status']='FALLBACK_PENDING_NATIVE_15MIN_TIMER_UNVERIFIED';
+                    $result['fallback_weekly']=false;
+                    return $result;
+                }
                 // The only early cancel allowed is for our OWN verified
                 // timed command; never cancel a foreign Party/Whisper.
                 if($owned && $mode===(int)$state['mode']
@@ -786,7 +835,15 @@ class HeliosSmart extends IPSModule
                         $result['status']=$ok!==false && ($after['mode']??null)===0
                             ?'AUTO_FALLBACK_CONFIRMED':'AUTO_FALLBACK_PENDING';
                         $result['verified']=($after['mode']??null)===0;
+                        if($result['verified'])$result['readback']=$after;
+                        if(!$result['verified']){
+                            $result['status']='FALLBACK_PENDING_NATIVE_TIMER_UNVERIFIED';
+                            $result['fallback_weekly']=false;
+                        }
                     }
+                } elseif ($owned && $mode!==(int)$state['mode']) {
+                    $result['status']='ORIGINAL_DEVICE_MODE_CHANGED_DO_NOT_CANCEL';
+                    $result['fallback_weekly']=false;
                 }
                 if($result['verified'] || !$owned)
                     $this->WriteAttributeString('SmartFanTakeoverState',
@@ -859,6 +916,7 @@ class HeliosSmart extends IPSModule
             $after=$this->ReadHeliosLive();
             if($after!==null && $after['mode']===$desiredMode
                 && $after['fan']===$level){
+                $result['readback']=$after;
                 $result['status']='SMART_STAGE_CONFIRMED';
                 $result['verified']=true;
                 $result['fallback_weekly']=false;
@@ -2175,12 +2233,19 @@ class HeliosSmart extends IPSModule
                 'COOKING_RECENTLY_LIKELY','COOKING_ACTIVITY_RECENT'],true);
         $cookingStrong=$cookingConfirmed && $cookStatus==='COOKING_LIKELY'
             &&($decision['cooking_advice']['power_multiple_samples']??false)===true;
+        $weatherNow=is_numeric($decision['outside_temperature']??null)
+            ?(float)$decision['outside_temperature']:null;
+        $nativeHumidityConfigured=
+            ($native['sensor_control_reported']['HumidityControlInternal']??false)===true;
+        $sensorSourceUnverified=$nativeHumidityConfigured
+            && $sensorEvidence['native_extract_rh']===null;
         $smartPlan=JVHeliosSmartFanAuto::decide([
             'enabled'=>$smartEnabled,
             'native_ok'=>($native['write_allowed']??false)===true,
             'live_fresh'=>$live!==null,
             'mode'=>$deviceStatus['mode'],
             'actual_fan'=>$deviceStatus['fan'],
+            'native_week_program'=>$deviceStatus['program'],
             'owned_mode'=>(int)($smartState['mode']??0),
             'owned_stage'=>(int)($smartState['stage']??0),
             'owned_until'=>(int)($smartState['until']??0),
@@ -2194,6 +2259,11 @@ class HeliosSmart extends IPSModule
             'max_voc_ppm'=>$sensorEvidence['max_voc_ppm'],
             'native_extract_rh'=>$sensorEvidence['native_extract_rh'],
             'native_sensor_stale'=>$sensorEvidence['native_sensor_stale'],
+            'native_sensor_control_unverified'=>$sensorSourceUnverified,
+            'native_defrost_active'=>$sensorEvidence['native_defrost_active'],
+            'native_defrost_unknown_near_frost'
+                =>$weatherNow!==null && $weatherNow<=5.0
+                    && !$sensorEvidence['native_defrost_known'],
             'wet_need'=>$wetActual,
             'strong_wet_need'=>$strongWet,
             'cooking_confirmed'=>$cookingConfirmed,
@@ -2209,24 +2279,69 @@ class HeliosSmart extends IPSModule
             'high_power_safety'=>$this->ReadPropertyBoolean('HighPowerSafetyValidated'),
             'combustion_safe'=>$this->ReadPropertyBoolean('CombustionSafetyValidated'),
         ],$now);
+        $smartTimedStillPresent=!$smartEnabled
+            && (int)($smartState['sent_at']??0)>0
+            && (int)($smartState['until']??0)>=$now
+            && in_array((int)($smartState['mode']??0),[2,3],true);
         if($smartEnabled && ($seasonResult['attempted']??false)!==true)
             $smartExecution=$this->ExecuteSmartFanTakeover($smartPlan,$now);
-        else
+        elseif($smartTimedStillPresent){
+            // Disabling the control checkbox is an immediate *request* to
+            // return to AUTO, not an invitation for the legacy Party
+            // engine to replace our own last device-timed command.
+            $smartExecution=$this->ExecuteSmartFanTakeover([
+                'execute'=>false,'reason'=>'SMART_TAKEOVER_DISABLED',
+                'fallback_weekly'=>true,
+            ],$now);
+        }else
             $smartExecution=['status'=>($seasonResult['attempted']??false)
                 ?'SEASON_PROGRAM_CHANGE_FIRST':'SMART_DISABLED',
                 'attempted'=>false,'fallback_weekly'=>true];
         $decision['smart_fan_takeover']=$smartPlan;
         $decision['smart_fan_execution']=$smartExecution;
+        // The initial live snapshot may say AUTO/S4, while an executed,
+        // acknowledged native Party has *already* switched to mode 2/S3.
+        // Always use the post-command verified state in the displayed
+        // attribution instead of showing the old pre-command readings.
+        if(($smartExecution['verified']??false)===true
+            && is_array($smartExecution['readback']??null)){
+            $after=$smartExecution['readback'];
+            $deviceStatus['mode']=$after['mode'];
+            $deviceStatus['fan']=$after['fan'];
+            $deviceStatus['program']=$after['program'];
+            $deviceStatus['mode_fresh']=true;
+            $deviceStatus['fan_fresh']=true;
+            $deviceStatus['program_fresh']=true;
+        }
+        $smartStateNow=json_decode(
+            $this->ReadAttributeString('SmartFanTakeoverState'),true);
+        if(!is_array($smartStateNow))$smartStateNow=$smartState;
         $this->SetValue('SmartFanTakeoverJSON',
             json_encode(['plan'=>$smartPlan,'execution'=>$smartExecution,
                 'original_helios'=>$native['status']??'UNAVAILABLE',
                 'co2_voc_evidence'=>$sensorEvidence],JSON_UNESCAPED_UNICODE));
+        $effectiveState=match ((string)($smartExecution['status']??'')){
+            'SMART_STAGE_CONFIRMED'=>'SMART-STUFE AM GERAET BESTAETIGT',
+            'SMART_OWNED_ACTIVE_WAIT_RENEWAL'
+                =>($smartExecution['verified']??false)
+                    ?'SMART-STUFE WEITERHIN BESTAETIGT'
+                    :'SMART-WEITERLAUF NICHT BESTAETIGT',
+            'AUTO_FALLBACK_CONFIRMED'=>'HERSTELLER-AUTOMATIK BESTAETIGT',
+            'FALLBACK_PENDING_NATIVE_15MIN_TIMER_UNVERIFIED',
+            'FALLBACK_PENDING_NATIVE_TIMER_UNVERIFIED',
+            'AUTO_FALLBACK_PENDING'=>'RUECKFALL NOCH NICHT BESTAETIGT',
+            'ORIGINAL_DEVICE_MODE_CHANGED_DO_NOT_CANCEL'
+                =>'FREMDER HELIOS-MODUS HAT VORRANG',
+            default=>($smartExecution['fallback_weekly']??true)
+                ?'SMART FORDERT KEINE STUFE AN / HERSTELLER-ZUSTAND PRUEFEN'
+                :'SMART-ANFORDERUNG NOCH UNBESTAETIGT',
+        };
+        $decision['smart_fan_effective_state']=$effectiveState;
         $this->SetValue('SmartFanControlStatus',
-            'SMART-LUEFTUNG '.($smartEnabled?'AKTIV':'NUR BEOBACHTEN')
-            .' | Ziel '.($smartPlan['target_stage']??'WOCHENPROGRAMM')
+            'SMART-LUEFTUNG '.($smartEnabled?'FREIGEGEBEN':'NICHT FREIGEGEBEN')
+            .' | Ziel '.($smartPlan['target_stage']??'KEINER')
             .' | '.$smartExecution['status']
-            .' | '.($smartExecution['fallback_weekly']??true
-                ?'Wochenprogramm Rueckfallebene':'SMART hat Vorrang')
+            .' | '.$effectiveState
             .' | Original-Helios '.($native['native_instance_status']??'UNBEKANNT'));
         $approvals=[
             'estimated_flow_trial'=>$this->ReadPropertyBoolean('AllowEstimatedAirflowLimitedParty'),
@@ -2264,7 +2379,9 @@ class HeliosSmart extends IPSModule
         // programme change or a write with uncertain result.
         $nativeCanWrite=$nativeCanWrite
             && ($seasonResult['attempted']??false)!==true
-            && !$smartEnabled;
+            && !$smartEnabled
+            && !$smartTimedStillPresent
+            && ($smartExecution['attempted']??false)!==true;
         $execution=$nativeCanWrite
             ?$this->TryOwnParty($candidate,$deviceStatus,$approvals,$now)
             :['status'=>$smartEnabled?'SMART_FAN_TAKEOVER'
@@ -2295,8 +2412,11 @@ class HeliosSmart extends IPSModule
         $decision['execution_status']=$smartEnabled
             ?(string)($smartExecution['status']??'BLOCKED')
             :(string)($execution['status']??'BLOCKED');
-        $decision['helios_mode']=$mode;
+        $decision['helios_mode']=$deviceStatus['mode'];
+        $decision['helios_fan_actual_before_command']=$deviceStatus['fan'];
         $decision['observation_only']=!$this->ReadPropertyBoolean('EnableControl');
+        $decision['effective_smart_command']=$smartEnabled
+            ?$smartExecution['status']:null;
         // Source attribution uses actual HELIOS mode; a high stage alone
         // does not prove that a weekly-program slot or a smart boost fired.
         $fanVariableInfo=IPS_GetVariable($fanID);
@@ -2312,10 +2432,17 @@ class HeliosSmart extends IPSModule
             'fan_changed_at'=>$fanChangedAt,
             'control_enabled'=>$this->ReadPropertyBoolean('EnableControl'),
             'high_power_opt_in'=>$this->ReadPropertyBoolean('EnableHighPowerParty'),
-            'owned_level'=>$this->OptionalAttributeInt('OwnedPartyLevel'),
-            'owned_until'=>$this->OptionalAttributeInt('OwnedPartyExpiresAt'),
-            'last_command_at'=>$this->OptionalAttributeInt('LastCommandAt'),
-            'command_attempted'=>(bool)($execution['attempted']??false),
+            'owned_level'=>$smartEnabled
+                ?(int)($smartStateNow['stage']??0)
+                :$this->OptionalAttributeInt('OwnedPartyLevel'),
+            'owned_until'=>$smartEnabled
+                ?(int)($smartStateNow['until']??0)
+                :$this->OptionalAttributeInt('OwnedPartyExpiresAt'),
+            'last_command_at'=>$smartEnabled
+                ?(int)($smartStateNow['sent_at']??0)
+                :$this->OptionalAttributeInt('LastCommandAt'),
+            'command_attempted'=>(bool)(($execution['attempted']??false)
+                ||($smartExecution['attempted']??false)),
             'native_sensor_control_possible'=>($native['native_sensor_regulation_possible']??false)===true,
             'native_module_fault'=>($native['write_allowed']??false)!==true,
             'native_status'=>$native['native_instance_status']??null,
@@ -2324,7 +2451,10 @@ class HeliosSmart extends IPSModule
         $this->SetValue('FanStageCause',$fanCause['status']);
         $this->SetValue('FanStageCauseJSON',
             json_encode($fanCause,JSON_UNESCAPED_UNICODE));
-        $decision['safe_to_execute']=($guard['command_allowed']??false)===true;
+        $decision['safe_to_execute']=$smartEnabled
+            ?($smartPlan['execute']??false)===true
+                && ($native['write_allowed']??false)===true
+            :($guard['command_allowed']??false)===true;
         $decision['party_protocol_draft']['transmitted']=($execution['sent']??false)===true;
         $decision['party_protocol_draft']['note']='v0.12: echte Hersteller-Partyfunktion nur nach Einzel-Freigaben; keine automatische Rueckschaltung durch Symcon';
         $this->SetValue('DecisionJSON',json_encode($decision,JSON_UNESCAPED_UNICODE));
@@ -2358,7 +2488,11 @@ class HeliosSmart extends IPSModule
                 .', Zuluftwirkung '.($decision['winter_room_air']['sensible_heat_w_per_100m3h']??'?')
                 .' W/100m3h)'
             .' | Kochen: '.$decision['cooking_advice']['summary']
-            .' | Party: '.$decision['execution_status'].' / '.($guard['command_allowed']?'FREIGABE':'GESPERRT'). ' ('.($guard['airflow_basis']??'NO_AIRFLOW').')'
+            .' | SMART-Stufe: '.($smartPlan['target_stage']??'RUECKFALL')
+                .' / '.($smartExecution['status']??'NICHT_AKTIV')
+                .' | Alt-Party: '.$execution['status']
+                .' / '.($guard['command_allowed']?'FREIGABE':'GESPERRT')
+                .' ('.($guard['airflow_basis']??'NO_AIRFLOW').')'
             .(!empty($decision['occupancy_advice']['away_status_reports'])
                 ? ' | Bewohner: '.$decision['occupancy_advice']['description'] : ''));
     }

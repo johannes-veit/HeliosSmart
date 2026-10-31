@@ -22,6 +22,14 @@ final class JVHeliosSmartFanAuto
             || !in_array($d['mode']??null,[0,2,3],true)){
             $out['reason']='NATIVE_NOT_HEALTHY_OR_NOT_AUTO';return $out;
         }
+        $program=$d['native_week_program']??3;
+        // Native programme 5 is the *Symcon* weekly-event mode, not a
+        // manufacturer-stored schedule. It may send parallel events and
+        // does not satisfy the promised hardware fallback on SymBox loss.
+        if(!is_int($program)||$program<0||$program>4){
+            $out['reason']='NATIVE_WEEKLY_FALLBACK_NOT_DEVICE_STORED';
+            return $out;
+        }
         $mode=$d['mode']??null;
         if($mode===2||$mode===3){
             // Distinguish a device-timed mode we own from a human/external party.
@@ -56,6 +64,24 @@ final class JVHeliosSmartFanAuto
             $out['reason']='NATIVE_SENSOR_READINGS_STALE_KEEP_OWN_DEMAND';
             return $out;
         }
+        // Native anti-icing is a hardware-priority condition and must
+        // not be overridden by energy-saving fan presets.
+        if(($d['native_defrost_active']??false)===true){
+            $out['reason']='NATIVE_HEAT_EXCHANGER_DEFROST_ACTIVE';
+            return $out;
+        }
+        if(($d['native_defrost_unknown_near_frost']??false)===true){
+            $out['reason']='NATIVE_DEFROST_STATUS_UNKNOWN_NEAR_FREEZING';
+            return $out;
+        }
+        // Existing sensor-driven stage4 cannot be downgraded merely
+        // because its CO2/VOC or exhaust RH telemetry is absent. When a
+        // controller is enabled but its measurement is not represented
+        // in the SMART inputs, let the original regulator stay in charge.
+        if($fan===4 && ($d['native_sensor_control_unverified']??false)===true){
+            $out['reason']='NATIVE_S4_SENSOR_DEMAND_UNVERIFIABLE';
+            return $out;
+        }
         $wet=(bool)($d['wet_need']??false);
         $cook=(bool)($d['cooking_confirmed']??false);
         $cool=(bool)($d['cooling_confirmed']??false);
@@ -67,16 +93,19 @@ final class JVHeliosSmartFanAuto
         // A genuinely high native CO2/VOC sensor request must NOT be
         // silently downgraded to S3 simply because S4 approval is absent.
         // Keep the manufacturer's own sensor/weekly regulation in charge.
-        if(($badAir || $nativeHighRh) && !$highPower && $fan===4){
+        if(($badAir || $nativeHighRh) && !$highPower){
+            // Even if the manufacturer currently reports S2/S3, sending
+            // a timed SMART S3 could lock out a forthcoming native
+            // sensor demand for S4. Do not take over in that condition.
             $out['reason']=$badAir
                 ?'NATIVE_CO2_VOC_HIGH_NO_S4_APPROVAL'
-                :'NATIVE_EXTRACT_HUMIDITY_HIGH_KEEP_S4';
+                :'NATIVE_EXTRACT_HUMIDITY_HIGH_KEEP_DEVICE';
             return $out;
         }
         // Similarly never force a lower stage than the already measured
         // S4 during an independently demonstrated strong wet/cooking event.
-        if(($strongWet || $strongCook) && !$highPower && $fan===4){
-            $out['reason']='HIGH_HUMIDITY_OR_COOKING_KEEP_DEVICE_S4';
+        if(($strongWet || $strongCook) && !$highPower){
+            $out['reason']='STRONG_WET_OR_COOKING_KEEP_NATIVE_REGULATION';
             return $out;
         }
         // Safety-priority cases always beat energy savings or absence.

@@ -4,7 +4,7 @@ function ckFan($condition,$msg){if(!$condition){fwrite(STDERR,"FAIL SMART FAN AU
 $now=1793430000;
 $valid=[
  'enabled'=>true,'native_ok'=>true,'live_fresh'=>true,
- 'mode'=>0,'actual_fan'=>4,
+ 'mode'=>0,'actual_fan'=>4,'native_week_program'=>3,
  'weather_quality'=>'VERIFIED','weather_age_seconds'=>60,
  'room_temp_count'=>11,'room_humidity_count'=>11,
  'max_co2_ppm'=>null,'max_voc_ppm'=>null,
@@ -43,8 +43,8 @@ ckFan($dec(['cooking_confirmed'=>true,
  'cooking raises ventilation independent of presence');
 ckFan($dec(['strong_wet_need'=>true])['fallback_weekly']===true,
  'high native S4 wetroom demand is not downshifted without high-power approval');
-ckFan($dec(['strong_wet_need'=>true,'actual_fan'=>3])['target_stage']===3,
- 'for existing native S3 a strong wetroom retains nominal ventilation');
+ckFan($dec(['strong_wet_need'=>true,'actual_fan'=>3])['fallback_weekly']===true,
+ 'strong wetroom preserves native sensor authority even when level was S3');
 ckFan($dec(['strong_wet_need'=>true,'high_power_enabled'=>true,
     'high_power_safety'=>true,'combustion_safe'=>true])['target_stage']===4,
  'strong verified humidity permits stage4 only after all explicit safety checks');
@@ -80,4 +80,53 @@ ckFan(!$dec(['mode'=>2,'owned_mode'=>2,'owned_stage'=>3,'owned_until'=>$now+200,
 ckFan(!$dec(['mode'=>3,'owned_mode'=>2,'owned_until'=>$now+200,
     'owned_last_at'=>$now-500])['execute'],
  'do not confuse another entity whisper with our timed party');
+ckFan($dec(['max_co2_ppm'=>1500,'actual_fan'=>2])['fallback_weekly']===true,
+ 'a CO2 rise is not clamped to S3 just because current native fan is S2');
+ckFan($dec(['native_extract_rh'=>78,'actual_fan'=>3])['fallback_weekly']===true,
+ 'fresh native extract RH 78% may escalate above SMART nominal S3');
+ckFan($dec(['native_week_program'=>5])['reason']
+    ==='NATIVE_WEEKLY_FALLBACK_NOT_DEVICE_STORED',
+ 'Symcon week-plan 5 cannot be considered a hardware-autonomous backup');
+ckFan($dec(['native_week_program'=>4])['execute']===true,
+ 'actual summer schedule 4 is eligible for SMART takeover and later native fallback');
+ckFan($dec(['native_defrost_active'=>true])['reason']
+    ==='NATIVE_HEAT_EXCHANGER_DEFROST_ACTIVE',
+ 'manufacturer heat exchanger anti-icing wins over all SMART energy savings');
+ckFan($dec(['native_defrost_unknown_near_frost'=>true])['reason']
+    ==='NATIVE_DEFROST_STATUS_UNKNOWN_NEAR_FREEZING',
+ 'when freezing risk active and vendor defrost unreadable keep native in control');
+ckFan($dec(['native_sensor_control_unverified'=>true])['fallback_weekly']===true,
+ 'no blind downgrading from S4 if active native humidity sensor cannot be evaluated');
+ckFan($dec(['native_defrost_active'=>true,'high_power_enabled'=>true,
+  'high_power_safety'=>true,'combustion_safe'=>true,'strong_wet_need'=>true])
+  ['fallback_weekly']===true,
+ 'even full S4 opt-in never overrides manufacturer active defrost');
+// Deterministic cross-product of failure and priority inputs. Test
+// priority invariants, not an assumption about optimal level.
+$cases=0;
+foreach([false,true] as $healthy)
+foreach([false,true] as $fresh)
+foreach(['VERIFIED','UNAVAILABLE','CONFLICT','DWD_ONLY'] as $weather)
+foreach([0,1,2,3,4] as $mode)
+foreach([1,2,3,4] as $fan)
+foreach([false,true] as $defrost){
+    $p=$dec([
+        'native_ok'=>$healthy,'live_fresh'=>$fresh,
+        'weather_quality'=>$weather,'mode'=>$mode,
+        'actual_fan'=>$fan,
+        'native_defrost_active'=>$defrost,
+    ]);
+    $may=($healthy&&$fresh
+        &&in_array($weather,['VERIFIED','DWD_ONLY'],true)
+        &&$mode===0 && !$defrost);
+    if(!$may)
+        ckFan($p['execute']===false && $p['fallback_weekly']===true,
+            'cross-product safety veto '.json_encode([
+                $healthy,$fresh,$weather,$mode,$fan,$defrost]));
+    if($p['execute']===true)
+        ckFan(in_array($p['target_stage'],[2,3],true)
+            &&$p['minutes']===15,'cross-product never sends forbidden indefinite stage');
+    $cases++;
+}
+echo "SMART safety cross-product verified: $cases configurations\n";
 echo "SMART autonomous fan priority, timed fallback, humidity, CO2 and stage1-4 tests OK\n";

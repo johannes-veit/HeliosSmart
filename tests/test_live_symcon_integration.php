@@ -14,9 +14,13 @@ function IPS_SemaphoreEnter($name,$timeout){return true;}
 function IPS_SemaphoreLeave($name){return true;}
 function IPS_InstanceExists($id){return in_array($id,[11842,16987,19285,17597,42,32969],true);}
 function IPS_GetInstance($id){return ['InstanceStatus'=>$id===19285?($GLOBALS['nativeStatus']??102):102,'ModuleInfo'=>['ModuleID'=>$id===32969?'{D94700DB-96B0-490C-9F23-E6AE39677384}':($id===42?'{685106B4-47EC-43C9-9CA9-9BAE53E4B304}':($id===19285?'{889DFBC4-09A6-4D77-9928-738E5D494362}':'{OTHER-INSTANCE}'))]];}
-function IPS_GetObjectIDByIdent($ident,$instance){return $instance===32969?(['JohannesPresence'=>60001,'CarinaPresence'=>60002,'EvidenceJSON'=>60003][$ident]??0):0;}
+function IPS_GetObjectIDByIdent($ident,$instance){
+    if($instance===19285)return $GLOBALS['nativeSensorIDs'][$ident]??0;
+    return $instance===32969?(['JohannesPresence'=>60001,
+        'CarinaPresence'=>60002,'EvidenceJSON'=>60003][$ident]??0):0;
+}
 function IPS_VariableExists($id){return array_key_exists($id,$GLOBALS['values']);}
-function IPS_GetVariable($id){return ['VariableUpdated'=>$GLOBALS['variableTime'],'VariableChanged'=>$GLOBALS['changedAt'][$id]??0];}
+function IPS_GetVariable($id){return ['VariableUpdated'=>$GLOBALS['variableTimeByID'][$id]??$GLOBALS['variableTime'],'VariableChanged'=>$GLOBALS['changedAt'][$id]??0];}
 function GetValue($id){return $GLOBALS['values'][$id];}
 function IPS_GetConfiguration($id){return $id===19285 ? json_encode($GLOBALS['nativeConfig']??['notif_script_active'=>false,'notifscript_id'=>0,'timerinterval'=>61,'log_fanlevel'=>false]) : json_encode(['Location'=>json_encode(['latitude'=>50,'longitude'=>7])]);}
 function IPS_SetProperty($id,$key,$value){
@@ -38,7 +42,26 @@ function HELIOS_OperatingMode_Party_Set(...$args){
     if(($args[1]??false)===false){$GLOBALS['deviceMode']=0;return true;}
     $GLOBALS['deviceMode']=2;$GLOBALS['deviceFan']=(int)$args[2];$GLOBALS['remaining']=(int)$args[3];return true;
 }
-function HELIOS_OperatingMode_Get($id){$GLOBALS['getCalls']++;return $GLOBALS['deviceMode'];}
+function HELIOS_OperatingMode_Get($id){$GLOBALS['getCalls']++;
+    return ($GLOBALS['failLiveRead']??false)?false:$GLOBALS['deviceMode'];}
+function HELIOS_Defrost_State_Get($id){
+    return ($GLOBALS['failDefrostRead']??false)?false:
+        ['HeatExchanger'=>($GLOBALS['nativeDefrost']??false)===true,
+         'HotWaterRegister'=>false];
+}
+function HELIOS_HumidityControl_Internal_ExhaustAir_Get($id){
+    return $GLOBALS['nativeExtractRh']??53;
+}
+function HELIOS_CO2Sensor_Get($id,$index){
+    $GLOBALS['nativeCo2Polls']=($GLOBALS['nativeCo2Polls']??0)+1;
+    return isset($GLOBALS['nativeCo2LiveValue'])
+        ?['CO2_ppm'=>$GLOBALS['nativeCo2LiveValue']]:false;
+}
+function HELIOS_VOCSensor_Get($id,$index){
+    $GLOBALS['nativeVocPolls']=($GLOBALS['nativeVocPolls']??0)+1;
+    return isset($GLOBALS['nativeVocLiveValue'])
+        ?['VOC_ppm'=>$GLOBALS['nativeVocLiveValue']]:false;
+}
 function HELIOS_FanLevel_Get($id){$GLOBALS['getCalls']++;return $GLOBALS['deviceFan'];}
 function HELIOS_WeekProgram_Get($id){$GLOBALS['getCalls']++;return $GLOBALS['deviceProgram'];}
 function HELIOS_OperatingMode_RemainingMinutes_Get($id){$GLOBALS['getCalls']++;return $GLOBALS['remaining'];}
@@ -306,4 +329,116 @@ it(str_contains($refused,'NICHT FREIGEGEBEN')
     && !$blocked->ReadPropertyBoolean('EnableSmartFanTakeover'),
     'invalid original Helios 209 cannot enable full smart control');
 $GLOBALS['nativeStatus']=102;
+$healthSim=new HeliosSmart();$healthSim->Create();
+$healthSim->setProperty('WeatherCenterInstance',42);
+$healthSim->setProperty('EnableControl',true);
+$healthSim->setProperty('EnableSmartFanTakeover',true);
+$GLOBALS['deviceMode']=0;$GLOBALS['deviceFan']=4;$GLOBALS['deviceProgram']=3;
+$GLOBALS['values'][30441]=4;
+$GLOBALS['nativeDefrost']=true;
+$GLOBALS['nativeExtractRh']=53;
+$beforeFrost=count($GLOBALS['calls']);
+$healthSim->Evaluate();
+$nativeFrost=json_decode($healthSim->value('DecisionJSON'),true);
+it(($nativeFrost['smart_fan_takeover']['reason']??'')
+        ==='NATIVE_HEAT_EXCHANGER_DEFROST_ACTIVE'
+    && count($GLOBALS['calls'])===$beforeFrost,
+    'native manufacturer defrost is not overridden by SMART S3');
+$GLOBALS['nativeDefrost']=false;
+$GLOBALS['nativeExtractRh']=78;
+$healthSim->Evaluate();
+$hotRh=json_decode($healthSim->value('DecisionJSON'),true);
+it(($hotRh['smart_fan_takeover']['reason']??'')
+        ==='NATIVE_EXTRACT_HUMIDITY_HIGH_KEEP_DEVICE',
+    'high native Helios extract RH preserves native control instead of SMART S3');
+$GLOBALS['nativeExtractRh']=53;
+$healthSim->Evaluate();
+$nativeSafe=json_decode($healthSim->value('DecisionJSON'),true);
+it(($nativeSafe['smart_fan_execution']['status']??'')
+        ==='SMART_STAGE_CONFIRMED'
+    && ($nativeSafe['fan_stage_attribution']['kind']??'')
+        ==='OWNED_PARTY_PLAUSIBLE'
+    && ($nativeSafe['fan_stage_attribution']['actual_fan_level']??0)===3
+    && ($nativeSafe['fan_stage_attribution']['helios_mode']??0)===2,
+    'SMART takeover reports actual acknowledged Party S3, not stale AUTO S4');
+$healthSim->setProperty('EnableSmartFanTakeover',false);
+$healthSim->setProperty('EnableControl',false);
+$beforeExit=count($GLOBALS['calls']);
+$healthSim->Evaluate();
+$exiting=json_decode($healthSim->value('DecisionJSON'),true);
+it(($exiting['smart_fan_execution']['status']??'')
+       ==='AUTO_FALLBACK_CONFIRMED'
+    && $GLOBALS['deviceMode']===0,
+    'turning OFF SMART checkbox immediately cancels its own vendor-timed Party');
+it(count(array_filter(array_slice($GLOBALS['calls'],$beforeExit),
+   static fn($c)=>$c[0]==='party'&&$c[1][1]===true))===0,
+   'no competing old Party when SMART is disabled mid-session');
+// Missing live response during an active timed Party must not be
+// misreported as confirmed weekly-program fallback.
+$networkSim=new HeliosSmart();$networkSim->Create();
+$networkSim->setProperty('WeatherCenterInstance',42);
+$networkSim->setProperty('EnableControl',true);
+$networkSim->setProperty('EnableSmartFanTakeover',true);
+$GLOBALS['deviceMode']=0;$GLOBALS['deviceFan']=4;
+$networkSim->Evaluate();
+$GLOBALS['failLiveRead']=true;
+$networkSim->Evaluate();
+$failedRead=json_decode($networkSim->value('DecisionJSON'),true);
+it(($failedRead['smart_fan_execution']['status']??'')
+       ==='FALLBACK_PENDING_NATIVE_15MIN_TIMER_UNVERIFIED'
+    && ($failedRead['smart_fan_effective_state']??'')
+       ==='RUECKFALL NOCH NICHT BESTAETIGT',
+    'network loss mid-party is explicitly pending native timer, not claimed successful AUTO');
+$GLOBALS['failLiveRead']=false;
+$GLOBALS['deviceMode']=0;$GLOBALS['deviceFan']=4;
+$networkSim->setProperty('EnableControl',false);
+$networkSim->setProperty('EnableSmartFanTakeover',false);
+$GLOBALS['nativeDefrost']=false;
+$GLOBALS['nativeExtractRh']=53;
+// Program #5 is implemented by a Symcon event, not a device-resident
+// weekly fallback: reject SMART commissioning rather than promise
+// hardware-autonomous recovery that would not be guaranteed.
+$GLOBALS['deviceMode']=0;$GLOBALS['deviceProgram']=5;
+$unsupported=new HeliosSmart();$unsupported->Create();
+$unsupported->setProperty('WeatherCenterInstance',42);
+$GLOBALS['commissioningModule']=$unsupported;
+$unsupportedReport=$unsupported->StartSmartFanControl();
+it(str_contains($unsupportedReport,'NICHT FREIGEGEBEN')
+    && !$unsupported->ReadPropertyBoolean('EnableSmartFanTakeover'),
+    'Symcon event-backed programme 5 cannot be used as autonomous weekly fallback');
+$GLOBALS['deviceProgram']=3;
+// Original Bayaro HELIOS variables update only on a changed value. A
+// physically connected CO2 sensor can be stable for >45 minutes:
+// validate it via a fresh native GET, never assume its last value is live.
+$GLOBALS['nativeSensorIDs']=['SensorCO2_1'=>61001,'SensorVOC_1'=>61002];
+$GLOBALS['values'][61001]=1550;
+$GLOBALS['values'][61002]=32;
+$GLOBALS['variableTimeByID'][61001]=time()-3*3600;
+$GLOBALS['variableTimeByID'][61002]=time()-3*3600;
+$GLOBALS['nativeCo2LiveValue']=1400;
+$GLOBALS['nativeVocLiveValue']=20;
+$GLOBALS['nativeCo2Polls']=0;$GLOBALS['nativeVocPolls']=0;
+$GLOBALS['deviceFan']=4;$GLOBALS['deviceMode']=0;$GLOBALS['values'][30441]=4;
+$onChange=new HeliosSmart();$onChange->Create();
+$onChange->setProperty('WeatherCenterInstance',42);
+$onChange->setProperty('EnableControl',true);
+$onChange->setProperty('EnableSmartFanTakeover',true);
+$onChange->Evaluate();
+$staleObserved=json_decode($onChange->value('DecisionJSON'),true);
+it(($staleObserved['smart_fan_takeover']['reason']??'')
+        ==='NATIVE_CO2_VOC_HIGH_NO_S4_APPROVAL'
+    && ($staleObserved['smart_fan_execution']['attempted']??true)===false,
+    'three-hour unchanged Symcon CO2 value is re-read at manufacturer before any S4 reduction');
+it($GLOBALS['nativeCo2Polls']===1 && $GLOBALS['nativeVocPolls']===1,
+    'only actually installed, old CO2/VOC sensors generate native GETs');
+$GLOBALS['nativeCo2LiveValue']=650;
+$onChange->Evaluate();
+$freshObserved=json_decode($onChange->value('DecisionJSON'),true);
+$freshSensors=json_decode($onChange->value('SmartFanTakeoverJSON'),true);
+it(($freshObserved['smart_fan_execution']['status']??'')
+        ==='SMART_STAGE_CONFIRMED'
+    && ($freshSensors['co2_voc_evidence']['max_co2_ppm']??0)===650,
+    'live safe CO2 clears stale high cache and permits the SMART energy-saving stage');
+unset($GLOBALS['nativeSensorIDs'],$GLOBALS['variableTimeByID'],
+    $GLOBALS['nativeCo2LiveValue'],$GLOBALS['nativeVocLiveValue']);
 echo "ALLE $counter SYMCON-LIVE-INTEGRATIONSPRUEFUNGEN BESTANDEN\n";
