@@ -310,3 +310,39 @@ bleibt er grundsaetzlich UNBEKANNT.
 Vor dem Klick Elektroanschluss, Pumpenlast, unabhaengigen Sole-Frostschutz,
 Restart/Power-on-Zustand des Shelly und Verhalten bei Strom-/Netzausfall
 pruefen. Die Tests in GitHub sind simuliert und kein realer Durchflussnachweis.
+
+## Datenrhythmus fuer Brauneberg (31.10.2026)
+
+**Historische ERA5-Land-Kennlinie:** Nach der erstmaligen Befuellung 2021–2025
+werden keine staendigen historischen API-Abfragen mehr durchgefuehrt.
+Das Modul prueft intern in grossen Abstaenden (maximal woechentlicher,
+reiner Zeitvergleich) auf den naechsten Jahreswechsel. Erst **ab dem
+10. Januar** wird der abgeschlossene vorherige Kalenderjahrgang
+nachgeladen, da ERA5-Land mit mehreren Tagen Rueckstand veroeffentlicht
+wird. Der alte Mehrjahresdatensatz bleibt gespeichert; jeweils der
+aelteste der fuenf Jahrgaenge faellt nach Ergaenzzung des neuen Jahres
+heraus. Bei fehlgeschlagenem Import erfolgt eine sechs-stuendige
+Wiederholung bis zum Erfolg. Bestehende gueltige Jahre werden NICHT
+erneut heruntergeladen.
+
+**Aktuelle Bodenwerte:** Die WetterZentrale fragt getrennt davon
+maximal **alle sechs Stunden** den aktuellen ECMWF-IFS-Modellwert
+fuer 28–100 und 100–255 cm ueber Open-Meteo ab: vier Zeitpunkte
+am Tag statt 24 Einzelabrufe. Die Werte erscheinen als eigene
+Symcon-Variablen Bodenmodell aktuell 28–100 cm, Bodenmodell aktuell
+100–255 cm, Bodenmodell aktuell – 6-Stunden-Status und als JSON
+mit Modellquelle und Zeitstempel. Auch der manuelle Abrufbutton
+achtet auf die sechs-stuendige Abfragesperre, um Anbieter und SymBox
+nicht unnoetig zu belasten. Bei Ausfall bleibt die letzte valide
+Messreihe mit ihrem Zeitstempel erkennbar; veraltete Modellwerte werden
+nicht unbegrenzt als aktuell in den Snapshot gegeben.
+
+ECMWF-IFS ist **keine DWD-Stationsmessung** und KEIN direkter 2,5-m-
+Solefuehler. Die offiziellen DWD-Stationswerte bis 1 m sind separate
+Messquellen. Fuer sie wurde noch keine konkrete lokale DWD-Station
+zugeordnet oder automatischer CDC-ZIP-Import implementiert. Bei einer
+solchen spaeteren Quellenanbindung ist ein eigenes maximal
+sechs-stuendiges Abrufintervall erforderlich. Die neue aktuelle
+Bodenmodellreihe wird lediglich an das *nur lesende* HELIOS-EWT-
+Lernprogramm uebergeben, ohne selbst die Pumpe zu schalten oder die
+Wetterqualitaet kuenstlich zu verbessern.
