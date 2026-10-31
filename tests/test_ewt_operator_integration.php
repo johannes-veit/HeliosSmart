@@ -205,4 +205,37 @@ $wrong->setProperty('EnableEWTPumpControl',true);
 $wrong->RequestAction('EWTPumpModeManual',true);
 a($wrong->value('EWTPumpOnline')===false,
     'online signal from unrelated Symcon instance cannot certify EWT plug');
+// Recovered MQTT availability must not leave a stale warning forever.
+$GLOBALS['variables'][9002]=true;
+$GLOBALS['onlineChangedAt']=time()-3600;
+$GLOBALS['variables'][9001]=false;
+$recovered=new HeliosSmart();
+$recovered->Create();
+$recovered->setProperty('EWTPumpSwitchVariable',9001);
+$recovered->setProperty('EWTPumpOnlineVariable',9002);
+$recovered->setProperty('EWTPumpHeartbeatVariable',9003);
+$recovered->setProperty('EnableEWTPumpControl',true);
+$recovered->WriteAttributeString('EWTPumpControlState',json_encode([
+    'last_error'=>'DEVICE_OFFLINE_LAST_SWITCH_STATE_UNTRUSTED'
+]));
+$method=new ReflectionMethod(HeliosSmart::class,'EvaluateEWTPump');
+$method->invoke($recovered,[
+    'quality'=>'VERIFIED',
+    'current'=>['temperature'=>14,'observed_at'=>time()-60]
+],time(),null);
+$st=json_decode($recovered->ReadAttributeString('EWTPumpControlState'),true);
+a(($st['last_error']??'')==='',
+    'verified reconnect clears only transient offline warning');
+a($recovered->value('EWTPumpAlarm')===false,
+    'recovered healthy Shelly clears connectivity alarm');
+$recovered->WriteAttributeString('EWTPumpControlState',json_encode([
+    'last_error'=>'SHELLY_NO_STATE_CONFIRMATION'
+]));
+$method->invoke($recovered,[
+    'quality'=>'VERIFIED',
+    'current'=>['temperature'=>14,'observed_at'=>time()-60]
+],time(),null);
+$st=json_decode($recovered->ReadAttributeString('EWTPumpControlState'),true);
+a(($st['last_error']??'')==='SHELLY_NO_STATE_CONFIRMATION',
+    'a real unconfirmed actuator command remains diagnosable');
 echo "EWT WebFront controls and actuator safety integration OK\\n";
