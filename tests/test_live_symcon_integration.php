@@ -104,7 +104,7 @@ it(($after['party_safety']['airflow_basis']??null)==='ESTIMATED_ONLY_OPERATOR_OP
 it(($after['party_safety']['command_allowed']??false)===true,'Hersteller-Live-Antworten und Freigaben genuegen fuer beschraenkten Auftrag');
 it(count(array_filter($GLOBALS['calls'],static fn($v)=>$v[0]==='party'))===1,'Genau ein Helios-Party-Aufruf');
 $party=array_values(array_filter($GLOBALS['calls'],static fn($v)=>$v[0]==='party'))[0][1];
-it($party===[19285,true,3,15],'Echter Befehl exakt Instanz, true, Stufe 3, 15 Min');
+it($party===[19285,true,3,15],'Echter Befehl exakt Instanz, true, Stufe 3, 15 Min; gesendet: '.json_encode($party));
 it(($after['party_execution']['status']??null)==='PARTY_CONFIRMED','Party durch Geraeteruecklesung bestaetigt');
 it($h->ReadAttributeInteger('LastCommandAt')>0,'Schreibzeitpunkt dauerhaft gespeichert');
 it($h->ReadAttributeInteger('OwnedPartyExpiresAt')>time(),'Geraete-Rueckfallfenster persistent reserviert');
