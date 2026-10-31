@@ -41,13 +41,16 @@ ckFan($dec(['wet_need'=>true])['target_stage']===3,
 ckFan($dec(['cooking_confirmed'=>true,
     'minimum_airflow_validated'=>true])['target_stage']===3,
  'cooking raises ventilation independent of presence');
-ckFan($dec(['strong_wet_need'=>true])['target_stage']===3,
- 'S4 requires independent high-power and combustion approvals');
+ckFan($dec(['strong_wet_need'=>true])['fallback_weekly']===true,
+ 'high native S4 wetroom demand is not downshifted without high-power approval');
+ckFan($dec(['strong_wet_need'=>true,'actual_fan'=>3])['target_stage']===3,
+ 'for existing native S3 a strong wetroom retains nominal ventilation');
 ckFan($dec(['strong_wet_need'=>true,'high_power_enabled'=>true,
     'high_power_safety'=>true,'combustion_safe'=>true])['target_stage']===4,
  'strong verified humidity permits stage4 only after all explicit safety checks');
-ckFan($dec(['max_co2_ppm'=>1500,'minimum_airflow_validated'=>true])['target_stage']===3,
- 'high native CO2 is never overruled by stage2 energy savings');
+ckFan($dec(['max_co2_ppm'=>1500,'minimum_airflow_validated'=>true])
+ ['fallback_weekly']===true,
+ 'high native CO2 without high-power approval returns complete device priority');
 ckFan($dec(['cooling_confirmed'=>true])['target_stage']===3,
  'true summer cooling overrides winter/quiet savings');
 foreach([
