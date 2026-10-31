@@ -4,7 +4,7 @@ function ckFan($condition,$msg){if(!$condition){fwrite(STDERR,"FAIL SMART FAN AU
 $now=1793430000;
 $valid=[
  'enabled'=>true,'native_ok'=>true,'live_fresh'=>true,
- 'mode'=>0,'actual_fan'=>4,
+ 'mode'=>0,'actual_fan'=>4,'native_week_program'=>3,
  'weather_quality'=>'VERIFIED','weather_age_seconds'=>60,
  'room_temp_count'=>11,'room_humidity_count'=>11,
  'max_co2_ppm'=>null,'max_voc_ppm'=>null,
@@ -84,6 +84,11 @@ ckFan($dec(['max_co2_ppm'=>1500,'actual_fan'=>2])['fallback_weekly']===true,
  'a CO2 rise is not clamped to S3 just because current native fan is S2');
 ckFan($dec(['native_extract_rh'=>78,'actual_fan'=>3])['fallback_weekly']===true,
  'fresh native extract RH 78% may escalate above SMART nominal S3');
+ckFan($dec(['native_week_program'=>5])['reason']
+    ==='NATIVE_WEEKLY_FALLBACK_NOT_DEVICE_STORED',
+ 'Symcon week-plan 5 cannot be considered a hardware-autonomous backup');
+ckFan($dec(['native_week_program'=>4])['execute']===true,
+ 'actual summer schedule 4 is eligible for SMART takeover and later native fallback');
 ckFan($dec(['native_defrost_active'=>true])['reason']
     ==='NATIVE_HEAT_EXCHANGER_DEFROST_ACTIVE',
  'manufacturer heat exchanger anti-icing wins over all SMART energy savings');
