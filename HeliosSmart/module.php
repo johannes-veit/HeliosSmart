@@ -30,6 +30,7 @@ require_once __DIR__ . '/../libs/EWTPump.php';
 require_once __DIR__ . '/../libs/EWTPumpOperator.php';
 require_once __DIR__ . '/../libs/EWTPumpHealth.php';
 require_once __DIR__ . '/../libs/EWTPumpLearning.php';
+require_once __DIR__ . '/../libs/FanAttribution.php';
 /** Vorhersagegestützter Beobachter; Aktor nur nach expliziter Freigabe. */
 class HeliosSmart extends IPSModule
 {
@@ -114,6 +115,10 @@ class HeliosSmart extends IPSModule
         $this->RegisterVariableString('EWTPumpLearningStatus','EWT – Lerndiagnose','',56);
         $this->RegisterVariableString('EWTPumpLearningJSON','EWT – Lernbewertung JSON','',57);
         $this->RegisterVariableString('EWTPumpSetupReport','EWT-Shelly Installation / Diagnose','',58);
+        $this->RegisterVariableString('FanStageCause',
+            'Helios Lüfterstufe – Betrieb / Ursache','',59);
+        $this->RegisterVariableString('FanStageCauseJSON',
+            'Helios Lüfterstufe – Diagnosedaten JSON','',60);
         if(method_exists($this,'EnableAction')) {
             $this->EnableAction('EWTPumpModeManual');
             $this->EnableAction('EWTPumpSwitch');
@@ -248,7 +253,7 @@ class HeliosSmart extends IPSModule
                 ['type'=>'NumberSpinner','name'=>'HeliosProgramVariable','caption'=>'Helios Wochenprogramm'],
                 ['type'=>'NumberSpinner','name'=>'HeliosSupplyTemperature','caption'=>'Helios Zulufttemperatur nach EWT und WRG'],
                 ['type'=>'NumberSpinner','name'=>'HeliosIntakeAfterEWT','caption'=>'Helios-Geräteeintritt NACH Sole-EWT'],
-                ['type'=>'Label','caption'=>'Separater Sole-EWT der Lueftung (NICHT die FBH-Taupunktwaechter-Pumpe): Bei Frost oder unsicherem Wetter immer EIN. Fuer unterbrechungsfreien Frostschutz separate Hardware-Sicherung und Shelly Power-on=EIN vorsehen.'],
+                ['type'=>'Label','caption'=>'Separater Sole-EWT der Lueftung (NICHT die FBH-Taupunktwaechter-Pumpe): Pumpen-Frostvorwaermung ab +3 °C Aussentemperatur, Freigabe ab +5 °C. Bei Wetterausfall weiter EIN; severe Frostprognose kann vorsorglich EIN ausloesen. Hersteller-Waermetauscher-Frostschutz bleibt unabhaengig. Fuer unterbrechungsfreien Schutz separate Hardware-Sicherung und Shelly Power-on=EIN vorsehen.'],
                 ['type'=>'SelectVariable','name'=>'EWTPumpSwitchVariable','caption'=>'Shelly Sole-EWT-Schaltvariable (Boolean mit Schaltaktion, leer=0)','validVariableTypes'=>[0],'requiredAction'=>1],
                 ['type'=>'SelectVariable','name'=>'EWTPumpPowerVariable','caption'=>'Optional: Shelly Leistung in Watt (leer=0)','validVariableTypes'=>[1,2]],
                 ['type'=>'SelectVariable','name'=>'EWTPumpOnlineVariable','caption'=>'PFLICHT: Shelly Online/Erreichbar (lokale MQTT-Verbindung, Bool)','validVariableTypes'=>[0]],
@@ -1699,9 +1704,14 @@ class HeliosSmart extends IPSModule
             'program_fresh'=>($now-(int)(IPS_GetVariable($progID)['VariableUpdated']??0))>=-120
                 && ($now-(int)(IPS_GetVariable($progID)['VariableUpdated']??0))<=600,
         ];
-        // Live device communication is attempted ONLY when explicitly enabled.
-        // VariableUpdated is not a heartbeat: the native module updates on change.
-        $live=$this->ReadPropertyBoolean('EnableControl') ? $this->ReadHeliosLive() : null;
+        // Live GET requests are read-only. For observed stage 4 also
+        // request the actual Helios mode and weekly-program ID while fan
+        // control is disabled: cached mode/program variables may be many
+        // hours old even when still physically correct.
+        // No Party, Whisper or program write is caused by these GETs.
+        $live=($this->ReadPropertyBoolean('EnableControl')
+            || (int)GetValue($fanID)===4)
+            ? $this->ReadHeliosLive():null;
         if ($live!==null) {
             $deviceStatus['mode']=$live['mode'];
             $deviceStatus['fan']=$live['fan'];
@@ -1764,6 +1774,30 @@ class HeliosSmart extends IPSModule
         $decision['execution_status']=(string)($execution['status']??'BLOCKED');
         $decision['helios_mode']=$mode;
         $decision['observation_only']=!$this->ReadPropertyBoolean('EnableControl');
+        // Source attribution uses actual HELIOS mode; a high stage alone
+        // does not prove that a weekly-program slot or a smart boost fired.
+        $fanVariableInfo=IPS_GetVariable($fanID);
+        $fanChangedAt=(int)($fanVariableInfo['VariableChanged']??0);
+        $deviceFresh=(bool)$deviceStatus['mode_fresh']
+            && (bool)$deviceStatus['fan_fresh']
+            && (bool)$deviceStatus['program_fresh'];
+        $fanCause=JVHeliosFanAttribution::inspect([
+            'mode'=>$deviceStatus['mode'],
+            'fan'=>$deviceStatus['fan'],
+            'program'=>$deviceStatus['program'],
+            'status_fresh'=>$deviceFresh,
+            'fan_changed_at'=>$fanChangedAt,
+            'control_enabled'=>$this->ReadPropertyBoolean('EnableControl'),
+            'high_power_opt_in'=>$this->ReadPropertyBoolean('EnableHighPowerParty'),
+            'owned_level'=>$this->OptionalAttributeInt('OwnedPartyLevel'),
+            'owned_until'=>$this->OptionalAttributeInt('OwnedPartyExpiresAt'),
+            'last_command_at'=>$this->OptionalAttributeInt('LastCommandAt'),
+            'command_attempted'=>(bool)($execution['attempted']??false),
+        ],$now);
+        $decision['fan_stage_attribution']=$fanCause;
+        $this->SetValue('FanStageCause',$fanCause['status']);
+        $this->SetValue('FanStageCauseJSON',
+            json_encode($fanCause,JSON_UNESCAPED_UNICODE));
         $decision['safe_to_execute']=($guard['command_allowed']??false)===true;
         $decision['party_protocol_draft']['transmitted']=($execution['sent']??false)===true;
         $decision['party_protocol_draft']['note']='v0.12: echte Hersteller-Partyfunktion nur nach Einzel-Freigaben; keine automatische Rueckschaltung durch Symcon';

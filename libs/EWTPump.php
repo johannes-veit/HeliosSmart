@@ -15,6 +15,9 @@ final class JVHeliosEWTPump
      * Weder Istwerte noch Garantiewerte oder Frostschutz-Solltemperaturen.
      * Die Werte werden ausschließlich zur Planung von Probeläufen benutzt.
      */
+    private const FROST_ON_C = 3.0;
+    private const FROST_RELEASE_C = 5.0;
+    private const FROST_FORECAST_C = 1.0;
     private const SEASONAL_SOLE_C = [
         1=>[8.0,9.0], 2=>[8.0,9.0], 3=>[8.0,9.0],
         4=>[8.0,9.0], 5=>[8.0,9.0], 6=>[9.0,11.0],
@@ -120,7 +123,10 @@ final class JVHeliosEWTPump
         // One matching pair (15.4 vs 15.5 C) is encouraging, but it
         // cannot justify treating a numerical soil forecast as a sensor.
         $probeMargin=$potentialBasis==='ECMWF_IFS_100_255CM_LIVE_MODEL'?2.0:1.5;
-        // ALWAYS ON when actual outdoor data is absent or below +5 C.
+        // Separate AIR-EWT circulation frost preheat: ON at <= +3 C,
+        // release only at >= +5 C (2 K hysteresis). This does not alter
+        // the independent Helios heat-exchanger anti-icing protection.
+        // Bad weather data remains fail-safe ON, not permission to switch OFF.
         // A frozen controller or unplugged Shelly cannot guarantee this; provide
         // an independent manufacturer-appropriate frost protection mechanism.
         // An independently corroborated near-term frost forecast may pre-start
@@ -133,12 +139,13 @@ final class JVHeliosEWTPump
             if (($forecast['confidence']??'')!=='OK')continue;
             $temperature=$forecast['temperature']??null;
             if (is_numeric($temperature) && is_finite((float)$temperature)
-                && (float)$temperature<=2.0) {
+                && (float)$temperature<=self::FROST_FORECAST_C) {
                 $nearTermFrost=true;break;
             }
         }
-        $frost=!$weatherValid || $out<=5.0
-            || ($currentOn===true && $out<7.0) || $nearTermFrost;
+        $frost=!$weatherValid || $out<=self::FROST_ON_C
+            || ($currentOn===true && $out<self::FROST_RELEASE_C)
+            || $nearTermFrost;
         $candidate='NONE';
         if ($weatherValid && $insideValid) {
             // Thermal seasonality is delayed by the ground mass. Calendar
@@ -167,7 +174,8 @@ final class JVHeliosEWTPump
         if ($frost) {
             $desired=true;
             $reason=!$weatherValid?'FROST_FAILSAFE_WEATHER_MISSING':
-                ($out<=5.0 || ($currentOn===true && $out<7.0)
+                ($out<=self::FROST_ON_C
+                    || ($currentOn===true && $out<self::FROST_RELEASE_C)
                     ?'FROST_PREHEAT':'FROST_FORECAST_NEAR_TERM');
         } elseif (!$insideValid) {
             // During startup or after loss of the room snapshot, an unrelated
@@ -208,6 +216,9 @@ final class JVHeliosEWTPump
             'reason'=>$reason,
             'thermal_candidate'=>$candidate,
             'frost_priority'=>$frost,
+            'frost_threshold_on_c'=>self::FROST_ON_C,
+            'frost_threshold_release_c'=>self::FROST_RELEASE_C,
+            'frost_forecast_risk_c'=>self::FROST_FORECAST_C,
             'near_term_forecast_frost'=>$nearTermFrost,
             'outside_valid'=>$weatherValid,
             'outside_c'=>$out,
