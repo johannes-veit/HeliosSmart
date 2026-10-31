@@ -88,13 +88,38 @@ final class JVHeliosEWTPump
             && $soleAt>0 && ($now-$soleAt)>=-120
             && ($now-$soleAt)<=2700;
         $measuredSole=$soleValid?(float)$sole:null;
-        // Real sensor takes priority. Otherwise seasonal reference is a
-        // LOW-CONFIDENCE estimate for trying the pump, never proven benefit.
-        $planningSole=$measuredSole??$reference['mean_c'];
+        // Live 6-hour ECMWF IFS ground data outranks old monthly guesses,
+        // but never a real Sole sensor. Model layer mean is NOT fluid
+        // temperature or real 2.5-m measurement.
+        $soilModel=is_array($x['soil_current_model']??null)
+            ?$x['soil_current_model']:null;
+        $modelValue=null;
+        if(is_array($soilModel)
+            && ($soilModel['source']??'')==='OPEN_METEO_ECMWF_IFS_FORECAST_MODEL'
+            && ($soilModel['quality']??'')==='MODEL_FORECAST_NOT_MEASURED'
+            && ($soilModel['depth_deep_cm']??'')==='100-255'
+            && is_numeric($soilModel['deep_c']??null)
+            && is_finite((float)$soilModel['deep_c'])
+            && (float)$soilModel['deep_c']>=-15
+            && (float)$soilModel['deep_c']<=35
+            && is_numeric($soilModel['time']??null)
+            && is_numeric($soilModel['retrieved_at']??null)
+            && (int)$soilModel['retrieved_at']<=$now+120
+            && (int)$soilModel['retrieved_at']>=$now-9*3600
+            && (int)$soilModel['time']<=$now+300
+            && (int)$soilModel['time']>=$now-12*3600
+            && (int)$soilModel['time']<=(int)$soilModel['retrieved_at']+300) {
+            $modelValue=round((float)$soilModel['deep_c'],2);
+        }
+        $planningSole=$measuredSole??$modelValue??$reference['mean_c'];
         $planningGap=$out!==null?round($planningSole-$out,2):null;
         $potentialBasis=$soleValid?'MEASURED_SOLE':
-            (($reference['quality']??'')==='ERA5_LAND_100_255CM_MULTIYEAR_MODEL'
-                ?'ERA5_LAND_MULTIYEAR_LAYER_MODEL':'SEASONAL_ESTIMATE');
+            ($modelValue!==null?'ECMWF_IFS_100_255CM_LIVE_MODEL':
+                (($reference['quality']??'')==='ERA5_LAND_100_255CM_MULTIYEAR_MODEL'
+                    ?'ERA5_LAND_MULTIYEAR_LAYER_MODEL':'SEASONAL_ESTIMATE'));
+        // One matching pair (15.4 vs 15.5 C) is encouraging, but it
+        // cannot justify treating a numerical soil forecast as a sensor.
+        $probeMargin=$potentialBasis==='ECMWF_IFS_100_255CM_LIVE_MODEL'?2.0:1.5;
         // ALWAYS ON when actual outdoor data is absent or below +5 C.
         // A frozen controller or unplugged Shelly cannot guarantee this; provide
         // an independent manufacturer-appropriate frost protection mechanism.
@@ -121,8 +146,8 @@ final class JVHeliosEWTPump
             $warmingNeeded=$out<18.0 && $inside>=$out+2.0;
             $coolingNeeded=($inside>=22.0 && $out>=18.0)
                 || ($out>$inside+1.0 && $out>=20.0);
-            $heatingPlausible=$planningGap!==null && $planningGap>=1.5;
-            $coolingPlausible=$planningGap!==null && $planningGap<=-1.5;
+            $heatingPlausible=$planningGap!==null && $planningGap >= $probeMargin;
+            $coolingPlausible=$planningGap!==null && $planningGap <= -$probeMargin;
             // If the pump is already running, trustworthy air measurements
             // are preferred over the seasonal model (which can be wrong).
             $actualHeat=$currentOn===true && $delta!==null && $delta>=1.5;
@@ -190,6 +215,10 @@ final class JVHeliosEWTPump
             'effect_kelvin'=>$delta,
             'sole_temperature_measured_c'=>$measuredSole,
             'sole_temperature_reference'=>$reference,
+            'soil_current_model_c'=>$modelValue,
+            'soil_model_quality'=>$modelValue!==null
+                ?'MODEL_FORECAST_NOT_MEASURED':'NO_VALID_CURRENT_MODEL',
+            'planning_probe_margin_k'=>$probeMargin,
             'planning_sole_c'=>$planningSole,
             'planning_gap_sole_minus_outside_kelvin'=>$planningGap,
             'planning_source'=>$potentialBasis,
