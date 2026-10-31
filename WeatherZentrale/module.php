@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../libs/WeatherLogic.php';
+require_once __DIR__ . '/../libs/SoilClimatology.php';
 /** Symcon 9: Zentrale, geteilte und rein lesende Wetterversorgung. */
 class WetterZentrale extends IPSModule
 {
@@ -14,6 +15,12 @@ class WetterZentrale extends IPSModule
         // Optional real ground altitude; 0 = unknown (never assume altitude).
         $this->RegisterPropertyFloat('SiteElevation', 0.0);
         $this->RegisterPropertyBoolean('EnableExternal', false); // Opt-in, keine HTTP-Requests bei Installation
+        // Read-only historical model follows already approved external access.
+        // One past calendar year per timer cycle, compact 12-value summary only.
+        $this->RegisterPropertyBoolean('EnableSoilHistory', true);
+        $this->RegisterPropertyInteger('SoilHistoryYears', 5);
+        $this->RegisterAttributeString('SoilHistory', '{}');
+        $this->RegisterTimer('SoilHistoryTick', 0, 'JVWC_RefreshSoilHistory($_IPS[\'TARGET\']);');
         $this->RegisterAttributeString('Cache', '{}');
         $this->RegisterTimer('WeatherTick', 0, 'JVWC_Refresh($_IPS[\'TARGET\']);');
         $this->RegisterVariableFloat('OutdoorTemperature', 'Außentemperatur geprüft', '~Temperature', 10);
@@ -23,6 +30,8 @@ class WetterZentrale extends IPSModule
         $this->RegisterVariableString('Quality', 'Wetterqualität', '', 50);
         $this->RegisterVariableString('ForecastJSON', 'Stundenprognose JSON', '', 60);
         $this->RegisterVariableString('Diagnostic', 'Wetterdiagnose', '', 70);
+        $this->RegisterVariableString('SoilClimatologyJSON', 'EWT Bodenkennlinie ERA5-Land – Modell', '', 80);
+        $this->RegisterVariableString('SoilHistoryStatus', 'EWT Bodenhistorie – Datenqualität', '', 90);
         $this->SetValue('Quality', 'UNAVAILABLE');
     }
 
@@ -30,6 +39,7 @@ class WetterZentrale extends IPSModule
     {
         parent::ApplyChanges();
         $this->SetTimerInterval('WeatherTick', 5 * 60 * 1000);
+        $this->SetTimerInterval('SoilHistoryTick', 10 * 60 * 1000);
         // ApplyChanges führt bewusst keine HTTP-Abfragen aus.
     }
 
@@ -45,8 +55,13 @@ class WetterZentrale extends IPSModule
                 ['type'=>'NumberSpinner','name'=>'PWSHumidity','caption'=>'Eigene Wetterstation Feuchte-ID'],
                 ['type'=>'NumberSpinner','name'=>'SiteElevation','caption'=>'Haus-Hoehenlage m ue.NN (0 = nicht bekannt)'],
                 ['type'=>'CheckBox','name'=>'EnableExternal','caption'=>'HTTPS-Abrufe extern aktivieren'],
+                ['type'=>'CheckBox','name'=>'EnableSoilHistory','caption'=>'Zusatz: 5 Jahre historische ERA5-Land Bodentemperaturen (nur Modell, ein Jahr je 10 Minuten, nur wenn HTTPS aktiv)'],
+                ['type'=>'NumberSpinner','name'=>'SoilHistoryYears','caption'=>'Vollständige historische Jahre (3–10, Standard 5)'],
             ],
-            'actions' => [['type'=>'Button','caption'=>'Wetter jetzt aktualisieren','onClick'=>'JVWC_Refresh($id);']]
+            'actions' => [
+                ['type'=>'Button','caption'=>'Wetter jetzt aktualisieren','onClick'=>'JVWC_Refresh($id);'],
+                ['type'=>'Button','caption'=>'Bodenhistorie nächsten Jahrgang abrufen','onClick'=>'JVWC_RefreshSoilHistory($id);']
+            ]
         ], JSON_UNESCAPED_UNICODE);
     }
 
@@ -148,6 +163,78 @@ class WetterZentrale extends IPSModule
         $this->WriteAttributeString('Cache', json_encode($cache, JSON_UNESCAPED_UNICODE));
     }
 
+
+    /**
+     * Historical ERA5-Land grid model (100-255 cm and 28-100 cm).
+     * Uses the same coordinates as weather forecasts; never writes actuators.
+     * Keeps at most 10 x 12 monthly means in a Symcon attribute.
+     * Does NOT reinterpret the model as a current 2.5-m soil sensor.
+     */
+    public function RefreshSoilHistory(): void
+    {
+        if (!$this->ReadPropertyBoolean('EnableExternal')
+            || !$this->ReadPropertyBoolean('EnableSoilHistory')) {
+            $this->SetValue('SoilHistoryStatus','Bodenhistorie passiv – externe Abfragen oder Bodenhistorie deaktiviert');
+            return;
+        }
+        $loc=$this->coordinates();
+        if($loc===null){
+            $this->SetValue('SoilHistoryStatus','Bodenhistorie: Hauskoordinaten unbekannt');
+            return;
+        }
+        [$lat,$lon]=$loc;
+        $now=time();
+        $key=sprintf('%.4f,%.4f',$lat,$lon);
+        $store=json_decode($this->ReadAttributeString('SoilHistory'),true);
+        if(!is_array($store)||($store['location']??'')!==$key){
+            // Never silently reuse a climatology from a different site.
+            $store=['location'=>$key,'years'=>[],'error'=>''];
+        }
+        if(!is_array($store['years']??null))$store['years']=[];
+        $num=max(3,min(10,$this->ReadPropertyInteger('SoilHistoryYears')));
+        $end=(int)gmdate('Y',$now)-1;
+        $wanted=range($end-$num+1,$end);
+        $wantedKeys=array_fill_keys($wanted,true);
+        $store['years']=array_intersect_key($store['years'],$wantedKeys);
+        if($now>=(int)($store['retry_after']??0)){
+            foreach($wanted as $year){
+                if(isset($store['years'][$year]))continue;
+                $store['last_attempt_at']=$now;
+                $store['last_attempt_year']=$year;
+                $url=JVHeliosSoilClimatology::apiUrl($lat,$lon,$year);
+                $http=$this->httpJSON($url);
+                $annual=is_array($http['body']??null)
+                    ?JVHeliosSoilClimatology::annual($http['body'],$year):null;
+                if($annual!==null){
+                    $store['years'][$year]=$annual;
+                    $store['error']='';
+                    $store['retry_after']=0;
+                    $store['updated_at']=$now;
+                }else{
+                    $store['error']='ERA5-Land Jahr '.$year.' HTTP/Datensatz unbrauchbar';
+                    // Failing endpoints are not polled every 10 minutes.
+                    $store['retry_after']=$now+6*3600;
+                }
+                // ONE request per 10-min timer tick, never a burst of 5-10 years.
+                break;
+            }
+        }
+        $summary=JVHeliosSoilClimatology::aggregate($store['years'],$now);
+        $summary['location']=$key;
+        $summary['lat']=round($lat,4);
+        $summary['lon']=round($lon,4);
+        $summary['generated_at']=$now;
+        $summary['last_data_at']=$store['updated_at']??null;
+        $this->SetValue('SoilClimatologyJSON',json_encode($summary,JSON_UNESCAPED_UNICODE));
+        $this->WriteAttributeString('SoilHistory',json_encode($store,JSON_UNESCAPED_UNICODE));
+        $status='ERA5-Land 28–100 / 100–255 cm (Modell, kein Solefühler)'
+            .' | Jahre '.count($store['years']).'/'.count($wanted)
+            .' | Qualität '.$summary['quality']
+            .' | Tiefenphasenversatz '.($summary['lag_months']===null?'unbekannt':$summary['lag_months'].' Monate');
+        if(($store['error']??'')!=='')$status.=' | '.$store['error'];
+        $this->SetValue('SoilHistoryStatus',$status);
+    }
+
     /** Einheitliche Ausgabeschnittstelle für weitere Module, ohne neue Einzelvariablen. */
     public function Snapshot(): string
     {
@@ -156,7 +243,17 @@ class WetterZentrale extends IPSModule
         if (!is_array($snapshot) || time() - (int)($snapshot['issued_at']??0)>35*60) {
             return json_encode(['quality'=>'UNAVAILABLE','current'=>null,'forecast'=>[], 'reason'=>'WetterZentrale nicht aktuell']);
         }
-        // Auch bei gültigem Snapshot darf PWS_ONLY nie als unabhängige Bestätigung gelten.
+        // Soil climatology is independent archival information, not current weather.
+        // Never upgrade weather quality because the model exists.
+        if($this->ReadPropertyBoolean('EnableExternal')
+            && $this->ReadPropertyBoolean('EnableSoilHistory')){
+            $soil=json_decode((string)$this->GetValue('SoilClimatologyJSON'),true);
+            $site=$this->coordinates();
+            $key=$site===null?'':sprintf('%.4f,%.4f',$site[0],$site[1]);
+            if(is_array($soil) && ($soil['location']??null)===$key)
+                $snapshot['soil_climatology']=$soil;
+        }
+        // Auch bei gültigem Snapshot darf PWS_ONLY nie als unabhaengige Bestaetigung gelten.
         return json_encode($snapshot, JSON_UNESCAPED_UNICODE);
     }
 
