@@ -16,3 +16,19 @@ jobs:
           coverage: none
       - name: Run read-only logic and safety tests
         run: sh tests/run_all.sh
+
+  ewt-solepump-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+      - name: EWT pump PHP syntax and frost/utility simulations
+        run: |
+          php -l HeliosSmart/module.php
+          php -l libs/EWTPump.php
+          php -l tests/test_ewt_pump.php
+          php tests/test_ewt_pump.php
