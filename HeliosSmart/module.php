@@ -1413,6 +1413,8 @@ class HeliosSmart extends IPSModule
             'environment_source'=>$environment['source']??'NONE',
             'environment_quality'=>$environment['quality']??'UNAVAILABLE',
             'soil_reference_c'=>$pump['sole_temperature_reference']['mean_c']??null,
+            'soil_current_model_c'=>$soilLive['deep_c']??null,
+            'soil_current_model_source'=>$soilLive['source']??'NONE',
             'soil_measured_c'=>$pump['sole_temperature_measured_c']??null,
             'climate'=>$decision['climate_mode']??'UNKNOWN',
             'season'=>$decision['season_signal']??'UNKNOWN',
