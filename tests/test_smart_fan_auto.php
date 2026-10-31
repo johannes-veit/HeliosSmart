@@ -53,6 +53,12 @@ ckFan($dec(['max_co2_ppm'=>1500,'minimum_airflow_validated'=>true])
  'high native CO2 without high-power approval returns complete device priority');
 ckFan($dec(['cooling_confirmed'=>true])['target_stage']===3,
  'true summer cooling overrides winter/quiet savings');
+ckFan($dec(['native_extract_rh'=>75.0])['fallback_weekly']===true,
+ 'manufacturer high extract RH at S4 cannot be overridden downward');
+ckFan($dec(['native_sensor_stale'=>true])['fallback_weekly']===true,
+ 'stale native CO2, VOC or RH measurement blocks S4 reduction');
+ckFan($dec(['native_extract_rh'=>55.0])['target_stage']===3,
+ 'normal native extract RH does not block nominal SMART stage3');
 foreach([
  ['enabled'=>false],['native_ok'=>false],['live_fresh'=>false],
  ['mode'=>1],['mode'=>4],['weather_quality'=>'UNAVAILABLE'],
