@@ -100,6 +100,31 @@ final class JVHeliosChatGPTDiagnostic
         return $result;
     }
 
+    /**
+     * Count actual bounded learning observations, never outer JSON keys.
+     * These are hints only: phone observations do not prove occupancy.
+     */
+    public static function learningMetrics(array $occupancy,array $calendar):array
+    {
+        $samples=array_values(array_filter((array)($occupancy['p']??[]),
+            'is_array'));
+        $bins=array_values(array_filter((array)($calendar['bins']??[]),
+            'is_array'));
+        $counts=[];
+        foreach($samples as $sample){
+            $status=(string)($sample['o']??'MIXED_OR_UNKNOWN');
+            $counts[$status]=($counts[$status]??0)+1;
+        }
+        return [
+            'occupancy_samples'=>count($samples),
+            'occupancy_status_counts'=>$counts,
+            'calendar_patterns'=>count($bins),
+            'calendar_patterns_with_fresh_status'=>count(array_filter(
+                $bins,static fn(array $b):bool=>(int)($b['valid']??0)>0)),
+            'no_presence_proof'=>true,
+        ];
+    }
+
     public static function roomRow(array $r,int $now):array
     {
         $tAt=(int)($r['temperature_observed_at']??0);
