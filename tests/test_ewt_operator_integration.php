@@ -17,7 +17,8 @@ function IPS_GetVariable($id){return [
 function GetValue($id){return $GLOBALS['variables'][$id];}
 function IPS_InstanceExists($id){return $id===42;}
 function IPS_GetInstance($id){return ['ModuleInfo'=>['ModuleID'=>'{685106B4-47EC-43C9-9CA9-9BAE53E4B304}']];}
-function HasAction($id){return $id===9001;}
+function HasAction($id){return $id===9001;} 
+function IPS_GetParent($id){return in_array($id,[9001,9002,9003],true)?777:60000;}
 function RequestAction($id,$value){
     $GLOBALS['commands'][]=['id'=>$id,'value'=>$value];
     return $GLOBALS['sendActionSuccess'];
@@ -194,4 +195,47 @@ $offline->RequestAction('EWTPumpModeManual',true);
 a(str_contains((string)$offline->value('EWTPumpActualStatus'),'UNBEKANNT'),
     'pre-reconnect output cannot certify actual relay state');
 $GLOBALS['onlineChangedAt']=time()-3600;
+$GLOBALS['variables'][9992]=true;
+$wrong=new HeliosSmart();
+$wrong->Create();
+$wrong->setProperty('EWTPumpSwitchVariable',9001);
+$wrong->setProperty('EWTPumpOnlineVariable',9992);
+$wrong->setProperty('WeatherCenterInstance',42);
+$wrong->setProperty('EnableEWTPumpControl',true);
+$wrong->RequestAction('EWTPumpModeManual',true);
+a($wrong->value('EWTPumpOnline')===false,
+    'online signal from unrelated Symcon instance cannot certify EWT plug');
+// Recovered MQTT availability must not leave a stale warning forever.
+$GLOBALS['variables'][9002]=true;
+$GLOBALS['onlineChangedAt']=time()-3600;
+$GLOBALS['variables'][9001]=false;
+$recovered=new HeliosSmart();
+$recovered->Create();
+$recovered->setProperty('EWTPumpSwitchVariable',9001);
+$recovered->setProperty('EWTPumpOnlineVariable',9002);
+$recovered->setProperty('EWTPumpHeartbeatVariable',9003);
+$recovered->setProperty('EnableEWTPumpControl',true);
+$recovered->WriteAttributeString('EWTPumpControlState',json_encode([
+    'last_error'=>'DEVICE_OFFLINE_LAST_SWITCH_STATE_UNTRUSTED'
+]));
+$method=new ReflectionMethod(HeliosSmart::class,'EvaluateEWTPump');
+$method->invoke($recovered,[
+    'quality'=>'VERIFIED',
+    'current'=>['temperature'=>14,'observed_at'=>time()-60]
+],time(),null);
+$st=json_decode($recovered->ReadAttributeString('EWTPumpControlState'),true);
+a(($st['last_error']??'')==='',
+    'verified reconnect clears only transient offline warning');
+a($recovered->value('EWTPumpAlarm')===false,
+    'recovered healthy Shelly clears connectivity alarm');
+$recovered->WriteAttributeString('EWTPumpControlState',json_encode([
+    'last_error'=>'SHELLY_NO_STATE_CONFIRMATION'
+]));
+$method->invoke($recovered,[
+    'quality'=>'VERIFIED',
+    'current'=>['temperature'=>14,'observed_at'=>time()-60]
+],time(),null);
+$st=json_decode($recovered->ReadAttributeString('EWTPumpControlState'),true);
+a(($st['last_error']??'')==='SHELLY_NO_STATE_CONFIRMATION',
+    'a real unconfirmed actuator command remains diagnosable');
 echo "EWT WebFront controls and actuator safety integration OK\\n";

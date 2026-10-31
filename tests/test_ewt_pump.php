@@ -69,4 +69,31 @@ checkEwt($season($march,['outside_temperature'=>-2,
     'sole_temperature'=>8,'sole_updated_at'=>$march-60])['frost_priority']===true,
     '8 C observed sole minimum must not defeat outdoor frost priority');
 echo "Brauneberg seasonal profile tests OK\n";
+// Corroborated near-term forecast is a precaution, not a replacement for fresh outdoor data.
+$forecast=[['observed_at'=>$now+3600,'temperature'=>-2,'confidence'=>'OK']];
+$preheat=$plan(['outside_temperature'=>10,'forecast'=>$forecast]);
+checkEwt($preheat['desired_on']===true
+    && $preheat['reason']==='FROST_FORECAST_NEAR_TERM',
+    'validated frost in next 3h pre-starts the air EWT pump');
+$unsupported=$plan(['outside_temperature'=>10,
+    'forecast'=>[['observed_at'=>$now+3600,'temperature'=>-2,'confidence'=>'LOW']]]);
+checkEwt($unsupported['near_term_forecast_frost']===false,
+    'uncertain model-only frost never masquerades as confirmed forecast');
+$tooLate=$plan(['outside_temperature'=>10,
+    'forecast'=>[['observed_at'=>$now+6*3600,'temperature'=>-2,'confidence'=>'OK']]]);
+checkEwt($tooLate['near_term_forecast_frost']===false,
+    'frost protection is not triggered from distant 6h forecast');
+$measuredFrost=$plan(['outside_temperature'=>-3,
+    'forecast'=>[['observed_at'=>$now+3600,'temperature'=>14,'confidence'=>'OK']]]);
+checkEwt($measuredFrost['desired_on']===true && $measuredFrost['frost_priority']===true,
+    'forecast warmth cannot override real freezing air');
+$holdOn=$plan(['outside_temperature'=>14,'indoor_temperature'=>null,
+    'plug_on'=>true,'state'=>['last_on_at'=>$now-3600]]);
+checkEwt($holdOn['desired_on']===true
+    && $holdOn['reason']==='INDOOR_CONTEXT_MISSING_HOLD_REPORTED_STATE',
+    'stale indoor context cannot turn known running pump off');
+$holdOff=$plan(['outside_temperature'=>14,'indoor_temperature'=>null,
+    'plug_on'=>false,'state'=>['last_off_at'=>$now-3600]]);
+checkEwt($holdOff['desired_on']===false,
+    'stale indoor context does not gratuitously start an off pump');
 echo "EWTPump decision tests OK\n";

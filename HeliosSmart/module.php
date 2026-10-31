@@ -816,6 +816,13 @@ class HeliosSmart extends IPSModule
             && (int)(IPS_GetVariable($onlineID)['VariableType']??-1)===0;
         $switchValid=$switchID>0 && IPS_VariableExists($switchID)
             && (int)(IPS_GetVariable($switchID)['VariableType']??-1)===0;
+        // The WebFront mirror is actionable. Selecting our own control as
+        // the "Shelly" would recurse into this module's RequestAction().
+        if($switchValid && function_exists('IPS_GetParent')
+            && (int)IPS_GetParent($switchID)===$this->InstanceID) {
+            $switchValid=false;
+            $onlineValid=false;
+        }
         // A liveness signal belonging to a different Shelly must not
         // certify this relay. Symcon devices normally have one instance parent.
         if($switchValid && function_exists('IPS_GetParent')) {
@@ -846,6 +853,25 @@ class HeliosSmart extends IPSModule
                 :($health['reported']==='OFF_REPORTED'?'AUS gemeldet':'EIN gemeldet'))
             .' | Verbindung '.$health['link'].' | '.$health['warning']);
         return $health;
+    }
+
+    /**
+     * SymBox MQTT callbacks, 5-minute evaluation and WebFront actions may
+     * execute concurrently. Protect the entire EWT state/action transaction
+     * with a single per-instance semaphore; fan/Party uses its own lock.
+     */
+    private function WithEWTPumpLock(callable $operation)
+    {
+        if(!function_exists('IPS_SemaphoreEnter') || !function_exists('IPS_SemaphoreLeave'))
+            return $operation();
+        $name='JVHS_EWT_PUMP_'.$this->InstanceID;
+        if(!IPS_SemaphoreEnter($name,1500))
+            throw new RuntimeException('EWT pump controller busy – retry, no command sent');
+        try {
+            return $operation();
+        } finally {
+            IPS_SemaphoreLeave($name);
+        }
     }
 
     /** Safe, small read path for a manual pump command; never calls Helios fan/party APIs. */
@@ -881,6 +907,13 @@ class HeliosSmart extends IPSModule
      */
     public function RequestAction($Ident,$Value)
     {
+        return $this->WithEWTPumpLock(function()use($Ident,$Value) {
+            return $this->RequestEWTPumpActionUnlocked($Ident,$Value);
+        });
+    }
+
+    private function RequestEWTPumpActionUnlocked($Ident,$Value)
+    {
         if(!in_array($Ident,['EWTPumpModeManual','EWTPumpSwitch'],true))
             throw new Exception('Unbekannte HELIOS SMART Aktion: '.$Ident);
         if(!is_bool($Value) && $Value!==0 && $Value!==1)
@@ -898,12 +931,16 @@ class HeliosSmart extends IPSModule
             $wasManual=($state['manual_mode']??false)===true;
             $state['manual_mode']=$value;
             // Entering manual mode must preserve the reported physical state.
-            if($value && !$wasManual)
-                $state['manual_target']=$health['reported']==='UNKNOWN'?true:(bool)GetValue($plug);
+            if($value && !$wasManual) {
+                // Do not invent an ON state from a cached/unavailable relay;
+                // use a newly verified current state once the Shelly returns.
+                $state['manual_target']=$health['reported']==='UNKNOWN'
+                    ?null:(bool)GetValue($plug);
+            }
             $this->WriteAttributeString('EWTPumpControlState',json_encode($state));
             $this->SetValue('EWTPumpModeManual',$value);
             // EWT-only evaluation: never touch Helios fan/party.
-            $this->EvaluateEWTPump($weather,$now,
+            $this->EvaluateEWTPumpUnlocked($weather,$now,
                 $value?null:$this->LastEWTIndoorTemperature($now));
             return;
         }
@@ -923,6 +960,7 @@ class HeliosSmart extends IPSModule
                 'now'=>$now,'weather_quality'=>$weather['quality']??'UNAVAILABLE',
                 'outside_temperature'=>$current['temperature']??null,
                 'outside_observed_at'=>$current['observed_at']??0,
+                'forecast'=>is_array($weather['forecast']??null)?$weather['forecast']:[],
                 'plug_on'=>(bool)GetValue($plug),
                 'indoor_temperature'=>null,
             ]);
@@ -936,7 +974,7 @@ class HeliosSmart extends IPSModule
         $this->WriteAttributeString('EWTPumpControlState',json_encode($state));
         // DO NOT write the requested value to the actual-state switch.
         // It reflects the Shelly's reported real value, never an optimistic command.
-        $this->EvaluateEWTPump($weather,$now,null);
+        $this->EvaluateEWTPumpUnlocked($weather,$now,null);
     }
 
     /**
@@ -944,6 +982,13 @@ class HeliosSmart extends IPSModule
      * The boolean mirror is updated only from the configured Shelly state.
      */
     public function CheckEWTPumpFeedback(): void
+    {
+        $this->WithEWTPumpLock(function():void {
+            $this->CheckEWTPumpFeedbackUnlocked();
+        });
+    }
+
+    private function CheckEWTPumpFeedbackUnlocked(): void
     {
         $state=json_decode($this->ReadAttributeString('EWTPumpControlState'),true);
         if(!is_array($state))$state=[];
@@ -975,7 +1020,8 @@ class HeliosSmart extends IPSModule
                 $state['pending_target']=null;
                 $state['last_error']='';
                 $this->SetValue('EWTPumpStatus',
-                    'EWT-Pumpe '.($actual?'EIN':'AUS').' – Shelly-Schaltzustand zurueckgemeldet');
+                    'EWT-Shelly Relais '.($actual?'EIN':'AUS')
+                    .' – neuer Status gemeldet; physischer Solefluss nicht gemessen');
                 $this->SetTimerInterval('EWTPumpFeedbackTick',0);
             } elseif(time()-(int)($state['last_request_at']??0)>=50) {
                 $state['last_error']='SHELLY_NO_STATE_CONFIRMATION';
@@ -995,6 +1041,13 @@ class HeliosSmart extends IPSModule
      * explicit opt-in have been configured. Missing weather => request ON.
      */
     private function EvaluateEWTPump(array $weather,int $now,?float $inside): array
+    {
+        return $this->WithEWTPumpLock(function()use($weather,$now,$inside):array {
+            return $this->EvaluateEWTPumpUnlocked($weather,$now,$inside);
+        });
+    }
+
+    private function EvaluateEWTPumpUnlocked(array $weather,int $now,?float $inside): array
     {
         $plugId=$this->ReadPropertyInteger('EWTPumpSwitchVariable');
         $powerId=$this->ReadPropertyInteger('EWTPumpPowerVariable');
@@ -1025,6 +1078,7 @@ class HeliosSmart extends IPSModule
                 ?$weather['soil_climatology']:null,
             'outside_temperature'=>$current['temperature']??null,
             'outside_observed_at'=>$current['observed_at']??0,
+            'forecast'=>is_array($weather['forecast']??null)?$weather['forecast']:[],
             'intake_after_ewt'=>$intakeExists?GetValue($intakeId):null,
             'intake_updated_at'=>$intakeExists
                 ?(int)(IPS_GetVariable($intakeId)['VariableUpdated']??0):0,
@@ -1053,7 +1107,9 @@ class HeliosSmart extends IPSModule
         if($actual!==null)$this->SetValue('EWTPumpSwitch',$actual);
         // A Boolean widget cannot display UNKNOWN. Separate status is authoritative.
         $this->SetValue('EWTPumpAlarm',
-            $configured && (!$health['actuation_allowed'] || $health['power_conflict']));
+            $configured && (!$health['actuation_allowed']
+                || $health['power_conflict']
+                || ($state['last_error']??'')!==''));
         $enabled=$this->ReadPropertyBoolean('EnableEWTPumpControl');
         $command='NO_COMMAND';
         if(!$enabled) {
@@ -1065,6 +1121,12 @@ class HeliosSmart extends IPSModule
             $state['last_error']=$health['warning'];
         } elseif(function_exists('HasAction') && !HasAction($plugId)) {
             $command='SHELLY_HAS_NO_ACTION';
+        } elseif(is_bool($state['pending_target']??null)
+            && $state['pending_target']!==$plan['desired_on']
+            && $plan['desired_on']!==true) {
+            // Do not send a contradictory OFF while an ON command has no
+            // confirmed result. Only a frost-priority ON may supersede OFF.
+            $command='WAIT_FOR_PENDING_COMMAND_BEFORE_OFF';
         } elseif($actual!==$plan['desired_on']
             || (is_bool($state['pending_target']??null)
                 && $state['pending_target']!==$plan['desired_on'])) {
@@ -1095,7 +1157,21 @@ class HeliosSmart extends IPSModule
             }
         } else {
             $command='SHELLY_STATE_MATCHES';
-            if(!is_bool($state['pending_target']??null))$state['last_error']='';
+            if(!is_bool($state['pending_target']??null)
+                && $actual!==null && $actual===$plan['desired_on']) {
+                // A re-established, freshly reported and consistent status
+                // resolves a transient connection outage. Do not leave the
+                // EWT learner permanently blocked by historical MQTT loss.
+                $transient=[
+                    'DEVICE_OFFLINE_LAST_SWITCH_STATE_UNTRUSTED',
+                    'NO_RECENT_SHELLY_AVAILABILITY',
+                    'SHELLY_SWITCH_STATE_STALE_OR_PRE_RECONNECT',
+                ];
+                if(in_array((string)($state['last_error']??''),$transient,true))
+                    $state['last_error']='';
+            }
+            // Preserve a command timeout/IO failure in the fault indicator
+            // until a genuinely new output report acknowledges a later command.
             if(is_bool($state['pending_target']??null)
                 && JVHeliosEWTPumpHealth::ack($health,
                     $state['pending_target'],
@@ -1106,13 +1182,15 @@ class HeliosSmart extends IPSModule
                 $this->SetTimerInterval('EWTPumpFeedbackTick',0);
             }
         }
-        $power=null;$powerFresh=false;
-        if($powerId>0 && IPS_VariableExists($powerId)) {
-            $info=IPS_GetVariable($powerId);
-            $powerFresh=$now-(int)($info['VariableUpdated']??0)<=900;
-            $value=GetValue($powerId);
-            if($powerFresh && is_numeric($value) && (float)$value>=0
-                && (float)$value<5000) $power=round((float)$value,1);
+        // Only the validated, parent-matched and at most four-minute-old
+        // measurement may be presented as current pump power.
+        $power=$health['watts']??null;
+        $power=$power!==null?round((float)$power,1):null;
+        $noLoad=$actual===true && $power!==null && $power<2.0
+            && isset($state['last_on_at']) && $now-(int)$state['last_on_at']>=120;
+        if(!$noLoad && ($state['last_error']??'')==='SHELLY_RELAY_ON_NO_ELECTRICAL_LOAD_INDICATED'
+            && $actual!==null && (!$actual || ($power!==null && $power>=2.0))) {
+            $state['last_error']='';
         }
         $plan['connectivity']=$health;
         $plan['command']=$command;
@@ -1124,6 +1202,11 @@ class HeliosSmart extends IPSModule
         $plan['configured']=$validType;
         $plan['switch_variable_id']=$validType?$plugId:null;
         $plan['power_w']=$power;
+        $plan['on_but_power_below_threshold']=$noLoad;
+        if($noLoad) {
+            $state['last_error']='SHELLY_RELAY_ON_NO_ELECTRICAL_LOAD_INDICATED';
+            $plan['last_error']=$state['last_error'];
+        }
         $plan['power_confirmed_on']=$actual===true && $power!==null && $power>=2.0;
         $plan['feedback']=$actual===null?'UNKNOWN_OR_UNREACHABLE'
             :($power!==null?($plan['power_confirmed_on']?'POWER_DETECTED'
@@ -1142,9 +1225,15 @@ class HeliosSmart extends IPSModule
                 ?number_format($plan['sole_temperature_measured_c'],1,',','.').' °C gemessen'
                 :number_format($plan['sole_temperature_reference']['low_c'],1,',','.')
                     .'–'.number_format($plan['sole_temperature_reference']['high_c'],1,',','.')
-                    .' °C Monatsmodell (kein Messwert)')
+                    .' °C '.(($plan['sole_temperature_reference']['source']??'')==='ERA5_LAND_REANALYSIS_OPEN_METEO'
+                        ?'ERA5-Land-Bodenmodell 100–255 cm':'vorlaeufige Saison-Schaetzung')
+                    .' (kein Sole-Messwert)')
             .' | '.($power!==null?number_format($power,1,',','.').' W':'Leistung nicht verifiziert');
         $this->SetValue('EWTPumpStatus',$status);
+        $this->SetValue('EWTPumpAlarm',
+            $configured && (!$health['actuation_allowed']
+                || $health['power_conflict'] || $noLoad
+                || ($state['last_error']??'')!==''));
         return $plan;
     }
 
@@ -1183,10 +1272,14 @@ class HeliosSmart extends IPSModule
                 ?(int)(IPS_GetVariable($intakeID)['VariableUpdated']??0):0,
             'shelly_online'=>$health['online_confirmed']??false,
             'pump_state'=>$health['reported']??'UNKNOWN',
+            'command_pending'=>is_bool($control['pending_target']??null),
+            'command_error'=>($control['last_error']??'')!=='',
             'switch_contradiction'=>$health['power_conflict']??false,
             'last_pump_change_at'=>$lastChange,
             'pump_power_w'=>$health['watts']??null,
             'fan_stage'=>$fan,
+            'fan_changed_at'=>$fanID>0 && IPS_VariableExists($fanID)
+                ?(int)(IPS_GetVariable($fanID)['VariableChanged']??0):0,
             'bypass'=>$decision['bypass_actual']??null,
             'indoor_c'=>$decision['indoor_temperature']??null,
             'indoor_ah_gm3'=>$decision['indoor_absolute_humidity']??null,
@@ -1201,8 +1294,9 @@ class HeliosSmart extends IPSModule
             'environment_quality'=>$environment['quality']??'UNAVAILABLE',
             'soil_reference_c'=>$pump['sole_temperature_reference']['mean_c']??null,
             'soil_measured_c'=>$pump['sole_temperature_measured_c']??null,
-            'climate'=>$decision['season_signal']??'UNKNOWN',
-            'occupancy'=>$occ['status_now']??$occ['description']??'UNKNOWN',
+            'climate'=>$decision['climate_mode']??'UNKNOWN',
+            'season'=>$decision['season_signal']??'UNKNOWN',
+            'occupancy'=>$occ['status']??'UNKNOWN',
             'operator_mode'=>$pump['operator_mode']??'AUTOMATIK',
         ];
         $learn=JVHeliosEWTPumpLearning::update($prior,$x,$now);

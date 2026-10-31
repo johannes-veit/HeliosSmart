@@ -33,6 +33,7 @@ $baseline=JVHeliosVentilationNeed::baseStage($baseCtx,[],2,false);
 wr($baseline['candidate_stage']===2 && !$baseline['can_reduce_weekly_program']
     && !$baseline['validated_minimum_stage_one'],
  'Without measured hygienic minimum S1 never selected and weekly program never reduced');
+$baseCtx['winter_room_air']['current_humid_rooms']=[]; // Simulated all-dry case; real EG guest WC had a current wet-room veto.
 $baseCtx['winter_room_air']['current_dry_rooms']=['EG Buero','OG Schlafen 1'];
 $baseCtx['winter_room_air']['humidity_rooms_current']=11;
 $dryBase=JVHeliosVentilationNeed::baseStage($baseCtx,[],2,true);

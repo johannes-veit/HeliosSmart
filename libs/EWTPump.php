@@ -98,7 +98,22 @@ final class JVHeliosEWTPump
         // ALWAYS ON when actual outdoor data is absent or below +5 C.
         // A frozen controller or unplugged Shelly cannot guarantee this; provide
         // an independent manufacturer-appropriate frost protection mechanism.
-        $frost=!$weatherValid || $out<=5.0 || ($currentOn===true && $out<7.0);
+        // An independently corroborated near-term frost forecast may pre-start
+        // the pump, but can NEVER overrule actual frost or make it switch off.
+        $nearTermFrost=false;
+        foreach ((array)($x['forecast']??[]) as $forecast) {
+            if (!is_array($forecast))continue;
+            $at=(int)($forecast['observed_at']??0);
+            if ($at<$now || $at>$now+3*3600)continue;
+            if (($forecast['confidence']??'')!=='OK')continue;
+            $temperature=$forecast['temperature']??null;
+            if (is_numeric($temperature) && is_finite((float)$temperature)
+                && (float)$temperature<=2.0) {
+                $nearTermFrost=true;break;
+            }
+        }
+        $frost=!$weatherValid || $out<=5.0
+            || ($currentOn===true && $out<7.0) || $nearTermFrost;
         $candidate='NONE';
         if ($weatherValid && $insideValid) {
             // Thermal seasonality is delayed by the ground mass. Calendar
@@ -126,7 +141,15 @@ final class JVHeliosEWTPump
         $desired=false; $reason='NEUTRAL_NO_BENEFIT';
         if ($frost) {
             $desired=true;
-            $reason=$weatherValid?'FROST_PREHEAT':'FROST_FAILSAFE_WEATHER_MISSING';
+            $reason=!$weatherValid?'FROST_FAILSAFE_WEATHER_MISSING':
+                ($out<=5.0 || ($currentOn===true && $out<7.0)
+                    ?'FROST_PREHEAT':'FROST_FORECAST_NEAR_TERM');
+        } elseif (!$insideValid) {
+            // During startup or after loss of the room snapshot, an unrelated
+            // MQTT status event must never turn a useful running EWT OFF.
+            // Hold the confirmed existing position, no speculative probe.
+            $desired=$currentOn===true;
+            $reason='INDOOR_CONTEXT_MISSING_HOLD_REPORTED_STATE';
         } elseif ($candidate!=='NONE') {
             $benefit=$delta!==null && (
                 ($candidate==='HEATING' && $delta>=1.5)
@@ -160,6 +183,7 @@ final class JVHeliosEWTPump
             'reason'=>$reason,
             'thermal_candidate'=>$candidate,
             'frost_priority'=>$frost,
+            'near_term_forecast_frost'=>$nearTermFrost,
             'outside_valid'=>$weatherValid,
             'outside_c'=>$out,
             'intake_after_ewt_c'=>$intakeValid?(float)$intake:null,
