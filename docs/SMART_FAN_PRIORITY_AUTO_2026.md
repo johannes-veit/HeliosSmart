@@ -142,3 +142,78 @@ ausdruecklicher Klick im Konfigurationsformular sind
 erforderlich. Der Nutzer muss den realen Umschaltvorgang
 und die Mindestluftmengen beziehungsweise die bewusst
 freigegebenen Modell-Annahmen beurteilen.
+
+## Integrationsaudit / Fehlersimulation 31.10.2026
+
+Das Original-Helios Symcon Modul #19285 ist fuer Fan-Schaltbefehle
+die einzige Hersteller-API. HELIOS SMART #52187 arbeitet mit
+WetterZentrale #40477, originalem CO2/VOC/RH, LCN-Raumdaten
+und dem separaten EWT-Shelly #58021 zusammen.
+
+**Im Sicherheits- und Zustandsaudit korrigiert:**
+
+1. **Eigener Hersteller-Sensorbedarf darf nicht durch SMART-S3
+   unterdrueckt werden:** Wenn CO2 oder VOC den hohen Schwellenwert
+   erreicht oder die native Abluftfeuchte hoch ist, bleibt
+   ohne explizit sichere S4-Freigabe der Hersteller-Regler zustaendig,
+   auch wenn beim Lesen erst S2 oder S3 anlag. Gleiches gilt fuer
+   eine starke Dusch-/Kochanforderung. Ohne lesbare native interne
+   RH bei aktivem Feuchteregler wird S4 nicht blind abgesenkt.
+2. **Helios-Waermetauscher-Enteisung hat Vorrang:** Die echte
+   herstellereigene `HELIOS_Defrost_State_Get()` wird nur lesend
+   abgefragt. Bei aktivem Defrost oder unbekanntem Status
+   und Aussentemperatur <=5 °C gibt SMART keine eigene
+   zeitbegrenzte Stufe vor. EWT-Pumpen-Frostschwelle +3/+5 °C
+   bleibt ein anderer Schutzkreis.
+3. **Wetter-Snapshot und LCN-Raumwerte:** Frisches, verifiziertes
+   Wetter plus mindestens neun aktuelle Raumtemperaturen und
+   acht aktuelle Luftfeuchten sind Voraussetzung.
+   Bei Ausfall gehen neue SMART-Stufenbefehle auf AUS. Der
+   bestehende Hersteller-Party-/Ruhe-Befehl wird nur bei
+   nachweislich eigener Besitzinformation beendet, sonst
+   laeuft sein Geraete-Timer bis maximal 15 Minuten.
+4. **Rueckfall-Status ist exakt:** Keine Behauptung
+   `HERSTELLER AUTOMATIK BESTAETIGT`, wenn Hersteller-GET
+   fehlgeschlagen ist. In diesem Fall
+   `FALLBACK_PENDING_NATIVE_15MIN_TIMER_UNVERIFIED`.
+5. **Neustart und Abmelden:** `Monitoring` entspricht bereits
+   nach ApplyChanges der tatsaechlichen SMART-Freigabe.
+   Wird `EnableSmartFanTakeover` im Formular deaktiviert,
+   versucht SMART sofort, nur seine noch laufende eigene
+   Party/Ruhe zu beenden; parallele alte Party-Regel
+   bleibt waehrend dieses Rueckfalls gesperrt.
+6. **Korrekte Anzeige des Istzustands:** Nach bestaetigtem
+   Schaltbefehl verwendet die FanStageCause-Diagnose
+   den Hersteller-Readback und den NEUEN Besitzstatus,
+   nicht die vor dem Kommando gelesene AUTO/S4-Meldung.
+7. **Wochenplan 5 ist kein belastbarer Hardware-Fallback:**
+   In der Original-Symcon-Bayaro-Schnittstelle bedeutet
+   `WeekProgram=5` den zusaetzlichen Symcon-Wochenplan-Event.
+   Nur Programme 0–4 sind im Helios-Gerät gespeichert.
+   SMART lehnt Programm 5 fuer die aktive Volluebernahme
+   ab, bis ein selbststaendiger Hersteller-Rueckfall
+   in Programm 0–4 bereitsteht.
+8. **Sensible Daten:** Original-Helios-Geraetepasswoerter
+   bleiben ausserhalb aller SMART-Diagnosen. Die alte
+   Originalinstanz mit Fehler 209 (Skriptaktion ohne Skript)
+   sperrt ausschliesslich die SMART-Luefteraktionen; die
+   gesonderte EWT-Pumpe bleibt davon unabhaengig.
+
+**Offline-Pruefstand:** Die beiden vollstaendigen PHP-Testjobs
+plus mindestens 320 deterministische Kombinationen von
+Modus, Wettergueltigkeit, Luefterstufe, Herstellerstatus und
+Enteisung werden in GitHub Actions ausgefuehrt.
+Zusatzsimulationen injizieren Live-GET-Ausfall waehrend laufender
+Party, native Abluft-RH 78%, aktive Defrost-Funktion,
+erzwungenen manuellen SMART-Stopp und Herstellerstatus 209.
+Das ist kein Ersatz fuer einen echten Vor-Ort-Test von
+Luftvolumenstroemen, Frostschutz und Rueckfall am realen Gerät.
+
+**Freigabegrenzen:** SMART kann bei gut belegten Daten
+ein unnoetiges Hersteller-S4 zur Nennlueftung S3
+zuruecknehmen. Fuer S1/S2 benoetigt es weiterhin
+`MinimumVentilationValidated` oder bewusst akzeptierte
+Modellannahmen. S4 wird bei echtem Bedarf und ohne
+bestaetigte HighPower-/Feuerstaettensicherheit nicht
+kuenstlich erzwungen; stattdessen entscheidet der
+Original-Helios-Regler.
