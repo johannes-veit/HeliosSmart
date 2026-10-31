@@ -65,7 +65,7 @@ final class JVHeliosBoostCoordinator
             $recent=in_array(($cooking['classification']??''),
                 ['COOKING_RECENTLY_LIKELY','COOKING_ACTIVITY_RECENT'],true);
             $winter=($decision['winter_room_air']['heating_active']??false)===true;
-            $cookingMinutes=$recent?5:($activityEvidence?15:($winter?10:15));
+            $cookingMinutes=$recent?5:15; // Current confirmed cooking: same S3/15 gate in every season.
             $cookingHighPower=$highPower && !$recent && !$activityEvidence
                 && ($cooking['classification']??'')==='COOKING_LIKELY'
                 && ($cooking['power_multiple_samples']??false)===true;
