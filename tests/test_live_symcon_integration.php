@@ -343,8 +343,10 @@ $nativeSafe=json_decode($healthSim->value('DecisionJSON'),true);
 it(($nativeSafe['smart_fan_execution']['status']??'')
         ==='SMART_STAGE_CONFIRMED'
     && ($nativeSafe['fan_stage_attribution']['kind']??'')
-        ==='DEVICE_AUTOMATIC_WEEKLY_OR_NATIVE',
-    'SMART takes over after defrost and high humidity clear, with live actuator acknowledgement');
+        ==='OWNED_PARTY_PLAUSIBLE'
+    && ($nativeSafe['fan_stage_attribution']['actual_fan_level']??0)===3
+    && ($nativeSafe['fan_stage_attribution']['helios_mode']??0)===2,
+    'SMART takeover reports actual acknowledged Party S3, not stale AUTO S4');
 $healthSim->setProperty('EnableSmartFanTakeover',false);
 $healthSim->setProperty('EnableControl',false);
 $beforeExit=count($GLOBALS['calls']);
