@@ -13,17 +13,38 @@ final class JVHeliosEWTPumpLearning
             'version'=>1,'last_sample_at'=>0,'samples'=>0,
             'rejected'=>[],'monthly'=>[],'contexts'=>[],'recent'=>[],
         ];
-        $reason=self::quality($x,$now);
+        // v1 historical rejections counted EVERY 5-minute control tick.
+        // Keep that history explicitly, but do not present its counts as
+        // independent fan / pump switching events. The newer counters below
+        // measure one rejected sampling OPPORTUNITY per 30-minute window.
+        if((int)($state['rejection_schema']??1)<2){
+            $state['legacy_rejected_5min_checks']=(array)($state['rejected']??[]);
+            $state['rejected']=[];
+            $state['rejection_last_at']=[];
+            $state['rejection_schema']=2;
+        }
         $last=(int)($state['last_sample_at']??0);
-        if($reason==='OK' && $last>0 && $now-$last<1800)$reason='INTERVAL_30_MIN';
+        $reason=$last>0 && $now>=$last && $now-$last<1800
+            ?'INTERVAL_30_MIN':self::quality($x,$now);
         if($reason!=='OK'){
             if($reason!=='INTERVAL_30_MIN'){
-                $rejected=(array)($state['rejected']??[]);
-                $rejected[$reason]=min(1000000,(int)($rejected[$reason]??0)+1);
-                $state['rejected']=$rejected;
+                $state['last_quality_checked_at']=$now;
+                $state['last_quality_result']=$reason;
+                $windowLast=(int)($state['rejection_last_at'][$reason]??0);
+                // Reason changes get separate counts, but a persistent
+                // failed sensor cannot inflate the counter every 5 minutes.
+                if($windowLast<=0 || $now<$windowLast
+                    || $now-$windowLast>=1800){
+                    $rejected=(array)($state['rejected']??[]);
+                    $rejected[$reason]=min(1000000,(int)($rejected[$reason]??0)+1);
+                    $state['rejected']=$rejected;
+                    $state['rejection_last_at'][$reason]=$now;
+                }
             }
             return ['state'=>$state,'diagnosis'=>self::diagnose($state,$x,$reason,$now)];
         }
+        $state['last_quality_checked_at']=$now;
+        $state['last_quality_result']='OK';
         $on=($x['pump_state']??'')==='ON_REPORTED';
         $month=(int)(new DateTimeImmutable('@'.$now))
             ->setTimezone(new DateTimeZone('Europe/Berlin'))->format('n');
@@ -187,7 +208,23 @@ final class JVHeliosEWTPumpLearning
             'conditioned_groups'=>count((array)($state['contexts']??[])),
             'recent_count'=>count((array)($state['recent']??[])),
             'last_sample_at'=>(int)($state['last_sample_at']??0),
-            'last_result'=>$lastReason,'rejected'=>$state['rejected']??[],
+            'last_result'=>$lastReason,
+            'last_quality_result'=>$state['last_quality_result']??'NOT_CHECKED',
+            'last_quality_checked_at'=>$state['last_quality_checked_at']??null,
+            'rejection_count_basis'=>'30_MIN_SAMPLING_WINDOWS_NOT_FAN_CHANGES',
+            'rejected'=>$state['rejected']??[],
+            'legacy_rejected_5min_checks'=>$state['legacy_rejected_5min_checks']??[],
+            'next_sample_earliest_at'=>(int)($state['last_sample_at']??0)>0
+                ?(int)$state['last_sample_at']+1800:null,
+            'fan_stable_minutes'=>(int)($x['fan_changed_at']??0)>0
+                &&$now>=(int)$x['fan_changed_at']
+                ?round(($now-(int)$x['fan_changed_at'])/60.0,1):null,
+            'pump_stable_minutes'=>(int)($x['last_pump_change_at']??0)>0
+                &&$now>=(int)$x['last_pump_change_at']
+                ?round(($now-(int)$x['last_pump_change_at'])/60.0,1):null,
+            'pump_state'=>$x['pump_state']??'UNKNOWN',
+            'fan_stage'=>$x['fan_stage']??null,
+            'shelly_online_confirmed'=>($x['shelly_online']??false)===true,
             'paired_advice'=>$advice,
             'storage_bounded'=>true,
             'learning_action'=>'OBSERVATION_ONLY_FROST_UNCHANGED',
