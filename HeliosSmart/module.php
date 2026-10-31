@@ -34,6 +34,7 @@ require_once __DIR__ . '/../libs/FanAttribution.php';
 require_once __DIR__ . '/../libs/NativeHeliosCoordination.php';
 require_once __DIR__ . '/../libs/SeasonProgramControl.php';
 require_once __DIR__ . '/../libs/SmartFanAuto.php';
+require_once __DIR__ . '/../libs/SmartFanCoolingGate.php';
 require_once __DIR__ . '/../libs/ChatGPTDiagnostic.php';
 /** Vorhersagegestützter Beobachter; Aktor nur nach expliziter Freigabe. */
 class HeliosSmart extends IPSModule
@@ -2654,6 +2655,8 @@ class HeliosSmart extends IPSModule
             ($native['sensor_control_reported']['HumidityControlInternal']??false)===true;
         $sensorSourceUnverified=$nativeHumidityConfigured
             && $sensorEvidence['native_extract_rh']===null;
+        $coolingGate=JVHeliosSmartCoolingGate::decide($decision);
+        $decision['smart_cooling_gate']=$coolingGate;
         $smartPlan=JVHeliosSmartFanAuto::decide([
             'enabled'=>$smartEnabled,
             'native_ok'=>($native['write_allowed']??false)===true,
@@ -2683,8 +2686,7 @@ class HeliosSmart extends IPSModule
             'strong_wet_need'=>$strongWet,
             'cooking_confirmed'=>$cookingConfirmed,
             'strong_cooking_need'=>$cookingStrong,
-            'cooling_confirmed'=>($decision['mode']??'')==='PASSIVE_COOLING'
-                &&($decision['weather_usable_for_advice']??false)===true,
+            'cooling_confirmed'=>($coolingGate['cooling_confirmed']??false)===true,
             'quiet_requested'=>($decision['night_strategy']['quiet_eligible']??false)===true,
             'quiet_started_at'=>(int)($smartState['quiet_started_at']??0),
             'quiet_cooldown_until'=>(int)($smartState['quiet_cooldown_until']??0),
