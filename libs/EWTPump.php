@@ -22,14 +22,37 @@ final class JVHeliosEWTPump
         10=>[13.0,14.0], 11=>[11.0,13.0], 12=>[9.0,11.0],
     ];
 
-    public static function seasonalReference(int $now): array
+    public static function seasonalReference(int $now, ?array $model=null): array
     {
         $month=(int)(new DateTimeImmutable('@'.$now))
             ->setTimezone(new DateTimeZone('Europe/Berlin'))->format('n');
+        // ERA5-Land layer-4 climatology is a *modelled 100-255 cm layer mean*.
+        // Do not treat as a brine sensor or automatically add a two-month offset.
+        $m=is_array($model['months']??null)?($model['months'][$month]??null):null;
+        if(is_array($m) && ($model['source']??'')==='ERA5_LAND_REANALYSIS_OPEN_METEO'
+            && ($model['quality']??'')==='COMPLETE_MULTIYEAR_REANALYSIS_MODEL'
+            && (int)($model['year_count']??0)>=3
+            && (int)($m['year_count']??0)>=3
+            && is_numeric($m['deep_c']??null)
+            && is_numeric($m['interannual_min_c']??null)
+            && is_numeric($m['interannual_max_c']??null)
+            && is_finite((float)$m['deep_c'])
+            && (float)$m['deep_c']>=-15 && (float)$m['deep_c']<=35) {
+            return [
+                'month'=>$month,'low_c'=>(float)$m['interannual_min_c'],
+                'high_c'=>(float)$m['interannual_max_c'],
+                'mean_c'=>(float)$m['deep_c'],
+                'quality'=>'ERA5_LAND_100_255CM_MULTIYEAR_MODEL',
+                'source'=>'ERA5_LAND_REANALYSIS_OPEN_METEO',
+                'year_count'=>(int)$m['year_count'],
+                'depth_cm'=>'100-255',
+            ];
+        }
         [$low,$high]=self::SEASONAL_SOLE_C[$month];
         return ['month'=>$month,'low_c'=>$low,'high_c'=>$high,
             'mean_c'=>round(($low+$high)/2,2),
-            'quality'=>'SEASONAL_ESTIMATE_NOT_MEASURED'];
+            'quality'=>'SEASONAL_ESTIMATE_NOT_MEASURED',
+            'source'=>'OPERATOR_PRELIMINARY_PROFILE'];
     }
 
     public static function decide(array $x): array
@@ -56,7 +79,8 @@ final class JVHeliosEWTPump
         $insideValid=is_numeric($inside) && is_finite((float)$inside)
             && (float)$inside>=10 && (float)$inside<=36;
         $inside=$insideValid?(float)$inside:null;
-        $reference=self::seasonalReference($now);
+        $reference=self::seasonalReference($now,
+            is_array($x['soil_climatology']??null)?$x['soil_climatology']:null);
         $sole=$x['sole_temperature']??null;
         $soleAt=(int)($x['sole_updated_at']??0);
         $soleValid=is_numeric($sole) && is_finite((float)$sole)
@@ -68,7 +92,9 @@ final class JVHeliosEWTPump
         // LOW-CONFIDENCE estimate for trying the pump, never proven benefit.
         $planningSole=$measuredSole??$reference['mean_c'];
         $planningGap=$out!==null?round($planningSole-$out,2):null;
-        $potentialBasis=$soleValid?'MEASURED_SOLE':'SEASONAL_ESTIMATE';
+        $potentialBasis=$soleValid?'MEASURED_SOLE':
+            (($reference['quality']??'')==='ERA5_LAND_100_255CM_MULTIYEAR_MODEL'
+                ?'ERA5_LAND_MULTIYEAR_LAYER_MODEL':'SEASONAL_ESTIMATE');
         // ALWAYS ON when actual outdoor data is absent or below +5 C.
         // A frozen controller or unplugged Shelly cannot guarantee this; provide
         // an independent manufacturer-appropriate frost protection mechanism.
