@@ -409,6 +409,33 @@ it($commissioned->ReadPropertyBoolean('EnableSmartFanTakeover')===false
 it($GLOBALS['deviceMode']===0
     && str_contains($stopped,'AUTO_FALLBACK_CONFIRMED'),
     'operator STOP cancels only our own timed mode and restores vendor weekly');
+// The previous SMART stage can end before our persisted timer.
+$GLOBALS['deviceMode']=0;
+$GLOBALS['deviceFan']=4;
+$GLOBALS['values'][30441]=4;
+$autoRecovered=new HeliosSmart();$autoRecovered->Create();
+$autoRecovered->setProperty('WeatherCenterInstance',42);
+$autoRecovered->setProperty('EnableControl',true);
+$autoRecovered->setProperty('EnableSmartFanTakeover',true);
+$autoRecovered->Evaluate();
+it($GLOBALS['deviceMode']===2,'fixture enters own timed SMART stage');
+$GLOBALS['deviceMode']=0;
+$GLOBALS['deviceFan']=2;
+$GLOBALS['values'][30441]=2;
+$beforeReturn=count($GLOBALS['calls']);
+$autoRecovered->Evaluate();
+$returned=json_decode($autoRecovered->value('DecisionJSON'),true);
+it(($returned['smart_fan_execution']['status']??'')
+        ==='NATIVE_AUTO_CONFIRMED_SMART_STAGE_NOT_ACTIVE'
+    && ($returned['smart_fan_execution']['verified']??false)===true
+    && count($GLOBALS['calls'])===$beforeReturn,
+    'native AUTO after SMART stage reported correctly without immediate retry');
+$autoRecovered->Evaluate();
+$afterReturn=json_decode($autoRecovered->value('DecisionJSON'),true);
+it(($afterReturn['smart_fan_execution']['status']??'')
+        ==='SMART_ACTUATOR_ERROR_BACKOFF'
+    && count($GLOBALS['calls'])===$beforeReturn,
+    'rejected SMART short mode respects a bounded retry backoff');
 $GLOBALS['nativeStatus']=209;
 $blocked=new HeliosSmart();$blocked->Create();
 $blocked->setProperty('WeatherCenterInstance',42);

@@ -872,6 +872,11 @@ class HeliosSmart extends IPSModule
                             $result['fallback_weekly']=false;
                         }
                     }
+                } elseif ($owned && $mode===0) {
+                    $result['status']='AUTO_FALLBACK_CONFIRMED';
+                    $result['verified']=true;
+                    $result['readback']=$live;
+                    $result['fallback_weekly']=true;
                 } elseif ($owned && $mode!==(int)$state['mode']) {
                     $result['status']='ORIGINAL_DEVICE_MODE_CHANGED_DO_NOT_CANCEL';
                     $result['fallback_weekly']=false;
@@ -892,7 +897,21 @@ class HeliosSmart extends IPSModule
             $desiredMode=$level===1?3:2;
             $since=$now-(int)($state['sent_at']??0);
             if($owned && $mode===0 && $since>=0 && $since<10*60){
-                $result['status']='LAST_COMMAND_NOT_YET_CONFIRMED_WAIT';
+                // Actual live AUTO readback disproves the prior SMART stage.
+                // Preserve manufacturer AUTO, make uncertainty visible and
+                // prevent repeated commands against a rejected short mode.
+                $result['status']='NATIVE_AUTO_CONFIRMED_SMART_STAGE_NOT_ACTIVE';
+                $result['verified']=true;
+                $result['fallback_weekly']=true;
+                $result['readback']=$live;
+                $state['until']=$now-1;
+                $state['error_retry_after']=$now+30*60;
+                if((int)($state['stage']??0)===1){
+                    $state['quiet_started_at']=0;
+                    $state['quiet_cooldown_until']=max(
+                        (int)($state['quiet_cooldown_until']??0),$now+90*60);
+                }
+                $this->WriteAttributeString('SmartFanTakeoverState',json_encode($state));
                 return $result;
             }
             if((int)($state['error_retry_after']??0)>$now){
@@ -2140,6 +2159,18 @@ class HeliosSmart extends IPSModule
             if($this->ReadPropertyBoolean('AllowEstimatedAirflowLimitedParty')
                 && !$this->ReadPropertyBoolean('MinimumVentilationValidated'))
                 $warnings[]='S1/S2 nur modellbasierte Luftmengenfreigabe; keine gemessene Mindestluftmenge.';
+            // 2=stepless native regulation, NOT two installed sensors.
+            foreach(['CO2Control'=>'co2_sensor_count',
+                'VOCControl'=>'voc_sensor_count'] as $control=>$countKey){
+                if((int)($native['sensor_control_reported'][$control]??0)>0
+                    && (int)($nativeAir[$countKey]??0)===0)
+                    $warnings[]='HELIOS '.$control.' AKTIV, aber 0 native Sensoren erkannt:'
+                        .' Herstellerkonfiguration/Instanz pruefen; SMART-Party gesperrt.';
+            }
+            if((string)($execution['status']??'')
+                ==='NATIVE_AUTO_CONFIRMED_SMART_STAGE_NOT_ACTIVE')
+                $warnings[]='SMART-Zielstufe nicht aktiv: AUTO durch Live-Abfrage bestaetigt.'
+                    .' Neue Kurzprogramme fuer 30 Minuten gesperrt.';
             if((int)($d['device_status_check']['fan']??0)===4)
                 $warnings[]='Iststufe 4: Herstellerbedarf und SMART-Absenkung getrennt bewerten.';
             $roomRows=[];
@@ -2199,7 +2230,7 @@ class HeliosSmart extends IPSModule
                     'fan_changed_minutes_ago']),
                 'native_air_sensors'=>$pick($nativeAir,['co2_sensor_count',
                     'voc_sensor_count','max_co2_ppm','max_voc_ppm',
-                    'native_extract_rh','native_sensor_stale',
+                    'native_extract_rh','native_extract_rh_live','native_sensor_stale',
                     'native_defrost_active','native_defrost_known']),
                 'smart_plan'=>$pick($plan,['status','reason','target_stage',
                     'minutes','execute','fallback_weekly','route','evidence']),
@@ -2234,10 +2265,14 @@ class HeliosSmart extends IPSModule
                 ],
                 'air_ewt'=>[
                     'aussen_vor_ewt_c'=>$current['temperature']??null,
-                    'helios_nach_ewt_c'=>$d['ewt_intake_temperature']??null,
-                    'ewt_luftwirkung_k'=>$d['ewt_effect_kelvin']??null,
+                    // Correct stored name; never claim a measured thermal
+                    // effect without displaying the measured EWT inlet.
+                    'helios_nach_ewt_c'=>$d['intake_after_ewt']??null,
+                    'ewt_luftwirkung_k'=>is_numeric($d['intake_after_ewt']??null)
+                        ?($d['ewt_effect_kelvin']??null):null,
                     'zuluft_nach_wrg_c'=>$d['supply_temperature']??null,
-                    'effect_quality'=>$d['ewt_reference_quality']??null,
+                    'effect_quality'=>is_numeric($d['intake_after_ewt']??null)
+                        ?($d['ewt_reference_quality']??null):null,
                 ],
                 'soil'=>[
                     'ecmwf_current'=>$pick($soil,['source','deep_c','shallow_c',
@@ -2769,6 +2804,8 @@ class HeliosSmart extends IPSModule
                     ?'SMART-STUFE WEITERHIN BESTAETIGT'
                     :'SMART-WEITERLAUF NICHT BESTAETIGT',
             'AUTO_FALLBACK_CONFIRMED'=>'HERSTELLER-AUTOMATIK BESTAETIGT',
+            'NATIVE_AUTO_CONFIRMED_SMART_STAGE_NOT_ACTIVE'
+                =>'HERSTELLER-AUTO BESTAETIGT / SMART-STUFE NICHT AKTIV',
             'FALLBACK_PENDING_NATIVE_15MIN_TIMER_UNVERIFIED',
             'FALLBACK_PENDING_NATIVE_TIMER_UNVERIFIED',
             'AUTO_FALLBACK_PENDING'=>'RUECKFALL NOCH NICHT BESTAETIGT',
