@@ -665,9 +665,22 @@ class HeliosSmart extends IPSModule
     private function ReadSmartFanSensorEvidence(int $now): array
     {
         $native=$this->ReadPropertyInteger('HeliosInstance');
-        $out=['max_co2_ppm'=>null,'max_voc_ppm'=>null];
-        if(!function_exists('IPS_GetObjectIDByIdent')||!IPS_InstanceExists($native))
-            return $out;
+        $out=['max_co2_ppm'=>null,'max_voc_ppm'=>null,
+            'native_extract_rh'=>null,'native_sensor_stale'=>false];
+        if(!IPS_InstanceExists($native))return $out;
+        // The original Helios module exposes its own extract-air RH; this
+        // must be checked before reducing an internally requested stage 4.
+        $extractRhID=50809;
+        if(IPS_VariableExists($extractRhID)
+            && function_exists('IPS_GetParent')
+            && (int)IPS_GetParent($extractRhID)===$native){
+            $age=$now-(int)(IPS_GetVariable($extractRhID)['VariableUpdated']??0);
+            if($age>=0 && $age<=45*60 && is_numeric(GetValue($extractRhID)))
+                $out['native_extract_rh']=(float)GetValue($extractRhID);
+            else
+                $out['native_sensor_stale']=true;
+        }
+        if(!function_exists('IPS_GetObjectIDByIdent'))return $out;
         foreach(['SensorCO2_'=>'max_co2_ppm','SensorVOC_'=>'max_voc_ppm'] as $prefix=>$key){
             $highest=null;
             for($i=1;$i<=8;$i++){
@@ -676,7 +689,10 @@ class HeliosSmart extends IPSModule
                 if(!is_int($id)||$id<=0||!IPS_VariableExists($id))continue;
                 $meta=IPS_GetVariable($id);
                 $age=$now-(int)($meta['VariableUpdated']??0);
-                if($age<0||$age>45*60)continue;
+                if($age<0||$age>45*60){
+                    $out['native_sensor_stale']=true;
+                    continue;
+                }
                 $value=GetValue($id);
                 if(is_numeric($value) && (float)$value>=250 && (float)$value<=10000)
                     $highest=max($highest??0,(float)$value);
@@ -2121,6 +2137,8 @@ class HeliosSmart extends IPSModule
             'room_humidity_count'=>$decision['fresh_humidity_room_count']??0,
             'max_co2_ppm'=>$sensorEvidence['max_co2_ppm'],
             'max_voc_ppm'=>$sensorEvidence['max_voc_ppm'],
+            'native_extract_rh'=>$sensorEvidence['native_extract_rh'],
+            'native_sensor_stale'=>$sensorEvidence['native_sensor_stale'],
             'wet_need'=>$wetActual,
             'strong_wet_need'=>$strongWet,
             'cooking_confirmed'=>$cookingConfirmed,
