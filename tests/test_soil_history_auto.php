@@ -145,7 +145,7 @@ testAuto($z->value('Quality')==='VERIFIED',
     'ApplyChanges restores current VERIFIED quality from cached weather snapshot');
 testAuto(json_decode($z->Snapshot(),true)['quality']==='VERIFIED',
     'public weather snapshot remains VERIFIED after independent soil timers update');
-testAuto(json_decode($z->Snapshot(),true)['current']['temperature']===7.0,
+testAuto((float)json_decode($z->Snapshot(),true)['current']['temperature']===7.0,
     'reloaded weather snapshot preserves measured temperature 7.0 C');
 $old=$latest;
 $old['current']['observed_at']=time()-50*60;
