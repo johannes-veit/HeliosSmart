@@ -161,6 +161,11 @@ final class JVHeliosEWTPumpLearning
         $intakeAge=$now-(int)($x['intake_at']??0);
         if($outsideAge< -120||$outsideAge>2700||$intakeAge< -120
             ||$intakeAge>1200)return 'STALE_TEMPERATURE';
+        // Separate freshness tests are NOT enough for a meaningful EWT
+        // delta-T: a Helios reading from 18 minutes ago and weather from
+        // now can appear plausible but represent different air masses.
+        if(abs((int)$x['outside_at']-(int)$x['intake_at'])>600)
+            return 'OUTSIDE_INTAKE_NOT_TIME_ALIGNED_10_MIN';
         $changeAt=(int)($x['last_pump_change_at']??0);
         if($changeAt<=0 || $now-$changeAt<15*60) return 'PUMP_NOT_STABLE_15_MIN';
         if(!is_numeric($x['fan_stage']??null)
@@ -215,8 +220,13 @@ final class JVHeliosEWTPumpLearning
         // *theoretical* break-even ventilation volume, not a net saving claim.
         $airEffect=is_numeric($x['outside_c']??null)
             &&is_numeric($x['intake_c']??null)
+            &&is_finite((float)$x['outside_c'])
+            &&is_finite((float)$x['intake_c'])
             ?round((float)$x['intake_c']-(float)$x['outside_c'],2):null;
         $pumpPower=is_numeric($x['pump_power_w']??null)
+            &&is_finite((float)$x['pump_power_w'])
+            &&(float)$x['pump_power_w']>=0.0
+            &&(float)$x['pump_power_w']<=5000.0
             ?(float)$x['pump_power_w']:null;
         $pumpOn=($x['pump_state']??'')==='ON_REPORTED';
         $breakEven=$pumpOn && $pumpPower!==null && $pumpPower>=0
@@ -254,6 +264,9 @@ final class JVHeliosEWTPumpLearning
                 &&$now>=(int)$x['last_pump_change_at']
                 ?round(($now-(int)$x['last_pump_change_at'])/60.0,1):null,
             'pump_state'=>$x['pump_state']??'UNKNOWN',
+            'temperature_pair_offset_seconds'
+                =>isset($x['outside_at'],$x['intake_at'])
+                    ?abs((int)$x['outside_at']-(int)$x['intake_at']):null,
             'fan_stage'=>$x['fan_stage']??null,
             'shelly_online_confirmed'=>($x['shelly_online']??false)===true,
             'paired_advice'=>$advice,
