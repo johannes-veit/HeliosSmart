@@ -20,6 +20,7 @@ class WetterZentrale extends IPSModule
         $this->RegisterPropertyBoolean('EnableSoilHistory', true);
         $this->RegisterPropertyInteger('SoilHistoryYears', 5);
         $this->RegisterAttributeString('SoilHistory', '{}');
+        $this->RegisterAttributeString('SoilHistorySnapshot', '{}');
         $this->RegisterTimer('SoilHistoryTick', 0, 'JVWC_RefreshSoilHistory($_IPS[\'TARGET\']);');
         $this->RegisterAttributeString('Cache', '{}');
         $this->RegisterTimer('WeatherTick', 0, 'JVWC_Refresh($_IPS[\'TARGET\']);');
@@ -226,6 +227,7 @@ class WetterZentrale extends IPSModule
         $summary['generated_at']=$now;
         $summary['last_data_at']=$store['updated_at']??null;
         $this->SetValue('SoilClimatologyJSON',json_encode($summary,JSON_UNESCAPED_UNICODE));
+        $this->WriteAttributeString('SoilHistorySnapshot',json_encode($summary,JSON_UNESCAPED_UNICODE));
         $this->WriteAttributeString('SoilHistory',json_encode($store,JSON_UNESCAPED_UNICODE));
         $status='ERA5-Land 28–100 / 100–255 cm (Modell, kein Solefühler)'
             .' | Jahre '.count($store['years']).'/'.count($wanted)
@@ -247,7 +249,7 @@ class WetterZentrale extends IPSModule
         // Never upgrade weather quality because the model exists.
         if($this->ReadPropertyBoolean('EnableExternal')
             && $this->ReadPropertyBoolean('EnableSoilHistory')){
-            $soil=json_decode((string)$this->GetValue('SoilClimatologyJSON'),true);
+            $soil=json_decode($this->ReadAttributeString('SoilHistorySnapshot'),true);
             $site=$this->coordinates();
             $key=$site===null?'':sprintf('%.4f,%.4f',$site[0],$site[1]);
             if(is_array($soil) && ($soil['location']??null)===$key)
