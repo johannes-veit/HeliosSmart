@@ -18,7 +18,8 @@ final class JVHeliosFanAttribution
         $lastChange=(int)($x['fan_changed_at']??0);
         $minutesSinceChange=$lastChange>0 && $now>=$lastChange
             ?(int)floor(($now-$lastChange)/60):null;
-        $owned=(int)($x['owned_level']??0)===$fan
+        $owned=in_array($mode,[2,3],true)
+            && (int)($x['owned_level']??0)===$fan
             && (int)($x['owned_until']??0)>=$now
             && (int)($x['last_command_at']??0)>0;
         $kind='UNKNOWN';
@@ -49,8 +50,12 @@ final class JVHeliosFanAttribution
                             .' nachweisbar. Manuell/andere Steuerung möglich.';
                     break;
                 case 3:
-                    $kind='QUIET_MODE';
-                    $note='Helios Ruhebetrieb (nicht normaler Wochenplan).';
+                    $kind=$owned?'OWNED_WHISPER_PLAUSIBLE':'QUIET_MODE_NOT_OWNED';
+                    $note=$owned
+                        ?'Helios Ruhebetrieb ist mit eigenem zeitbegrenzten'
+                            .' SMART-Stufe-1-Befehl vereinbar.'
+                        :'Helios Ruhebetrieb, aber kein eigener SMART-Ruhebefehl'
+                            .' nachgewiesen. Keine Zuordnung zum Wochenplan.';
                     break;
                 case 4:
                     $kind='HOLIDAY_MODE';
