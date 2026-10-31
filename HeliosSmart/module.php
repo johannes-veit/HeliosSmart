@@ -697,8 +697,24 @@ class HeliosSmart extends IPSModule
     {
         $native=$this->ReadPropertyInteger('HeliosInstance');
         $out=['max_co2_ppm'=>null,'max_voc_ppm'=>null,
-            'native_extract_rh'=>null,'native_sensor_stale'=>false];
+            'native_extract_rh'=>null,'native_sensor_stale'=>false,
+            'co2_sensor_count'=>0,'voc_sensor_count'=>0,
+            'native_defrost_active'=>false,'native_defrost_known'=>false];
         if(!IPS_InstanceExists($native))return $out;
+        // Manufacturer's anti-icing status takes precedence over every
+        // energy-saving command. A missing status below +5 C is not
+        // proof that the exchanger is safely thawed.
+        if($this->ReadPropertyBoolean('EnableSmartFanTakeover')
+            && function_exists('HELIOS_Defrost_State_Get')){
+            try{
+                $defrost=HELIOS_Defrost_State_Get($native);
+                if(is_array($defrost)
+                    && is_bool($defrost['HeatExchanger']??null)){
+                    $out['native_defrost_known']=true;
+                    $out['native_defrost_active']=$defrost['HeatExchanger'];
+                }
+            }catch(Throwable $e){}
+        }
         // Prefer a true fresh manufacturer GET to an old Symcon variable
         // timestamp. The original module writes unchanged RH values only
         // on change, so VariableUpdated alone is NOT a freshness heartbeat.
@@ -730,6 +746,7 @@ class HeliosSmart extends IPSModule
                 try{$id=IPS_GetObjectIDByIdent($prefix.$i,$native);}
                 catch(Throwable $e){continue;}
                 if(!is_int($id)||$id<=0||!IPS_VariableExists($id))continue;
+                $out[$prefix==='SensorCO2_'?'co2_sensor_count':'voc_sensor_count']++;
                 $meta=IPS_GetVariable($id);
                 $age=$now-(int)($meta['VariableUpdated']??0);
                 if($age<0||$age>45*60){
@@ -737,8 +754,12 @@ class HeliosSmart extends IPSModule
                     continue;
                 }
                 $value=GetValue($id);
-                if(is_numeric($value) && (float)$value>=250 && (float)$value<=10000)
+                $low=$prefix==='SensorCO2_'?250.0:0.0;
+                if(is_numeric($value) && (float)$value>=$low
+                    && (float)$value<=10000)
                     $highest=max($highest??0,(float)$value);
+                else
+                    $out['native_sensor_stale']=true;
             }
             $out[$key]=$highest;
         }
@@ -2175,6 +2196,12 @@ class HeliosSmart extends IPSModule
                 'COOKING_RECENTLY_LIKELY','COOKING_ACTIVITY_RECENT'],true);
         $cookingStrong=$cookingConfirmed && $cookStatus==='COOKING_LIKELY'
             &&($decision['cooking_advice']['power_multiple_samples']??false)===true;
+        $weatherNow=is_numeric($decision['outside_temperature']??null)
+            ?(float)$decision['outside_temperature']:null;
+        $nativeHumidityConfigured=
+            ($native['sensor_control_reported']['HumidityControlInternal']??false)===true;
+        $sensorSourceUnverified=$nativeHumidityConfigured
+            && $sensorEvidence['native_extract_rh']===null;
         $smartPlan=JVHeliosSmartFanAuto::decide([
             'enabled'=>$smartEnabled,
             'native_ok'=>($native['write_allowed']??false)===true,
@@ -2194,6 +2221,11 @@ class HeliosSmart extends IPSModule
             'max_voc_ppm'=>$sensorEvidence['max_voc_ppm'],
             'native_extract_rh'=>$sensorEvidence['native_extract_rh'],
             'native_sensor_stale'=>$sensorEvidence['native_sensor_stale'],
+            'native_sensor_control_unverified'=>$sensorSourceUnverified,
+            'native_defrost_active'=>$sensorEvidence['native_defrost_active'],
+            'native_defrost_unknown_near_frost'
+                =>$weatherNow!==null && $weatherNow<=5.0
+                    && !$sensorEvidence['native_defrost_known'],
             'wet_need'=>$wetActual,
             'strong_wet_need'=>$strongWet,
             'cooking_confirmed'=>$cookingConfirmed,
