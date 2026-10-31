@@ -54,8 +54,11 @@ testAuto(JVHeliosSoilHistorySchedule::delaySeconds($backoff,$now,5)===7200,
     'failing year backs off without hammering external API');
 $all=['years'=>[]];
 foreach(range(2021,2025) as $year)$all['years'][$year]=$fakeY($year);
-testAuto(JVHeliosSoilHistorySchedule::delaySeconds($all,$now,5)===86400,
-    'completed archive checks at next day only');
+testAuto(JVHeliosSoilHistorySchedule::delaySeconds($all,$now,5)===7*86400,
+    'full soil history performs no external HTTP until annual archive rollover; short internal check');
+testAuto(JVHeliosSoilHistorySchedule::annualReadyAt(2026)
+    ===strtotime('2027-01-10 02:00:00 UTC'),
+    'annual ERA5-Land fetch waits until January 10 after reanalysis delay');
 $nextYear=strtotime('2027-01-02 UTC');
 testAuto(JVHeliosSoilHistorySchedule::progress($all,$nextYear,5)['missing'] === [2026],
     'new calendar year automatically requires next complete year');
@@ -86,8 +89,8 @@ $z->WriteAttributeString('SoilHistory',json_encode([
     'location'=>'49.9044,6.9781','years'=>$all['years'],
 ]));
 $z->ApplyChanges();
-testAuto($z->getTimer('SoilHistoryTick')===86400*1000,
-    'all years complete: do not fetch repeatedly');
+testAuto($z->getTimer('SoilHistoryTick')===7*86400*1000,
+    'all years complete: avoid frequent archive import, internal readiness only');
 $z->RefreshSoilHistoryScheduled();
 testAuto(str_contains((string)$z->value('SoilHistoryRunStatus'),'zuletzt TIMER'),
     'timer callback is separately identified from manual click');
@@ -97,4 +100,27 @@ testAuto(JVHeliosSoilHistorySchedule::progress(json_decode(
 $z->RefreshSoilHistory();
 testAuto(str_contains((string)$z->value('SoilHistoryRunStatus'),'zuletzt MANUELL'),
     'manual button is distinguishable from scheduled timer');
+testAuto($z->getTimer('SoilHistoryTick')===7*86400*1000,
+    'manual archive status with completed years still has annual-only fetching');
+$z->setProperty('EnableSoilCurrent',false);
+$z->ApplyChanges();
+testAuto($z->getTimer('SoilCurrentTick')===0,
+    'current-soil query can be independently disabled from historical profile');
+$z->setProperty('EnableSoilCurrent',true);
+$z->WriteAttributeString('SoilCurrentState',json_encode([
+    'location'=>'49.9044,6.9781',
+    'last_attempt_at'=>time()-3600,
+    'last_success_at'=>time()-3600,
+]));
+$z->ApplyChanges();
+testAuto($z->getTimer('SoilCurrentTick')>=17000*1000
+    && $z->getTimer('SoilCurrentTick')<=18100*1000,
+    'four current model queries per day, never one per weather tick');
+$z->RefreshCurrentSoil(); // six-hour rate lock, MUST NOT call HTTP
+testAuto(str_contains((string)$z->value('SoilCurrentStatus'),'RATE-LIMIT 6 h'),
+    'manual refresh also respects six-hour HTTP minimum');
+$z->setProperty('EnableExternal',false);
+$z->ApplyChanges();
+testAuto($z->getTimer('SoilCurrentTick')===0,
+    'disabling external weather stops live soil model HTTP timer');
 echo "ERA5-Land background timer and staged import simulation OK\n";
