@@ -128,4 +128,29 @@ a($failure->value('EWTPumpSwitch')===false,
     'failed Shelly command never falsely marks device ON');
 a(str_contains((string)$failure->value('EWTPumpStatus'),'SHELLY_ACTION_ERROR'),
     'Shelly API return FALSE produces explicit failure status');
+// A periodic summer Evaluate must not log a trial run for manual OFF.
+$GLOBALS['sendActionSuccess']=true;
+$GLOBALS['variables'][9001]=false;
+$learning=new HeliosSmart();
+$learning->Create();
+$learning->setProperty('EWTPumpSwitchVariable',9001);
+$learning->setProperty('WeatherCenterInstance',42);
+$learning->setProperty('EnableEWTPumpControl',true);
+$GLOBALS['weather']=['quality'=>'VERIFIED',
+    'current'=>['temperature'=>25.0,'observed_at'=>time()-30]];
+$learning->RequestAction('EWTPumpModeManual',true);
+$method=new ReflectionMethod(HeliosSmart::class,'EvaluateEWTPump');
+$before=count($GLOBALS['commands']);
+$method->invoke($learning,$GLOBALS['weather'],time(),25.0);
+$learningState=json_decode($learning->ReadAttributeString('EWTPumpControlState'),true);
+a(!isset($learningState['last_probe_at']),
+    'manual OFF does not claim an automatic summer EWT probe');
+a(count($GLOBALS['commands'])===$before,
+    'automatic summer planner cannot override manual OFF when frost-free');
+// But frost must still override the same manual OFF without any user interaction.
+$GLOBALS['weather']['current']['temperature']=-5.0;
+$method->invoke($learning,$GLOBALS['weather'],time(),25.0);
+a(count($GLOBALS['commands'])===$before+1
+    && $GLOBALS['commands'][$before]['value']===true,
+    'periodic frost safety forces ON even in manual OFF');
 echo "EWT WebFront controls and actuator safety integration OK\\n";
