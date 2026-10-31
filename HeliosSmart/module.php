@@ -2283,12 +2283,28 @@ class HeliosSmart extends IPSModule
             json_encode(['plan'=>$smartPlan,'execution'=>$smartExecution,
                 'original_helios'=>$native['status']??'UNAVAILABLE',
                 'co2_voc_evidence'=>$sensorEvidence],JSON_UNESCAPED_UNICODE));
+        $effectiveState=match ((string)($smartExecution['status']??'')){
+            'SMART_STAGE_CONFIRMED'=>'SMART-STUFE AM GERAET BESTAETIGT',
+            'SMART_OWNED_ACTIVE_WAIT_RENEWAL'
+                =>($smartExecution['verified']??false)
+                    ?'SMART-STUFE WEITERHIN BESTAETIGT'
+                    :'SMART-WEITERLAUF NICHT BESTAETIGT',
+            'AUTO_FALLBACK_CONFIRMED'=>'HERSTELLER-AUTOMATIK BESTAETIGT',
+            'FALLBACK_PENDING_NATIVE_15MIN_TIMER_UNVERIFIED',
+            'FALLBACK_PENDING_NATIVE_TIMER_UNVERIFIED',
+            'AUTO_FALLBACK_PENDING'=>'RUECKFALL NOCH NICHT BESTAETIGT',
+            'ORIGINAL_DEVICE_MODE_CHANGED_DO_NOT_CANCEL'
+                =>'FREMDER HELIOS-MODUS HAT VORRANG',
+            default=>($smartExecution['fallback_weekly']??true)
+                ?'SMART FORDERT KEINE STUFE AN / HERSTELLER-ZUSTAND PRUEFEN'
+                :'SMART-ANFORDERUNG NOCH UNBESTAETIGT',
+        };
+        $decision['smart_fan_effective_state']=$effectiveState;
         $this->SetValue('SmartFanControlStatus',
-            'SMART-LUEFTUNG '.($smartEnabled?'AKTIV':'NUR BEOBACHTEN')
-            .' | Ziel '.($smartPlan['target_stage']??'WOCHENPROGRAMM')
+            'SMART-LUEFTUNG '.($smartEnabled?'FREIGEGEBEN':'NICHT FREIGEGEBEN')
+            .' | Ziel '.($smartPlan['target_stage']??'KEINER')
             .' | '.$smartExecution['status']
-            .' | '.($smartExecution['fallback_weekly']??true
-                ?'Wochenprogramm Rueckfallebene':'SMART hat Vorrang')
+            .' | '.$effectiveState
             .' | Original-Helios '.($native['native_instance_status']??'UNBEKANNT'));
         $approvals=[
             'estimated_flow_trial'=>$this->ReadPropertyBoolean('AllowEstimatedAirflowLimitedParty'),
