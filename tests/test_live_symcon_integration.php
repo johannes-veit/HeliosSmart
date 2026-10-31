@@ -434,9 +434,10 @@ it($GLOBALS['nativeCo2Polls']===1 && $GLOBALS['nativeVocPolls']===1,
 $GLOBALS['nativeCo2LiveValue']=650;
 $onChange->Evaluate();
 $freshObserved=json_decode($onChange->value('DecisionJSON'),true);
+$freshSensors=json_decode($onChange->value('SmartFanTakeoverJSON'),true);
 it(($freshObserved['smart_fan_execution']['status']??'')
         ==='SMART_STAGE_CONFIRMED'
-    && ($freshObserved['co2_voc_evidence']['max_co2_ppm']??0)===650,
+    && ($freshSensors['co2_voc_evidence']['max_co2_ppm']??0)===650,
     'live safe CO2 clears stale high cache and permits the SMART energy-saving stage');
 unset($GLOBALS['nativeSensorIDs'],$GLOBALS['variableTimeByID'],
     $GLOBALS['nativeCo2LiveValue'],$GLOBALS['nativeVocLiveValue']);
