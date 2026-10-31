@@ -586,9 +586,13 @@ class HeliosSmart extends IPSModule
             return $msg;
         }
         $live=$this->ReadHeliosLive();
-        if($live===null || $live['mode']!==0){
+        if($live===null || $live['mode']!==0
+            || ($live['program']??5)>4){
             $msg='SMART-LUEFTUNG NICHT FREIGEGEBEN | Original-Helios muss'
-                .' aktuell AUTOMATISCH (0) sein und frische Rueckmeldungen liefern';
+                .' AUTOMATISCH (0) mit intern gespeichertem Wochenprogramm'
+                .' 0–4 laufen und frische Rueckmeldungen liefern.'
+                .' Programm 5 ist ein Symcon-Wochenplan und kein'
+                .' geräteautonomer Rückfall.';
             $this->SetValue('SmartFanControlStatus',$msg);
             return $msg;
         }
@@ -2228,6 +2232,7 @@ class HeliosSmart extends IPSModule
             'live_fresh'=>$live!==null,
             'mode'=>$deviceStatus['mode'],
             'actual_fan'=>$deviceStatus['fan'],
+            'native_week_program'=>$deviceStatus['program'],
             'owned_mode'=>(int)($smartState['mode']??0),
             'owned_stage'=>(int)($smartState['stage']??0),
             'owned_until'=>(int)($smartState['until']??0),
