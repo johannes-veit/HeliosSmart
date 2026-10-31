@@ -32,6 +32,9 @@ jobs:
           php -l libs/EWTPump.php
           php -l tests/test_ewt_pump.php
           php tests/test_ewt_pump.php
+          php -l libs/FanAttribution.php
+          php -l tests/test_fan_attribution.php
+          php tests/test_fan_attribution.php
           php -l libs/EWTPumpOperator.php
           php -l tests/test_ewt_operator.php
           php -l tests/test_ewt_operator_integration.php
