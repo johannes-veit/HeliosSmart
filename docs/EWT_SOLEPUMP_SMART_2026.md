@@ -331,7 +331,9 @@ fuer 28–100 und 100–255 cm ueber Open-Meteo ab: vier Zeitpunkte
 am Tag statt 24 Einzelabrufe. Die Werte erscheinen als eigene
 Symcon-Variablen Bodenmodell aktuell 28–100 cm, Bodenmodell aktuell
 100–255 cm, Bodenmodell aktuell – 6-Stunden-Status und als JSON
-mit Modellquelle und Zeitstempel. Auch der manuelle Abrufbutton
+mit Modellquelle und Zeitstempel. Zusaetzlich speichert die Variable
+Bodenmodell 6-h-Verlauf – letzte 90 Tage JSON nur die vier taeglichen
+Stichproben mit Zeitstempel, maximal 360 Punkte im Ringpuffer. Auch der manuelle Abrufbutton
 achtet auf die sechs-stuendige Abfragesperre, um Anbieter und SymBox
 nicht unnoetig zu belasten. Bei Ausfall bleibt die letzte valide
 Messreihe mit ihrem Zeitstempel erkennbar; veraltete Modellwerte werden
