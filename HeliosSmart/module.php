@@ -715,7 +715,8 @@ class HeliosSmart extends IPSModule
     {
         $native=$this->ReadPropertyInteger('HeliosInstance');
         $out=['max_co2_ppm'=>null,'max_voc_ppm'=>null,
-            'native_extract_rh'=>null,'native_sensor_stale'=>false,
+            'native_extract_rh'=>null,'native_extract_rh_live'=>false,
+            'native_sensor_stale'=>false,
             'co2_sensor_count'=>0,'voc_sensor_count'=>0,
             'native_defrost_active'=>false,'native_defrost_known'=>false];
         if(!IPS_InstanceExists($native))return $out;
@@ -740,8 +741,11 @@ class HeliosSmart extends IPSModule
             && function_exists('HELIOS_HumidityControl_Internal_ExhaustAir_Get')){
             try{
                 $fresh=HELIOS_HumidityControl_Internal_ExhaustAir_Get($native);
-                if(is_numeric($fresh) && (float)$fresh>=0 && (float)$fresh<=100)
+                if(is_numeric($fresh) && is_finite((float)$fresh)
+                    && (float)$fresh>=0 && (float)$fresh<=100) {
                     $out['native_extract_rh']=(float)$fresh;
+                    $out['native_extract_rh_live']=true;
+                }
             }catch(Throwable $e){}
         }
         // Otherwise trust an existing native RH variable only if recent.
@@ -780,14 +784,14 @@ class HeliosSmart extends IPSModule
                 $out[$prefix==='SensorCO2_'?'co2_sensor_count':'voc_sensor_count']++;
                 $meta=IPS_GetVariable($id);
                 $age=$now-(int)($meta['VariableUpdated']??0);
-                $value=($age>=0 && $age<=45*60)?GetValue($id):null;
+                // Native Symcon variables update only ON CHANGE. A 1-minute
+                // old cached reading can still miss a new CO2/VOC rise while
+                // a timed Party blocks the manufacturer's sensor regulator.
+                // Query each physically installed sensor live on each SMART
+                // evaluation; never accept a cache as actuation evidence.
+                $value=null;
                 $low=$prefix==='SensorCO2_'?250.0:0.0;
-                // On-change manufacturer variables can remain unchanged
-                // for hours although the sensor is alive. A fresh native
-                // GET of this INSTALLED sensor (never all 8 empty slots)
-                // is stronger evidence than an old Symcon timestamp.
-                if($value===null || !is_numeric($value)
-                    ||(float)$value<$low||(float)$value>10000){
+                if($this->ReadPropertyBoolean('EnableSmartFanTakeover')){
                     $fn=$prefix==='SensorCO2_'
                         ?'HELIOS_CO2Sensor_Get':'HELIOS_VOCSensor_Get';
                     if(function_exists($fn)){
@@ -798,6 +802,9 @@ class HeliosSmart extends IPSModule
                                 $value=$live[$field];
                         }catch(Throwable $e){$value=null;}
                     }
+                } else {
+                    // Monitoring-only values never authorize a write.
+                    $value=($age>=0 && $age<=45*60)?GetValue($id):null;
                 }
                 if(is_numeric($value) && (float)$value>=$low
                     && (float)$value<=10000)
@@ -2659,8 +2666,17 @@ class HeliosSmart extends IPSModule
             ?(float)$decision['outside_temperature']:null;
         $nativeHumidityConfigured=
             ($native['sensor_control_reported']['HumidityControlInternal']??false)===true;
-        $sensorSourceUnverified=$nativeHumidityConfigured
-            && $sensorEvidence['native_extract_rh']===null;
+        // If a native sensor controller is enabled, its current evidence
+        // must be available. An unchanged Symcon cache is NOT live evidence
+        // while Party/Whisper can mask the manufacturer's own regulation.
+        $co2Configured=is_numeric($native['sensor_control_reported']['CO2Control']??null)
+            && (int)$native['sensor_control_reported']['CO2Control']>0;
+        $vocConfigured=is_numeric($native['sensor_control_reported']['VOCControl']??null)
+            && (int)$native['sensor_control_reported']['VOCControl']>0;
+        $sensorSourceUnverified=
+            ($nativeHumidityConfigured && !$sensorEvidence['native_extract_rh_live'])
+            ||($co2Configured && (int)$sensorEvidence['co2_sensor_count']===0)
+            ||($vocConfigured && (int)$sensorEvidence['voc_sensor_count']===0);
         $coolingGate=JVHeliosSmartCoolingGate::decide($decision);
         $decision['smart_cooling_gate']=$coolingGate;
         $smartPlan=JVHeliosSmartFanAuto::decide([
@@ -2682,6 +2698,9 @@ class HeliosSmart extends IPSModule
             'max_co2_ppm'=>$sensorEvidence['max_co2_ppm'],
             'max_voc_ppm'=>$sensorEvidence['max_voc_ppm'],
             'native_extract_rh'=>$sensorEvidence['native_extract_rh'],
+            'native_humidity_control_enabled'=>$nativeHumidityConfigured
+                ||(is_numeric($native['sensor_control_reported']['HumidityControl']??null)
+                    && (int)$native['sensor_control_reported']['HumidityControl']>0),
             'native_sensor_stale'=>$sensorEvidence['native_sensor_stale'],
             'native_sensor_control_unverified'=>$sensorSourceUnverified,
             'native_defrost_active'=>$sensorEvidence['native_defrost_active'],

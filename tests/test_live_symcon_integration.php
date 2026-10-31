@@ -529,6 +529,21 @@ it(($freshObserved['smart_fan_execution']['status']??'')
         ==='SMART_STAGE_CONFIRMED'
     && ($freshSensors['co2_voc_evidence']['max_co2_ppm']??0)===650,
     'live safe CO2 clears stale high cache and permits the SMART energy-saving stage');
+// A recently updated local cache must NEVER overrule a new live high CO2.
+// While SMART owns S3 the next evaluation must cancel that Party and
+// return sensor authority to manufacturer AUTO.
+$GLOBALS['values'][61001]=650;
+$GLOBALS['variableTimeByID'][61001]=time()-60;
+$GLOBALS['nativeCo2LiveValue']=1550;
+$beforeLivePolls=$GLOBALS['nativeCo2Polls'];
+$onChange->Evaluate();
+$highObserved=json_decode($onChange->value('DecisionJSON'),true);
+it($GLOBALS['nativeCo2Polls']>$beforeLivePolls
+    && ($highObserved['smart_fan_takeover']['reason']??'')
+        ==='NATIVE_CO2_VOC_HIGH_NO_S4_APPROVAL'
+    && ($highObserved['smart_fan_execution']['verified']??false)===true
+    && $GLOBALS['deviceMode']===0,
+    'fresh cached low CO2 never masks live high CO2; own timed Party safely cancelled');
 unset($GLOBALS['nativeSensorIDs'],$GLOBALS['variableTimeByID'],
     $GLOBALS['nativeCo2LiveValue'],$GLOBALS['nativeVocLiveValue']);
 echo "ALLE $counter SYMCON-LIVE-INTEGRATIONSPRUEFUNGEN BESTANDEN\n";

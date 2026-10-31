@@ -57,6 +57,20 @@ ckFan($dec(['native_extract_rh'=>75.0])['fallback_weekly']===true,
  'manufacturer high extract RH at S4 cannot be overridden downward');
 ckFan($dec(['native_sensor_stale'=>true])['fallback_weekly']===true,
  'stale native CO2, VOC or RH measurement blocks S4 reduction');
+ckFan($dec(['native_sensor_stale'=>true,'actual_fan'=>2])['reason']
+    ==='NATIVE_SENSOR_READINGS_STALE_KEEP_OWN_DEMAND',
+ 'stale sensor blocks SMART Party even at native S2');
+ckFan($dec(['native_sensor_stale'=>true,'actual_fan'=>3])['fallback_weekly']===true,
+ 'stale sensor blocks SMART Party at native S3');
+ckFan($dec(['native_sensor_control_unverified'=>true,'actual_fan'=>2])
+    ['reason']==='NATIVE_S4_SENSOR_DEMAND_UNVERIFIABLE',
+ 'unverifiable native controller blocks takeover even before S4');
+ckFan($dec(['native_extract_rh'=>65.0,'actual_fan'=>2,
+    'native_humidity_control_enabled'=>true])['reason']
+    ==='NATIVE_EXTRACT_HUMIDITY_ELEVATED_KEEP_DEVICE',
+ 'elevated native extract RH keeps autonomous humidity control active');
+ckFan($dec(['native_extract_rh'=>59.0])['execute']===true,
+ 'normal native extract RH does not prevent ordinary SMART decision');
 ckFan($dec(['native_extract_rh'=>55.0])['target_stage']===3,
  'normal native extract RH does not block nominal SMART stage3');
 foreach([
