@@ -48,6 +48,6 @@ $vacation=$check(['mode'=>4,'fan'=>2]);
 stageCheck($vacation['kind']==='HOLIDAY_MODE','vacation not weekly');
 $issued=$check(['control_enabled'=>true,'command_attempted'=>true]);
 stageCheck($issued['party_command_attempted_now']===true
-    && str_contains($issued['status'],'Rueckmeldung'),
+    && str_contains($issued['status'],'Geraeterueckmeldung'),
     'unconfirmed just-attempted command shown as pending rather than proven');
 echo "Helios fan stage4 origin and watch-only policy tests OK\n";
