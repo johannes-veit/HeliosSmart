@@ -2289,8 +2289,11 @@ class HeliosSmart extends IPSModule
                 ],
                 'ewt_state'=>$pick($pumpState,['manual_mode','manual_target','last_on_at',
                     'last_off_at','pending_target','last_error','command_at']),
-                'ewt_learning'=>$pick($ewtLearning,['samples','monthly_profiles',
-                    'conditioned_groups','last_result','paired_advice']),
+                'ewt_learning'=>$pick($ewtLearning,['samples','period_minutes',
+                    'monthly_profiles','conditioned_groups','recent_count',
+                    'last_sample_at','last_result','rejected',
+                    'rejection_counter_semantics','paired_advice',
+                    'comparison_progress','missing_inputs','learning_action']),
                 'learning'=>[
                     'learning_state_keys'=>array_slice(array_keys($lState),0,16),
                     'letzte_lernbericht_aktualisierung'=>$lState['d']??null,
