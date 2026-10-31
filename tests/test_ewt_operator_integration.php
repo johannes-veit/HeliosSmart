@@ -262,6 +262,10 @@ $GLOBALS['installerModule']=$install;
 $summary=$install->InstallExistingEWTShelly();
 a(str_contains($summary,'CONFIGURIERT / AUTOMATIK FREIGEGEBEN'),
     'one-click installation maps all correct Shelly variables');
+a(str_contains($summary,'EINRICHTUNGSBERICHT (kein Live-Istzustand)')
+    && !str_contains($summary,'REQUEST_ON')
+    && !str_contains($summary,'Ist AUS gemeldet'),
+    'installation report must never retain initial transient relay state');
 a($install->ReadPropertyInteger('EWTPumpSwitchVariable')===32748
     && $install->ReadPropertyInteger('EWTPumpOnlineVariable')===35794
     && $install->ReadPropertyInteger('EWTPumpPowerVariable')===19705
