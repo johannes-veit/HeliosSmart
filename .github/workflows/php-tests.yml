@@ -50,3 +50,9 @@ jobs:
           php -l WeatherZentrale/module.php
           php -l tests/test_soil_climatology.php
           php tests/test_soil_climatology.php
+          php -l libs/SoilHistorySchedule.php
+          php -l tests/test_soil_history_auto.php
+          php tests/test_soil_history_auto.php
+          php -l libs/CurrentSoilModel.php
+          php -l tests/test_soil_current_model.php
+          php tests/test_soil_current_model.php
