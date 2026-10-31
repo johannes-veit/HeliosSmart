@@ -131,6 +131,13 @@ class HeliosSmart extends IPSModule
             is_array($ewtState) && is_bool($ewtState['pending_target']??null)?10*1000:0);
         $this->SetValue('EWTPumpModeManual',
             is_array($ewtState) && ($ewtState['manual_mode']??false)===true);
+        // A previous installer report captured REQUEST_ON and an old OFF
+        // before the relay acknowledged. Rebuild as a CONFIGURATION report,
+        // never a pseudo-live pump-state display, on every module update.
+        if($this->ReadPropertyInteger('EWTPumpSwitchVariable')>0
+            && $this->ReadPropertyBoolean('EnableEWTPumpControl')) {
+            $this->SetValue('EWTPumpSetupReport',$this->EWTPumpConfigurationReport());
+        }
         // Bestehende LCN-Variablen beobachten: keinerlei LCN-Lese- oder Schaltbefehl.
         // Der Fuenf-Minuten-Timer bleibt die Rueckfallebene bei ausbleibenden Nachrichten.
         $stored=json_decode($this->ReadAttributeString('WetroomEventState'),true);
@@ -859,6 +866,21 @@ class HeliosSmart extends IPSModule
     }
 
     /**
+     * Installation report is deliberately STATIC. Current relay, online,
+     * power and errors belong only in the continuously updated EWT status
+     * variables. An old REQUEST_ON must never masquerade as live readback.
+     */
+    private function EWTPumpConfigurationReport(): string
+    {
+        return 'CONFIGURIERT / AUTOMATIK FREIGEGEBEN'
+            .' | Shelly #58021 | Relais #32748 | Online #35794'
+            .' | Wirkleistung+Heartbeat #19705'
+            .' | EINRICHTUNGSBERICHT (kein Live-Istzustand)'
+            .' | Aktuell: Sole-EWT Pumpe #49264, Istzustand #32294'
+            .' und Schaltfehler #12142';
+    }
+
+    /**
      * One-click, installation-specific commissioning for the already installed
      * ShellyDevice shown on this SymBox. This action is deliberate, not run
      * during normal Create/ApplyChanges or a GitHub module update.
@@ -928,20 +950,10 @@ class HeliosSmart extends IPSModule
                 $this->ReadEWTPumpWeather(),$now,
                 $this->LastEWTIndoorTemperature($now));
             $command=(string)($plan['command']??'UNBEKANNT');
-            $report='CONFIGURIERT / AUTOMATIK FREIGEGEBEN | Shelly #58021'
-                .' | Relais #32748 | Online #35794'
-                .' | Wirkleistung+Heartbeat #19705'
-                .' | Soll '.(($plan['desired_on']??false)?'EIN':'AUS')
-                .' | Kommando '.$command
-                .' | Ist '.(($plan['plug_actual']??null)===null?'UNBEKANNT'
-                    :(($plan['plug_actual']??false)?'EIN gemeldet':'AUS gemeldet'))
-                .' | '.$health['link']
-                .' | Schalt-/Leistungsrueckmeldung weiterhin pruefen';
-            if(in_array($command,['SHELLY_ACTION_ERROR',
-                'BLOCKED_SHELLY_OFFLINE_STALE_OR_INCONSISTENT',
-                'SHELLY_HAS_NO_ACTION'],true)) {
-                $report='STOERUNG NACH FREIGABE – '.$report;
-            }
+            // The initial command can be REQUEST_ON while actual is still
+            // OFF. Store only permanent mapping here, no temporary relay state.
+            // Schaltfehler are reported live through EWTPumpStatus/Alarm.
+            $report=$this->EWTPumpConfigurationReport();
             $this->SetValue('EWTPumpSetupReport',$report);
             $this->SetValue('EWTPumpLearningStatus',
                 'EWT-Lernen bereit | 30-Minuten-Takt | zuerst stabile'
