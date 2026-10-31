@@ -41,6 +41,9 @@ jobs:
           php -l libs/SmartFanAuto.php
           php -l tests/test_smart_fan_auto.php
           php tests/test_smart_fan_auto.php
+          php -l libs/ChatGPTDiagnostic.php
+          php -l tests/test_chatgpt_diagnostic.php
+          php tests/test_chatgpt_diagnostic.php
           php -l libs/NativeHeliosCoordination.php
           php -l tests/test_native_helios_coordination.php
           php tests/test_native_helios_coordination.php
