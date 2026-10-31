@@ -980,7 +980,8 @@ class HeliosSmart extends IPSModule
                 $state['pending_target']=null;
                 $state['last_error']='';
                 $this->SetValue('EWTPumpStatus',
-                    'EWT-Pumpe '.($actual?'EIN':'AUS').' – Shelly-Schaltzustand zurueckgemeldet');
+                    'EWT-Shelly Relais '.($actual?'EIN':'AUS')
+                    .' – neuer Status gemeldet; physischer Solefluss nicht gemessen');
                 $this->SetTimerInterval('EWTPumpFeedbackTick',0);
             } elseif(time()-(int)($state['last_request_at']??0)>=50) {
                 $state['last_error']='SHELLY_NO_STATE_CONFIRMATION';
@@ -1121,14 +1122,12 @@ class HeliosSmart extends IPSModule
                 $this->SetTimerInterval('EWTPumpFeedbackTick',0);
             }
         }
-        $power=null;$powerFresh=false;
-        if($powerId>0 && IPS_VariableExists($powerId)) {
-            $info=IPS_GetVariable($powerId);
-            $powerFresh=$now-(int)($info['VariableUpdated']??0)<=900;
-            $value=GetValue($powerId);
-            if($powerFresh && is_numeric($value) && (float)$value>=0
-                && (float)$value<5000) $power=round((float)$value,1);
-        }
+        // Only the validated, parent-matched and at most four-minute-old
+        // measurement may be presented as current pump power.
+        $power=$health['watts']??null;
+        $power=$power!==null?round((float)$power,1):null;
+        $noLoad=$actual===true && $power!==null && $power<2.0
+            && isset($state['last_on_at']) && $now-(int)$state['last_on_at']>=120;
         $plan['connectivity']=$health;
         $plan['command']=$command;
         $plan['control_enabled']=$enabled;
@@ -1139,6 +1138,11 @@ class HeliosSmart extends IPSModule
         $plan['configured']=$validType;
         $plan['switch_variable_id']=$validType?$plugId:null;
         $plan['power_w']=$power;
+        $plan['on_but_power_below_threshold']=$noLoad;
+        if($noLoad) {
+            $state['last_error']='SHELLY_RELAY_ON_NO_ELECTRICAL_LOAD_INDICATED';
+            $plan['last_error']=$state['last_error'];
+        }
         $plan['power_confirmed_on']=$actual===true && $power!==null && $power>=2.0;
         $plan['feedback']=$actual===null?'UNKNOWN_OR_UNREACHABLE'
             :($power!==null?($plan['power_confirmed_on']?'POWER_DETECTED'
@@ -1162,6 +1166,10 @@ class HeliosSmart extends IPSModule
                     .' (kein Sole-Messwert)')
             .' | '.($power!==null?number_format($power,1,',','.').' W':'Leistung nicht verifiziert');
         $this->SetValue('EWTPumpStatus',$status);
+        $this->SetValue('EWTPumpAlarm',
+            $configured && (!$health['actuation_allowed']
+                || $health['power_conflict'] || $noLoad
+                || ($state['last_error']??'')!==''));
         return $plan;
     }
 
