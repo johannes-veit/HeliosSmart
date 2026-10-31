@@ -63,7 +63,8 @@ final class JVHeliosSmartFanAuto
         // At 60-70% extract RH the manufacturer's own humidity controller
         // may demand a higher stage at any moment. Do not mask that control
         // with a 15-minute SMART lower-stage Party/Whisper.
-        $nativeMoistureCaution=is_numeric($nativeRh)
+        $nativeMoistureCaution=($d['native_humidity_control_enabled']??false)===true
+            && is_numeric($nativeRh)
             && (float)$nativeRh>=60.0 && (float)$nativeRh<70.0;
         // HELIOS Party/Whisper temporarily OVERRIDE native CO2/VOC/RH
         // automatic regulation at *every* original stage, not only S4.
