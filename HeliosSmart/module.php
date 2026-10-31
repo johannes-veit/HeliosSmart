@@ -1006,6 +1006,9 @@ class HeliosSmart extends IPSModule
         if(!is_array($state))$state=[];
         $health=$this->ReadEWTPumpHealth($now);
         $actual=$health['reported']==='UNKNOWN'?null:(bool)GetValue($plugId);
+        // An outage may hide unobserved switching. On recovery require a new
+        // 15-minute stable period before trusting this mode for learning.
+        if($actual===null) unset($state['last_seen_on']);
         if($actual!==null && (!array_key_exists('last_seen_on',$state)
             || (bool)$state['last_seen_on']!==$actual)) {
             // Unknown commissioning age must NOT count as a stable learning window.
