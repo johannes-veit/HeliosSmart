@@ -34,6 +34,7 @@ require_once __DIR__ . '/../libs/FanAttribution.php';
 require_once __DIR__ . '/../libs/NativeHeliosCoordination.php';
 require_once __DIR__ . '/../libs/SeasonProgramControl.php';
 require_once __DIR__ . '/../libs/SmartFanAuto.php';
+require_once __DIR__ . '/../libs/SmartFanReliability.php';
 require_once __DIR__ . '/../libs/FanDemandTracker.php';
 require_once __DIR__ . '/../libs/SmartFanCoolingGate.php';
 require_once __DIR__ . '/../libs/ChatGPTDiagnostic.php';
@@ -79,6 +80,7 @@ class HeliosSmart extends IPSModule
         $this->RegisterPropertyBoolean('EnableSmartFanTakeover',false);
         $this->RegisterPropertyBoolean('EnableAwayEconomy',true);
         $this->RegisterAttributeString('SmartFanTakeoverState','{}');
+        $this->RegisterAttributeString('SmartFanReliabilityState','{}');
         $this->RegisterAttributeString('FanDemandHistory','{}');
         $this->RegisterAttributeString('ChatGPTDiagnosticState','{}');
         $this->RegisterPropertyBoolean('EnableNightQuiet',false);
@@ -100,6 +102,8 @@ class HeliosSmart extends IPSModule
         $this->RegisterAttributeInteger('OwnedPartyLevel',0);
         $this->RegisterAttributeInteger('OwnedPartyProgram',0);
         $this->RegisterTimer('SmartTick',0,'JVHS_Evaluate($_IPS[\'TARGET\']);');
+        $this->RegisterTimer('SmartFanRenewalTick',0,
+            'JVHS_CheckSmartFanRenewal($_IPS[\'TARGET\']);');
         $this->RegisterTimer('EWTPumpFeedbackTick',0,'JVHS_CheckEWTPumpFeedback($_IPS[\'TARGET\']);');
         $this->RegisterVariableString('Status','Entscheidung / Status','',10);
         $this->RegisterVariableString('DecisionJSON','Letzte Empfehlung JSON','',20);
@@ -140,6 +144,8 @@ class HeliosSmart extends IPSModule
             'SMART-Lueftung – aktive Stufenwahl / Fallback JSON','',64);
         $this->RegisterVariableString('ChatGPTDiagnosis',
             'Diagnose senden an ChatGPT','',65);
+        $this->RegisterVariableString('SmartFanReliabilityJSON',
+            'SMART-Lueftung – Stabilitaet / Ereignisse JSON','',66);
         if(method_exists($this,'EnableAction')) {
             $this->EnableAction('EWTPumpModeManual');
             $this->EnableAction('EWTPumpSwitch');
@@ -154,6 +160,12 @@ class HeliosSmart extends IPSModule
         parent::ApplyChanges();
         $this->SetValue('Monitoring',!$this->ReadPropertyBoolean('EnableControl'));
         $this->SetTimerInterval('SmartTick',5*60*1000);
+        // Independent lightweight watchdog: normal room/weather learning remains
+        // at 5 minutes; safe SMART renewal gets a larger timer-expiry margin.
+        $this->SetTimerInterval('SmartFanRenewalTick',
+            $this->ReadPropertyBoolean('EnableControl')
+            && $this->ReadPropertyBoolean('EnableSmartFanTakeover')
+                ? 2*60*1000 : 0);
         // Pending Shelly readback timer is enabled only while awaiting feedback.
         $ewtState=json_decode($this->ReadAttributeString('EWTPumpControlState'),true);
         $this->SetTimerInterval('EWTPumpFeedbackTick',
@@ -716,6 +728,19 @@ class HeliosSmart extends IPSModule
         }
     }
 
+    /** Only the active SMART-owned 15-minute mode is eligible for early renewal.
+     * Never sends a blind command; Evaluate rechecks ALL original safeguards.
+     */
+    public function CheckSmartFanRenewal(): void
+    {
+        if (!$this->ReadPropertyBoolean('EnableControl')
+            || !$this->ReadPropertyBoolean('EnableSmartFanTakeover')) return;
+        $state=json_decode($this->ReadAttributeString('SmartFanTakeoverState'),true);
+        if(!is_array($state) || !JVHeliosSmartFanReliability::renewalDue($state,time()))
+            return;
+        $this->Evaluate();
+    }
+
     private function ReadSmartFanSensorEvidence(int $now): array
     {
         $native=$this->ReadPropertyInteger('HeliosInstance');
@@ -925,7 +950,7 @@ class HeliosSmart extends IPSModule
             }
             if($owned && $mode===$desiredMode
                 && (int)($state['stage']??0)===$level
-                && $since>=0 && $since<10*60){
+                && $since>=0 && $since<JVHeliosSmartFanReliability::RENEW_AFTER_SECONDS){
                 $result['status']='SMART_OWNED_ACTIVE_WAIT_RENEWAL';
                 $result['verified']=($live['fan']??null)===$level;
                 $result['fallback_weekly']=false;
@@ -2247,6 +2272,9 @@ class HeliosSmart extends IPSModule
                 'smart_effective'=>$d['smart_fan_effective_state']??'NICHT_BESTAETIGT',
                 'smart_ownership'=>$pick($smartState,['sent_at','until','stage',
                     'mode','quiet_started_at','quiet_cooldown_until','error_retry_after']),
+                'smart_reliability'=>$d['smart_fan_reliability']
+                    ??JVHeliosSmartFanReliability::diagnostic(
+                        (array)(json_decode($this->ReadAttributeString('SmartFanReliabilityState'),true)??[])),
                 'season'=>[
                     'signal'=>$d['season_signal']??null,
                     'climate'=>$d['climate_mode']??null,
@@ -2392,6 +2420,14 @@ class HeliosSmart extends IPSModule
 
     public function Evaluate(): void
     {
+        // Watchdog and normal evaluation can meet in the same second.
+        // Serialize the complete evaluation to protect learning attributes,
+        // takeover ownership and Helios actions from concurrent writers.
+        $hasLock=function_exists('IPS_SemaphoreEnter')
+            && function_exists('IPS_SemaphoreLeave');
+        $lock='JVHeliosEvaluate_'.$this->InstanceID;
+        if($hasLock && !IPS_SemaphoreEnter($lock,1000)) return;
+        try {
         $now=time();
         $weather=['quality'=>'UNAVAILABLE','current'=>null,'forecast'=>[]];
         [$id, $weatherConnection] = $this->FindWeatherCenter();
@@ -2989,6 +3025,30 @@ class HeliosSmart extends IPSModule
         $this->SetValue('FanStageCause',$fanCause['status']);
         $this->SetValue('FanStageCauseJSON',
             json_encode($fanCause,JSON_UNESCAPED_UNICODE));
+        // Log PRE-command native AUTO/S4 even when this same tick has already
+        // restored the confirmed SMART stage. No commands, bounded history.
+        $oldReliability=json_decode(
+            $this->ReadAttributeString('SmartFanReliabilityState'),true);
+        $reliability=JVHeliosSmartFanReliability::observe(
+            is_array($oldReliability)?$oldReliability:[],[
+                'enabled'=>$smartEnabled,
+                'before'=>$live,
+                'after'=>['mode'=>$deviceStatus['mode'],
+                    'fan'=>$deviceStatus['fan']],
+                'plan'=>$smartPlan,
+                'execution'=>$smartExecution,
+                'native_extract_rh'=>$sensorEvidence['native_extract_rh'],
+                'weather_quality'=>$decision['weather_quality']??'UNAVAILABLE',
+                'owned_until'=>(int)($smartStateNow['until']??0),
+                'command_sent_at'=>(int)($smartStateNow['sent_at']??0),
+                'retry_after'=>(int)($smartStateNow['error_retry_after']??0),
+            ],$now);
+        $this->WriteAttributeString('SmartFanReliabilityState',
+            json_encode($reliability,JSON_UNESCAPED_UNICODE));
+        $decision['smart_fan_reliability']=
+            JVHeliosSmartFanReliability::diagnostic($reliability);
+        $this->SetValue('SmartFanReliabilityJSON',json_encode(
+            $decision['smart_fan_reliability'],JSON_UNESCAPED_UNICODE));
         $decision['safe_to_execute']=$smartEnabled
             ?($smartPlan['execute']??false)===true
                 && ($native['write_allowed']??false)===true
@@ -3037,5 +3097,8 @@ class HeliosSmart extends IPSModule
         // one self-contained snapshot suitable for copy/paste.
         $this->PublishChatGPTDiagnosis($decision,$weather,$tracking['rooms'],
             $missingRooms,$humiditySources,$now);
+        } finally {
+            if($hasLock) IPS_SemaphoreLeave($lock);
+        }
     }
 }

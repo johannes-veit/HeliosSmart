@@ -370,6 +370,20 @@ $active->Evaluate();
 $smartWait=json_decode($active->value('DecisionJSON'),true);
 it(($smartWait['smart_fan_execution']['status']??'')==='SMART_OWNED_ACTIVE_WAIT_RENEWAL',
     'no command flood during first 10 minutes');
+$active->WriteAttributeString('SmartFanTakeoverState',json_encode([
+    'sent_at'=>time()-8*60,'until'=>time()+7*60,
+    'stage'=>3,'mode'=>2,'prior_program'=>3]));
+$beforeWatchdog=count($GLOBALS['calls']);
+$active->CheckSmartFanRenewal();
+$watched=json_decode($active->value('DecisionJSON'),true);
+it(($watched['smart_fan_execution']['status']??'')==='SMART_STAGE_CONFIRMED'
+    && count($GLOBALS['calls'])===$beforeWatchdog+1
+    && $GLOBALS['calls'][count($GLOBALS['calls'])-1][0]==='party',
+    '2-minute renewal watchdog safely invokes full Evaluate before own timer expiry');
+$active->CheckSmartFanRenewal();
+it(count($GLOBALS['calls'])===$beforeWatchdog+1,
+    'repeated watchdog tick does not flood Helios with fresh Party commands');
+
 $GLOBALS['weatherForTest']=['quality'=>'UNAVAILABLE','current'=>null,'forecast'=>[]];
 $active->Evaluate();
 $fallback=json_decode($active->value('DecisionJSON'),true);
@@ -470,6 +484,10 @@ it(($hotRh['smart_fan_takeover']['reason']??'')
 $GLOBALS['nativeExtractRh']=53;
 $healthSim->Evaluate();
 $nativeSafe=json_decode($healthSim->value('DecisionJSON'),true);
+$trace=json_decode((string)$healthSim->value('SmartFanReliabilityJSON'),true);
+it(($trace['last_kind']??'')==='AUTO_S4_RECOVERED_BY_SMART'
+    && ($trace['recent_events'][count($trace['recent_events'])-1]['before_stage']??null)===4,
+    'event log retains vendor AUTO/S4 even when SMART stage already confirmed');
 it(($nativeSafe['smart_fan_execution']['status']??'')
         ==='SMART_STAGE_CONFIRMED'
     && ($nativeSafe['fan_stage_attribution']['kind']??'')

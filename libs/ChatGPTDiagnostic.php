@@ -52,6 +52,7 @@ final class JVHeliosChatGPTDiagnostic
                 'Schaltbestaetigung / Fallback'=>$f['smart_execution']??null,
                 'Effektiver Zustand'=>$f['smart_effective']??null,
                 'Besitz-/Zeitfenster'=>$f['smart_ownership']??null,
+                'SMART-Stabilitaet / letzte Ereignisse'=>$f['smart_reliability']??null,
                 'Rueckfall-/Saisonprogramm'=>$f['season']??null,
                 'Legacy Party/Ruhe'=>$f['legacy']??null,
             ],
