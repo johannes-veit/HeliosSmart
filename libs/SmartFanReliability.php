@@ -101,16 +101,20 @@ final class JVHeliosSmartFanReliability
             ];
         }
         $events = array_slice($oldEvents, -self::MAX_EVENTS);
-        $sent = ($exec['sent'] ?? false) === true;
+        // Count a real device command once by its persisted sent_at. A replay
+        // of a diagnostic snapshot does not create another command.
+        $commandSentAt=(int)($x['command_sent_at'] ?? $now);
+        $sent = ($exec['sent'] ?? false) === true
+            && $commandSentAt > (int)($old['last_own_command_sent_at'] ?? 0);
         $confirmed = $sent && $verified;
         return [
             'version' => 1,
             'fingerprint' => $fingerprint,
             'last_seen_at' => $now,
             'last_kind' => $kind,
-            'last_own_command_sent_at' => $sent ? $now
+            'last_own_command_sent_at' => $sent ? $commandSentAt
                 : (int)($old['last_own_command_sent_at'] ?? 0),
-            'last_own_command_confirmed_at' => $confirmed ? $now
+            'last_own_command_confirmed_at' => $confirmed ? $commandSentAt
                 : (int)($old['last_own_command_confirmed_at'] ?? 0),
             'confirmed_command_count' => min(1000000,
                 (int)($old['confirmed_command_count'] ?? 0) + ($confirmed ? 1 : 0)),
