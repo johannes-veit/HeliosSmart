@@ -46,12 +46,38 @@ ckFan($dec(['strong_wet_need'=>true])['fallback_weekly']===true,
 ckFan($dec(['strong_wet_need'=>true,'actual_fan'=>3])['fallback_weekly']===true,
  'strong wetroom preserves native sensor authority even when level was S3');
 ckFan($dec(['strong_wet_need'=>true,'high_power_enabled'=>true,
-    'high_power_safety'=>true,'combustion_safe'=>true])['target_stage']===3,
- 'strong wetroom hints start at stage3 despite high-power opt-in');
+    'high_power_safety'=>true,'combustion_safe'=>true])['target_stage']===4,
+ 'confirmed shower needs S4 with explicit high power approvals');
 ckFan($dec(['strong_cooking_need'=>true,'cooking_confirmed'=>true,
     'high_power_enabled'=>true,'high_power_safety'=>true,
-    'combustion_safe'=>true])['target_stage']===3,
- 'strong cooking uses stage3 first');
+    'combustion_safe'=>true])['target_stage']===4,
+ 'confirmed cooking with multiple independent signals needs S4');
+ckFan($dec(['strong_cooking_need'=>true,'cooking_confirmed'=>true,
+    'native_sensor_control_unverified'=>true,
+    'high_power_enabled'=>true,'high_power_safety'=>true,
+    'combustion_safe'=>true,'actual_fan'=>2])['target_stage']===4,
+ 'unverified native CO2/VOC permits only verified high-power S4 escalation');
+ckFan(!$dec(['strong_cooking_need'=>true,'cooking_confirmed'=>true,
+    'native_sensor_control_unverified'=>true,
+    'high_power_enabled'=>true,'high_power_safety'=>true,
+    'combustion_safe'=>true,'actual_fan'=>4])['execute'],
+ 'manufacturer S4 left alone even if cooking evidence appears');
+ckFan(!$dec(['strong_cooking_need'=>true,'cooking_confirmed'=>true,
+    'native_sensor_control_unverified'=>true,
+    'high_power_enabled'=>false,'high_power_safety'=>true,
+    'combustion_safe'=>true])['execute'],
+ 'no high-power approval means no exception to unverified sensor veto');
+ckFan(!$dec(['strong_cooking_need'=>true,'cooking_confirmed'=>true,
+    'native_sensor_control_unverified'=>true,
+    'native_defrost_active'=>true,
+    'high_power_enabled'=>true,'high_power_safety'=>true,
+    'combustion_safe'=>true])['execute'],
+ 'manufacturer defrost always wins over cooking S4');
+ckFan(!$dec(['strong_wet_need'=>true,'native_sensor_control_unverified'=>true,
+    'native_sensor_stale'=>true,
+    'high_power_enabled'=>true,'high_power_safety'=>true,
+    'combustion_safe'=>true])['execute'],
+ 'actual native sensor read failure always vetoes party even during shower');
 ckFan($dec(['max_co2_ppm'=>1550,'high_power_enabled'=>true,
     'high_power_safety'=>true,'combustion_safe'=>true])['target_stage']===4,
  'native elevated CO2 may still require stage4');
