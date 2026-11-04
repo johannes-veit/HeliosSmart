@@ -46,8 +46,26 @@ ckFan($dec(['strong_wet_need'=>true])['fallback_weekly']===true,
 ckFan($dec(['strong_wet_need'=>true,'actual_fan'=>3])['fallback_weekly']===true,
  'strong wetroom preserves native sensor authority even when level was S3');
 ckFan($dec(['strong_wet_need'=>true,'high_power_enabled'=>true,
+    'high_power_safety'=>true,'combustion_safe'=>true])['target_stage']===3,
+ 'strong wetroom hints start at stage3 despite high-power opt-in');
+ckFan($dec(['strong_cooking_need'=>true,'cooking_confirmed'=>true,
+    'high_power_enabled'=>true,'high_power_safety'=>true,
+    'combustion_safe'=>true])['target_stage']===3,
+ 'strong cooking uses stage3 first');
+ckFan($dec(['max_co2_ppm'=>1550,'high_power_enabled'=>true,
     'high_power_safety'=>true,'combustion_safe'=>true])['target_stage']===4,
- 'strong verified humidity permits stage4 only after all explicit safety checks');
+ 'native elevated CO2 may still require stage4');
+ckFan($dec(['model_airflow_accepted'=>true,
+    'away_daytime_low_demand'=>true,'quiet_requested'=>false])
+    ['reason']==='AWAY_DAYTIME_AFTER_OBSERVED_MORNING_VENTILATION',
+ 'after proven flush and away low demand choose bounded stage1');
+ckFan($dec(['away_daytime_low_demand'=>true,'quiet_requested'=>false,
+    'model_airflow_accepted'=>false,'minimum_airflow_validated'=>false])
+    ['target_stage']===3,
+ 'away does not bypass missing minimum airflow permission');
+ckFan(!$dec(['away_daytime_low_demand'=>true,
+    'native_sensor_control_unverified'=>true])['execute'],
+ 'away does not bypass unknown original CO2 VOC control');
 ckFan($dec(['max_co2_ppm'=>1500,'minimum_airflow_validated'=>true])
  ['fallback_weekly']===true,
  'high native CO2 without high-power approval returns complete device priority');
