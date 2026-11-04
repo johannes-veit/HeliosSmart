@@ -3040,6 +3040,7 @@ class HeliosSmart extends IPSModule
                 'native_extract_rh'=>$sensorEvidence['native_extract_rh'],
                 'weather_quality'=>$decision['weather_quality']??'UNAVAILABLE',
                 'owned_until'=>(int)($smartStateNow['until']??0),
+                'command_sent_at'=>(int)($smartStateNow['sent_at']??0),
                 'retry_after'=>(int)($smartStateNow['error_retry_after']??0),
             ],$now);
         $this->WriteAttributeString('SmartFanReliabilityState',
