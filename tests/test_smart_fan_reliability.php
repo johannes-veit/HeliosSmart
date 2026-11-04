@@ -30,6 +30,7 @@ $base=[
     'execution'=>['status'=>'SMART_STAGE_CONFIRMED','sent'=>true,'verified'=>true],
     'native_extract_rh'=>49,'weather_quality'=>'VERIFIED',
     'owned_until'=>$now+900,'retry_after'=>0,
+    'command_sent_at'=>$now,
 ];
 $a=JVHeliosSmartFanReliability::observe([],$base,$now);
 reliabilityAssert($a['last_kind']==='AUTO_S4_RECOVERED_BY_SMART'
