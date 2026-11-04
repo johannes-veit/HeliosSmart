@@ -83,14 +83,6 @@ final class JVHeliosSmartFanAuto
             $out['reason']='NATIVE_DEFROST_STATUS_UNKNOWN_NEAR_FREEZING';
             return $out;
         }
-        // Manufacturer sensor-driven stages must not be overridden merely
-        // because their CO2/VOC or exhaust RH telemetry is absent. When a
-        // controller is enabled but its measurement is not represented
-        // in the SMART inputs, let the original regulator stay in charge.
-        if(($d['native_sensor_control_unverified']??false)===true){
-            $out['reason']='NATIVE_SENSOR_REGULATION_UNVERIFIED';
-            return $out;
-        }
         $wet=(bool)($d['wet_need']??false);
         $cook=(bool)($d['cooking_confirmed']??false);
         $cool=(bool)($d['cooling_confirmed']??false);
@@ -99,10 +91,24 @@ final class JVHeliosSmartFanAuto
         $highPower=(bool)($d['high_power_enabled']??false)
             && (bool)($d['high_power_safety']??false)
             && (bool)($d['combustion_safe']??false);
+        $provenBoost4=$highPower && ($strongWet || $strongCook);
+        $nativeUnverified=($d['native_sensor_control_unverified']??false)===true;
+        // An unverified native sensor controller forbids EVERY downshift.
+        // The sole exception: an independently detected strong shower/cook
+        // event may request the already-authorized MAXIMUM S4 for 15 min.
+        // This never lowers the current airflow and cannot suppress an
+        // unknown higher CO2/VOC stage. Anti-icing and stale sensors remain
+        // strict vetoes above. Already-running manufacturer S4 is left alone.
+        if($nativeUnverified && (!$provenBoost4 || $fan===4)){
+            $out['reason']=$fan===4 && $provenBoost4
+                ?'NATIVE_S4_ALREADY_RUNNING_KEEP_MANUFACTURER'
+                :'NATIVE_SENSOR_REGULATION_UNVERIFIED';
+            return $out;
+        }
         // A genuinely high native CO2/VOC sensor request must NOT be
         // silently downgraded to S3 simply because S4 approval is absent.
         // Keep the manufacturer's own sensor/weekly regulation in charge.
-        if($nativeMoistureCaution){
+        if($nativeMoistureCaution && !$provenBoost4){
             $out['reason']='NATIVE_EXTRACT_HUMIDITY_ELEVATED_KEEP_DEVICE';
             return $out;
         }
@@ -123,14 +129,14 @@ final class JVHeliosSmartFanAuto
         }
         // Safety-priority cases always beat energy savings or absence.
         if($strongWet || $strongCook || $badAir || $nativeHighRh){
-            // Local shower/cooking signals first get S3, not costly S4.
-            // Independently high native CO2/VOC or extract RH may still
-            // request S4 when all original safety approvals are present.
-            $level=($badAir || $nativeHighRh) && $highPower?4:3;
+            // Shower/cook now get a short high-power boost IF confirmed
+            // and specifically authorized. Normal humidity & calendar
+            // alone never trigger S4.
+            $level=$highPower?4:3;
             $reason=$badAir?'NATIVE_CO2_OR_VOC_HIGH'
                 :($nativeHighRh?'NATIVE_HUMIDITY_HIGH'
-                    :($strongWet?'STRONG_WETROOM_STAGE3_FIRST'
-                        :'CONFIRMED_COOKING_STAGE3_FIRST'));
+                    :($strongWet?'CONFIRMED_WETROOM_S4_BOOST'
+                        :'CONFIRMED_COOKING_S4_BOOST'));
         } elseif($wet || $cook || $cool){
             $level=3;
             $reason=$wet?'WETROOM_AIR_NEED':($cook?'COOKING':'SAFE_PASSIVE_COOLING');
@@ -168,6 +174,9 @@ final class JVHeliosSmartFanAuto
             'high_native_extract_rh'=>$nativeHighRh,
             'wetroom_demand'=>$wet,
             'cooking_demand'=>$cook,
+            'strong_wetroom_event'=>$strongWet,
+            'strong_cooking_event'=>$strongCook,
+            'native_sensor_unverified_high_only'=>$nativeUnverified,
             'cooling_demand'=>$cool,
             'model_airflow_accepted'=>(bool)($d['model_airflow_accepted']??false),
             'minimum_airflow_validated'=>(bool)($d['minimum_airflow_validated']??false),
