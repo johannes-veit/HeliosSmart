@@ -304,7 +304,7 @@ class HeliosSmart extends IPSModule
                 ['type'=>'CheckBox','name'=>'EnableProgramSwitch','caption'=>'Rueckfall-Wochenprofil saisonal anpassen: im Heizbetrieb Sommerprofil 4 durch Normalprofil 3 ersetzen'],
                 ['type'=>'CheckBox','name'=>'EnableSmartFanTakeover','caption'=>'SMART uebernimmt Stufen 1–4 mit nativen 15-Minuten-Zeitbefehlen; Wochenprogramm bleibt nur Rueckfallebene'],
                 ['type'=>'CheckBox','name'=>'EnableAwayEconomy','caption'=>'Abwesenheits-Sparlueftung: nach morgens beobachteter Durchlueftung, 30 Min frischen Nicht-Zuhause-Handyhinweisen und unkritischer Luftfeuchte kurzzeitig Stufe 1 (nur mit Luftmengenfreigabe); nie AUS'],
-                ['type'=>'Label','caption'=>'Stufe 4 nur fuer nachgewiesene hohe native Abluftfeuchte / CO2-/VOC-Werte. Kochen / Bad zuerst Stufe 3. Hersteller-S4 kann SMART nur nach vollstaendiger Pruefung der Original-Sensorregelung reduzieren. Feuchteschutz erfordert bei Abwesenheit weiterhin Lueftung. KEIN automatisches AUS.'],
+                ['type'=>'Label','caption'=>'Stufe 4 fuer bestaetigtes Kochen (mehrere Strom-/Bewegungsbelege) oder Badfeuchteanstieg mit Mehrfachereignis, jeweils maximal 15 min und nur mit S4-Sicherheitsfreigaben. Normale RH-/Uhrzeitwerte erzeugen keine Stufe 4. Unklare native CO2/VOC-Sensorregelung sperrt jede Absenkung, aber nicht den kurzen, bereits freigegebenen S4-Boost. Herstellerdefrost hat Vorrang. Kein automatisches AUS.'],
                 ['type'=>'Label','caption'=>'SMART-PRIORITAET: Bei frischem Wetter, mindestens 9 Raumtemperaturen, 8 Raumfeuchten, funktionsfaehiger Original-Helios-Steuerung und Freigabe steuert SMART mit geraeteseitig zeitbegrenzten Party/Ruhe-Befehlen. Ohne Mess-/Betriebsnachweis oder bei Abbruch endet die eigene Anforderung nach spaetestens 15 Minuten und das Herstellerwochenprogramm uebernimmt. Unterhalb nomineller Stufe 3 nur bei ausdruecklicher Luftmengen-/Modellfreigabe.'],
 
                 ['type'=>'Label','caption'=>'SOMMERPROFIL 4 -> NORMAL-/WINTERPROFIL 3 bei lokaler Kälte und nachweislich gesundem Helios AUTO. Kein dauerhaftes MANUELL: das Original geraeteregelt CO2/Feuchte/VOC und Wochenprogramm bleibt aktiv. Automatische Absenkung einer eventuell echten Sensor-Anforderung Stufe 4 ist nicht freigegeben.'],
@@ -2710,13 +2710,24 @@ class HeliosSmart extends IPSModule
                 &&(float)$wet['gradient_to_outside_gm3']>=4.0)
                 $strongWet=true;
         }
+        // Preserve strong cooking evidence even when vendor/SMART is already
+        // at S4 (the CookingAdvisor then correctly doesn't suggest a boost).
+        // Historical 15min cooking hold means S3 after-run, not new S4.
         $cookStatus=(string)($decision['cooking_advice']['classification']??'');
-        $cookingConfirmed=($decision['cooking_advice']['potential_odor_boost']??false)===true
-            &&in_array($cookStatus,[
-                'COOKING_LIKELY','COOKING_ACTIVITY_LIKELY',
-                'COOKING_RECENTLY_LIKELY','COOKING_ACTIVITY_RECENT'],true);
-        $cookingStrong=$cookingConfirmed && $cookStatus==='COOKING_LIKELY'
-            &&($decision['cooking_advice']['power_multiple_samples']??false)===true;
+        $activeCooking=in_array($cookStatus,[
+            'COOKING_LIKELY','COOKING_ACTIVITY_LIKELY'],true);
+        $cookingConfirmed=$activeCooking
+            ||(($decision['cooking_advice']['potential_odor_boost']??false)===true
+                &&in_array($cookStatus,[
+                    'COOKING_RECENTLY_LIKELY','COOKING_ACTIVITY_RECENT'],true));
+        $cookingStrong=$activeCooking && (
+            ($decision['cooking_advice']['power_multiple_samples']??false)===true
+            ||($decision['cooking_advice']['power_moderate_distinct_updates']??false)===true);
+        // Wetroom trends are two independent sensor changes with >=6 pp
+        // rise; a raw RH value or an unverified "shower" guess is not enough.
+        $trendRise=is_array($wetroomTrend['observed_rises']??null)
+            &&count($wetroomTrend['observed_rises'])>0;
+        $strongWet=$strongWet || ($wetActual && $trendRise);
         $weatherNow=is_numeric($decision['outside_temperature']??null)
             ?(float)$decision['outside_temperature']:null;
         $nativeHumidityConfigured=
