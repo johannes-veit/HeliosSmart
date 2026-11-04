@@ -34,6 +34,7 @@ require_once __DIR__ . '/../libs/FanAttribution.php';
 require_once __DIR__ . '/../libs/NativeHeliosCoordination.php';
 require_once __DIR__ . '/../libs/SeasonProgramControl.php';
 require_once __DIR__ . '/../libs/SmartFanAuto.php';
+require_once __DIR__ . '/../libs/FanDemandTracker.php';
 require_once __DIR__ . '/../libs/SmartFanCoolingGate.php';
 require_once __DIR__ . '/../libs/ChatGPTDiagnostic.php';
 /** Vorhersagegestützter Beobachter; Aktor nur nach expliziter Freigabe. */
@@ -76,7 +77,9 @@ class HeliosSmart extends IPSModule
         $this->RegisterPropertyBoolean('DevicePartyReturnValidated',false);
         $this->RegisterPropertyBoolean('EnableProgramSwitch',false);
         $this->RegisterPropertyBoolean('EnableSmartFanTakeover',false);
+        $this->RegisterPropertyBoolean('EnableAwayEconomy',true);
         $this->RegisterAttributeString('SmartFanTakeoverState','{}');
+        $this->RegisterAttributeString('FanDemandHistory','{}');
         $this->RegisterAttributeString('ChatGPTDiagnosticState','{}');
         $this->RegisterPropertyBoolean('EnableNightQuiet',false);
         $this->RegisterAttributeString('RoomHistory', '{}');
@@ -300,6 +303,8 @@ class HeliosSmart extends IPSModule
                 ['type'=>'CheckBox','name'=>'EnableControl','caption'=>'Aktive SMART-Lueftung: eigene zeitlich begrenzte Zusatzbefehle erlauben, nur nach Sicherheitsfreigaben'],
                 ['type'=>'CheckBox','name'=>'EnableProgramSwitch','caption'=>'Rueckfall-Wochenprofil saisonal anpassen: im Heizbetrieb Sommerprofil 4 durch Normalprofil 3 ersetzen'],
                 ['type'=>'CheckBox','name'=>'EnableSmartFanTakeover','caption'=>'SMART uebernimmt Stufen 1–4 mit nativen 15-Minuten-Zeitbefehlen; Wochenprogramm bleibt nur Rueckfallebene'],
+                ['type'=>'CheckBox','name'=>'EnableAwayEconomy','caption'=>'Abwesenheits-Sparlueftung: nach morgens beobachteter Durchlueftung, 30 Min frischen Nicht-Zuhause-Handyhinweisen und unkritischer Luftfeuchte kurzzeitig Stufe 1 (nur mit Luftmengenfreigabe); nie AUS'],
+                ['type'=>'Label','caption'=>'Stufe 4 nur fuer nachgewiesene hohe native Abluftfeuchte / CO2-/VOC-Werte. Kochen / Bad zuerst Stufe 3. Hersteller-S4 kann SMART nur nach vollstaendiger Pruefung der Original-Sensorregelung reduzieren. Feuchteschutz erfordert bei Abwesenheit weiterhin Lueftung. KEIN automatisches AUS.'],
                 ['type'=>'Label','caption'=>'SMART-PRIORITAET: Bei frischem Wetter, mindestens 9 Raumtemperaturen, 8 Raumfeuchten, funktionsfaehiger Original-Helios-Steuerung und Freigabe steuert SMART mit geraeteseitig zeitbegrenzten Party/Ruhe-Befehlen. Ohne Mess-/Betriebsnachweis oder bei Abbruch endet die eigene Anforderung nach spaetestens 15 Minuten und das Herstellerwochenprogramm uebernimmt. Unterhalb nomineller Stufe 3 nur bei ausdruecklicher Luftmengen-/Modellfreigabe.'],
 
                 ['type'=>'Label','caption'=>'SOMMERPROFIL 4 -> NORMAL-/WINTERPROFIL 3 bei lokaler Kälte und nachweislich gesundem Helios AUTO. Kein dauerhaftes MANUELL: das Original geraeteregelt CO2/Feuchte/VOC und Wochenprogramm bleibt aktiv. Automatische Absenkung einer eventuell echten Sensor-Anforderung Stufe 4 ist nicht freigegeben.'],
@@ -2203,6 +2208,7 @@ class HeliosSmart extends IPSModule
                 'flags'=>[
                     'EnableControl'=>$this->ReadPropertyBoolean('EnableControl'),
                     'EnableSmartFanTakeover'=>$this->ReadPropertyBoolean('EnableSmartFanTakeover'),
+                    'EnableAwayEconomy'=>$this->ReadPropertyBoolean('EnableAwayEconomy'),
                     'EnableProgramSwitch'=>$this->ReadPropertyBoolean('EnableProgramSwitch'),
                     'EnableNightQuiet'=>$this->ReadPropertyBoolean('EnableNightQuiet'),
                     'MinimumVentilationValidated'=>$this->ReadPropertyBoolean('MinimumVentilationValidated'),
@@ -2306,6 +2312,13 @@ class HeliosSmart extends IPSModule
                 'missing_rooms'=>array_slice(array_map('strval',$missing),0,25),
                 'humidity_only'=>$rhOnly,
                 'ventilation'=>[
+                    'away_stage4_monitor'=>$pick((array)($d['fan_demand_tracking']??[]),
+                        ['status','away_low_demand_eligible','both_nonhome_phone_hints_fresh',
+                        'away_hint_contiguous_minutes','morning_ventilation_observed',
+                        'morning_ventilation_samples_5min','off_authorized','off_reason',
+                        'stage4_samples_24h','stage4_auto_samples_24h',
+                        'stage4_timed_samples_24h','all_samples_24h',
+                        'stage4_minutes_are_not_measured','phone_hints_are_not_house_empty_proof']),
                     'need'=>$pick((array)($d['ventilation_need']??[]),
                         ['classification','summary']),
                     'comfort'=>$pick((array)($d['comfort_control']??[]),
@@ -2721,6 +2734,32 @@ class HeliosSmart extends IPSModule
             ||($vocConfigured && (int)$sensorEvidence['voc_sensor_count']===0);
         $coolingGate=JVHeliosSmartCoolingGate::decide($decision);
         $decision['smart_cooling_gate']=$coolingGate;
+        // Observe the real vendor stage even when native sensor ambiguity
+        // prevents SMART actuation. This history never controls the device.
+        $maxRoomRh=null;
+        foreach((array)($tracking['rooms']??[]) as $room){
+            if(!is_array($room)||!is_numeric($room['rh']??null))continue;
+            $when=(int)($room['humidity_observed_at']??0);
+            if($when<=0||$when>$now+120||$now-$when>45*60)continue;
+            $maxRoomRh=max($maxRoomRh??0.,(float)$room['rh']);
+        }
+        $history=json_decode($this->ReadAttributeString('FanDemandHistory'),true);
+        $history=JVHeliosFanDemandTracker::update(
+            is_array($history)?$history:[],[
+                'fan'=>$deviceStatus['fan'],
+                'mode'=>$deviceStatus['mode'],
+                'fan_fresh'=>$live!==null,
+                'occupancy'=>$decision['occupancy_advice']??[],
+                'max_room_rh'=>$maxRoomRh,
+                'native_extract_rh'=>$sensorEvidence['native_extract_rh'],
+                'room_humidity_count'=>$decision['fresh_humidity_room_count']??0,
+                'wet_need'=>$wetActual,
+                'cooking_confirmed'=>$cookingConfirmed,
+                'cooling_confirmed'=>($coolingGate['cooling_confirmed']??false)===true,
+            ],$now);
+        $this->WriteAttributeString('FanDemandHistory',
+            json_encode($history['state'],JSON_UNESCAPED_UNICODE));
+        $decision['fan_demand_tracking']=$history['advice'];
         $smartPlan=JVHeliosSmartFanAuto::decide([
             'enabled'=>$smartEnabled,
             'native_ok'=>($native['write_allowed']??false)===true,
@@ -2755,6 +2794,8 @@ class HeliosSmart extends IPSModule
             'strong_cooking_need'=>$cookingStrong,
             'cooling_confirmed'=>($coolingGate['cooling_confirmed']??false)===true,
             'quiet_requested'=>($decision['night_strategy']['quiet_eligible']??false)===true,
+            'away_daytime_low_demand'=>$this->ReadPropertyBoolean('EnableAwayEconomy')
+                &&($history['advice']['away_low_demand_eligible']??false)===true,
             'quiet_started_at'=>(int)($smartState['quiet_started_at']??0),
             'quiet_cooldown_until'=>(int)($smartState['quiet_cooldown_until']??0),
             'minimum_airflow_validated'=>$this->ReadPropertyBoolean('MinimumVentilationValidated'),

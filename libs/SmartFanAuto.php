@@ -123,10 +123,14 @@ final class JVHeliosSmartFanAuto
         }
         // Safety-priority cases always beat energy savings or absence.
         if($strongWet || $strongCook || $badAir || $nativeHighRh){
-            $level=$highPower?4:3;
+            // Local shower/cooking signals first get S3, not costly S4.
+            // Independently high native CO2/VOC or extract RH may still
+            // request S4 when all original safety approvals are present.
+            $level=($badAir || $nativeHighRh) && $highPower?4:3;
             $reason=$badAir?'NATIVE_CO2_OR_VOC_HIGH'
                 :($nativeHighRh?'NATIVE_HUMIDITY_HIGH'
-                    :($strongWet?'STRONG_WETROOM_NEED':'CONFIRMED_COOKING'));
+                    :($strongWet?'STRONG_WETROOM_STAGE3_FIRST'
+                        :'CONFIRMED_COOKING_STAGE3_FIRST'));
         } elseif($wet || $cook || $cool){
             $level=3;
             $reason=$wet?'WETROOM_AIR_NEED':($cook?'COOKING':'SAFE_PASSIVE_COOLING');
@@ -136,11 +140,14 @@ final class JVHeliosSmartFanAuto
             $level=$canReduce?2:3; // S3 = nominal, not a fictitious minimum validation
             $reason=$canReduce?'ENERGY_EFFICIENT_BASE':'NOMINAL_FALLBACK_UNMEASURED_AIRFLOW';
             $quiet=(bool)($d['quiet_requested']??false);
+            $away=(bool)($d['away_daytime_low_demand']??false);
             $quietRecently=(int)($d['quiet_started_at']??0)>0
                 && $now-(int)$d['quiet_started_at']>=30*60;
             $quietCooldown=(int)($d['quiet_cooldown_until']??0)>$now;
-            if($quiet && $canReduce && !$quietRecently && !$quietCooldown){
-                $level=1;$reason='SHORT_LOW_DEMAND_QUIET';
+            if(($quiet || $away) && $canReduce && !$quietRecently && !$quietCooldown){
+                $level=1;
+                $reason=$away?'AWAY_DAYTIME_AFTER_OBSERVED_MORNING_VENTILATION'
+                    :'SHORT_LOW_DEMAND_QUIET';
             }
         }
         if($level===4 && !$highPower)$level=3;
