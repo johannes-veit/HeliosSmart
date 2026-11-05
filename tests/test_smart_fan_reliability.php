@@ -19,12 +19,21 @@ reliabilityAssert(!JVHeliosSmartFanReliability::nearExpectedNativeTimerReturn(
     array_replace($nearExpiry,['mode'=>0]),$now),
     'no vendor timer inference from manufacturer AUTO-only state');
 
-$s=['sent_at'=>$now-8*60,'until'=>$now+7*60,'mode'=>2,'stage'=>2];
+$renewed=['sent_at'=>$now-7*60,'until'=>$now+8*60,
+    'native_timer_anchor_at'=>$now-15*60,'mode'=>2,'stage'=>2];
+reliabilityAssert(JVHeliosSmartFanReliability::nearExpectedNativeTimerReturn(
+    $renewed,$now),
+    'an intra-mode command must not erase original 15-minute expiry anchor');
+$earlyReturn=$renewed;$earlyReturn['native_timer_anchor_at']=$now-11*60;
+reliabilityAssert(!JVHeliosSmartFanReliability::nearExpectedNativeTimerReturn(
+    $earlyReturn,$now),
+    'premature manufacturer AUTO is not falsely a normal hardware expiry');
+$s=['sent_at'=>$now-13*60,'until'=>$now+2*60,'mode'=>2,'stage'=>2];
 reliabilityAssert(JVHeliosSmartFanReliability::renewalDue($s,$now),
-    'valid owned stage eligible 7 minutes before device timer expires');
+    'watchdog requests safety reevaluation 2 minutes before timer expiry');
 reliabilityAssert(!JVHeliosSmartFanReliability::renewalDue(
-    array_replace($s,['sent_at'=>$now-6*60,'until'=>$now+9*60]),$now),
-    'avoid needless early command');
+    array_replace($s,['sent_at'=>$now-8*60,'until'=>$now+7*60]),$now),
+    'avoid unnecessary safety reevaluation 7 minutes before expiry');
 reliabilityAssert(!JVHeliosSmartFanReliability::renewalDue(
     array_replace($s,['until'=>$now]),$now),
     'expired ownership cannot renew from watcher');
