@@ -10,8 +10,9 @@ reliabilityAssert(JVHeliosSmartFanReliability::nearExpectedNativeTimerReturn(
     $nearExpiry,$now),
     'native AUTO near own 15min expiry is normal, not 30min device failure');
 reliabilityAssert(!JVHeliosSmartFanReliability::nearExpectedNativeTimerReturn(
-    array_replace($nearExpiry,['until'=>$now+10*60]),$now),
-    'unexpected early native AUTO remains a true fault');
+    array_replace($nearExpiry,[
+        'sent_at'=>$now-7*60,'until'=>$now+8*60]),$now),
+    'early AUTO seven minutes after initial command is not native timer expiry');
 reliabilityAssert(!JVHeliosSmartFanReliability::nearExpectedNativeTimerReturn(
     array_replace($nearExpiry,['error_retry_after'=>$now+1800]),$now),
     'actual pending failure backoff never bypassed');
