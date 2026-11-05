@@ -319,7 +319,7 @@ class HeliosSmart extends IPSModule
                 ['type'=>'CheckBox','name'=>'EnableControl','caption'=>'Aktive SMART-Lueftung: eigene zeitlich begrenzte Zusatzbefehle erlauben, nur nach Sicherheitsfreigaben'],
                 ['type'=>'CheckBox','name'=>'EnableProgramSwitch','caption'=>'Rueckfall-Wochenprofil saisonal anpassen: im Heizbetrieb Sommerprofil 4 durch Normalprofil 3 ersetzen'],
                 ['type'=>'CheckBox','name'=>'EnableSmartFanTakeover','caption'=>'SMART uebernimmt Stufen 1–4 mit nativen 15-Minuten-Zeitbefehlen; Wochenprogramm bleibt nur Rueckfallebene'],
-                ['type'=>'CheckBox','name'=>'EnableAwayEconomy','caption'=>'Abwesenheits-Sparlueftung: nach morgens beobachteter Durchlueftung, 30 Min frischen Nicht-Zuhause-Handyhinweisen und unkritischer Luftfeuchte kurzzeitig Stufe 1 (nur mit Luftmengenfreigabe); nie AUS'],
+                ['type'=>'CheckBox','name'=>'EnableAwayEconomy','caption'=>'Stromsparende Abwesenheits-Lueftung: 30 Min keine frischen Zuhause-Handyhinweise bei BEIDEN (auch Firma, Abwesend, Unklar), keine aktuelle Hausbewegung, vorher morgens ausreichend gelueftet, unkritische Feuchte; max. kurzzeitige Stufe 1, sonst Stufe 2; NIE unbeaufsichtigt AUS'],
                 ['type'=>'Label','caption'=>'Stufe 4 fuer bestaetigtes Kochen (mehrere Strom-/Bewegungsbelege) oder Badfeuchteanstieg mit Mehrfachereignis, jeweils maximal 15 min und nur mit S4-Sicherheitsfreigaben. Normale RH-/Uhrzeitwerte erzeugen keine Stufe 4. Unklare native CO2/VOC-Sensorregelung sperrt jede Absenkung, aber nicht den kurzen, bereits freigegebenen S4-Boost. Herstellerdefrost hat Vorrang. Kein automatisches AUS.'],
                 ['type'=>'Label','caption'=>'SMART-PRIORITAET: Bei frischem Wetter, mindestens 9 Raumtemperaturen, 8 Raumfeuchten, funktionsfaehiger Original-Helios-Steuerung und Freigabe steuert SMART mit geraeteseitig zeitbegrenzten Party/Ruhe-Befehlen. Ohne Mess-/Betriebsnachweis oder bei Abbruch endet die eigene Anforderung nach spaetestens 15 Minuten und das Herstellerwochenprogramm uebernimmt. Unterhalb nomineller Stufe 3 nur bei ausdruecklicher Luftmengen-/Modellfreigabe.'],
 
@@ -2403,7 +2403,8 @@ class HeliosSmart extends IPSModule
                 'ventilation'=>[
                     'away_stage4_monitor'=>$pick((array)($d['fan_demand_tracking']??[]),
                         ['status','away_low_demand_eligible','both_nonhome_phone_hints_fresh',
-                        'away_hint_contiguous_minutes','morning_ventilation_observed',
+                        'both_no_home_hints_fresh','home_hint_missing_is_not_absence_proof',
+                        'in_house_activity_veto','away_hint_contiguous_minutes','morning_ventilation_observed',
                         'morning_ventilation_samples_5min','off_authorized','off_reason',
                         'stage4_samples_24h','stage4_auto_samples_24h',
                         'stage4_timed_samples_24h','all_samples_24h',
@@ -2866,6 +2867,11 @@ class HeliosSmart extends IPSModule
                 'mode'=>$deviceStatus['mode'],
                 'fan_fresh'=>$live!==null,
                 'occupancy'=>$decision['occupancy_advice']??[],
+                'recent_house_activity'=>
+                    (($cookingInputs['motions']['Wohnkueche']['recent']??false)===true
+                    ||($cookingInputs['motions']['EG Flur']['recent']??false)===true
+                    ||($cookingStrong??false)===true
+                    ||($wetActual??false)===true),
                 'max_room_rh'=>$maxRoomRh,
                 'native_extract_rh'=>$sensorEvidence['native_extract_rh'],
                 'room_humidity_count'=>$decision['fresh_humidity_room_count']??0,
