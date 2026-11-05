@@ -35,6 +35,7 @@ require_once __DIR__ . '/../libs/NativeHeliosCoordination.php';
 require_once __DIR__ . '/../libs/SeasonProgramControl.php';
 require_once __DIR__ . '/../libs/SmartFanAuto.php';
 require_once __DIR__ . '/../libs/FanSmoothing.php';
+require_once __DIR__ . '/../libs/RecoveryGate.php';
 require_once __DIR__ . '/../libs/SmartFanReliability.php';
 require_once __DIR__ . '/../libs/FanDemandTracker.php';
 require_once __DIR__ . '/../libs/SmartFanCoolingGate.php';
@@ -82,6 +83,7 @@ class HeliosSmart extends IPSModule
         $this->RegisterPropertyBoolean('EnableAwayEconomy',true);
         $this->RegisterAttributeString('SmartFanTakeoverState','{}');
         $this->RegisterAttributeString('SmartFanSmoothingState','{}');
+        $this->RegisterAttributeString('SmartFanRecoveryState','{}');
         $this->RegisterAttributeString('SmartFanReliabilityState','{}');
         $this->RegisterAttributeString('FanDemandHistory','{}');
         $this->RegisterAttributeString('ChatGPTDiagnosticState','{}');
@@ -774,7 +776,7 @@ class HeliosSmart extends IPSModule
             try{
                 $fresh=HELIOS_HumidityControl_Internal_ExhaustAir_Get($native);
                 if(is_numeric($fresh) && is_finite((float)$fresh)
-                    && (float)$fresh>=0 && (float)$fresh<=100) {
+                    && (float)$fresh>=10 && (float)$fresh<=100) {
                     $out['native_extract_rh']=(float)$fresh;
                     $out['native_extract_rh_live']=true;
                 }
@@ -788,7 +790,9 @@ class HeliosSmart extends IPSModule
             $age=$now-(int)(IPS_GetVariable($extractRhID)['VariableUpdated']??0);
             if($out['native_extract_rh']!==null) {
                 // Real-time native read is the stronger timestamp.
-            }elseif($age>=0 && $age<=45*60 && is_numeric(GetValue($extractRhID)))
+            }elseif($age>=0 && $age<=45*60 && is_numeric(GetValue($extractRhID))
+                && (float)GetValue($extractRhID)>=10
+                && (float)GetValue($extractRhID)<=100)
                 $out['native_extract_rh']=(float)GetValue($extractRhID);
             else
                 $out['native_sensor_stale']=true;
@@ -2275,6 +2279,7 @@ class HeliosSmart extends IPSModule
                 'smart_ownership'=>$pick($smartState,['sent_at','until','stage',
                     'mode','quiet_started_at','quiet_cooldown_until','error_retry_after']),
                 'smart_smoothing'=>$d['smart_fan_smoothing']??[],
+                'smart_recovery'=>$d['smart_fan_recovery']??[],
                 'smart_reliability'=>$d['smart_fan_reliability']
                     ??JVHeliosSmartFanReliability::diagnostic(
                         (array)(json_decode($this->ReadAttributeString('SmartFanReliabilityState'),true)??[])),
@@ -2855,6 +2860,26 @@ class HeliosSmart extends IPSModule
             'high_power_safety'=>$this->ReadPropertyBoolean('HighPowerSafetyValidated'),
             'combustion_safe'=>$this->ReadPropertyBoolean('CombustionSafetyValidated'),
         ],$now);
+        // Safety-first return to original native regulation happens on the
+        // first invalid reading. Take back normal discretionary control only
+        // after a sustained healthy period; humidity has extra hysteresis.
+        $recoveryRaw=json_decode($this->ReadAttributeString('SmartFanRecoveryState'),true);
+        $recovery=JVHeliosRecoveryGate::assess($smartPlan,
+            is_array($recoveryRaw)?$recoveryRaw:[], [
+                'enabled'=>$smartEnabled,
+                'native_extract_rh'=>$sensorEvidence['native_extract_rh'],
+            ], $now);
+        $smartPlan=$recovery['plan'];
+        $this->WriteAttributeString('SmartFanRecoveryState',
+            json_encode($recovery['state'],JSON_UNESCAPED_UNICODE));
+        $decision['smart_fan_recovery']=[
+            'status'=>$recovery['status'],
+            'block_reason'=>$recovery['state']['block_reason'],
+            'since'=>$recovery['state']['recovery_since'],
+            'required_seconds'=>$recovery['required_seconds'],
+            'remaining_seconds'=>$recovery['remaining_seconds'],
+            'native_extract_rh'=>$sensorEvidence['native_extract_rh'],
+        ];
         // Smooth only discretionary changes while our own timed mode is
         // still physically confirmed. If any safety veto is active, the
         // previous fallback decision passes through without modification.
