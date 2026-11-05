@@ -4,6 +4,21 @@ function reliabilityAssert(bool $ok,string $message):void {
     if(!$ok){fwrite(STDERR,"FAIL SMART RELIABILITY: ".$message."\n");exit(1);}
 }
 $now=1793830000;
+$nearExpiry=['sent_at'=>$now-14*60-30,'until'=>$now+30,
+    'mode'=>2,'stage'=>2];
+reliabilityAssert(JVHeliosSmartFanReliability::nearExpectedNativeTimerReturn(
+    $nearExpiry,$now),
+    'native AUTO near own 15min expiry is normal, not 30min device failure');
+reliabilityAssert(!JVHeliosSmartFanReliability::nearExpectedNativeTimerReturn(
+    array_replace($nearExpiry,['until'=>$now+10*60]),$now),
+    'unexpected early native AUTO remains a true fault');
+reliabilityAssert(!JVHeliosSmartFanReliability::nearExpectedNativeTimerReturn(
+    array_replace($nearExpiry,['error_retry_after'=>$now+1800]),$now),
+    'actual pending failure backoff never bypassed');
+reliabilityAssert(!JVHeliosSmartFanReliability::nearExpectedNativeTimerReturn(
+    array_replace($nearExpiry,['mode'=>0]),$now),
+    'no vendor timer inference from manufacturer AUTO-only state');
+
 $s=['sent_at'=>$now-8*60,'until'=>$now+7*60,'mode'=>2,'stage'=>2];
 reliabilityAssert(JVHeliosSmartFanReliability::renewalDue($s,$now),
     'valid owned stage eligible 7 minutes before device timer expires');
