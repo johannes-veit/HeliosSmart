@@ -94,14 +94,14 @@ final class JVHeliosFanDemandTracker
         $duringDay=$hour>=9 && $hour<21;
         $safeAway=$away && $awayMinutes>=30
             &&$morningCompleted &&$duringDay &&$validConditions;
-        $reason=!$bothFresh?'RESIDENT_SOURCE_STALE'
-            :(!$noHomeHints?'ONE_OR_BOTH_HOME_HINTS_PRESENT'
-            :($activityVeto?'IN_HOUSE_ACTIVITY_VETO'
-            :($awayMinutes<30?'NO_HOME_HINTS_NOT_STABLE_30MIN'
-            :(!$morningCompleted?'MORNING_FLUSH_NOT_OBSERVED'
-            :(!$duringDay?'OUTSIDE_DAYTIME_WINDOW'
-            :(!$validConditions?'ROOM_HUMIDITY_OR_AIR_DEMAND_VETO'
-            :'NO_HOME_HINTS_LOW_DEMAND_WINDOW_OBSERVED')))));
+        if(!$bothFresh)$reason='RESIDENT_SOURCE_STALE';
+        elseif(!$noHomeHints)$reason='ONE_OR_BOTH_HOME_HINTS_PRESENT';
+        elseif($activityVeto)$reason='IN_HOUSE_ACTIVITY_VETO';
+        elseif($awayMinutes<30)$reason='NO_HOME_HINTS_NOT_STABLE_30MIN';
+        elseif(!$morningCompleted)$reason='MORNING_FLUSH_NOT_OBSERVED';
+        elseif(!$duringDay)$reason='OUTSIDE_DAYTIME_WINDOW';
+        elseif(!$validConditions)$reason='ROOM_HUMIDITY_OR_AIR_DEMAND_VETO';
+        else $reason='NO_HOME_HINTS_LOW_DEMAND_WINDOW_OBSERVED';
         return [
             'state'=>['v'=>1,'samples'=>$rows],
             'advice'=>[
