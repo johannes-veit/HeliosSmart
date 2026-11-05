@@ -41,6 +41,24 @@ final class JVHeliosFanSmoothing
             && $fan===$ownedStage && $sent>0 && $sent<=$now
             && $until>=$now && $until-$sent<=16*60;
         if(!$own) {
+            // A normal manufacturer's AUTO S2/S3/S4 must never jump straight
+            // to S1 when the quiet/away suggestion first appears. Establish
+            // a safe S2 baseline, then evaluate a sustained S1 request.
+            // This is NOT applied to foreign Party/Whisper modes.
+            if($mode===0 && is_int($fan) && $fan>=2 && $desired===1){
+                $held=$plan;
+                $held['target_stage']=2;
+                $held['route']='PARTY';
+                $held['reason']='SMOOTHING_STAGE2_BEFORE_S1';
+                $held['smoothing_original_target']=1;
+                $held['smoothing_original_reason']=$plan['reason']??'';
+                $held['smoothing_remaining_seconds']=self::QUIET_CONFIRM_SECONDS;
+                $out['plan']=$held;
+                $out['state']=['pending_stage'=>1,'pending_since'=>$now];
+                $out['status']='ESTABLISH_S2_BEFORE_QUIET';
+                $out['remaining_seconds']=self::QUIET_CONFIRM_SECONDS;
+                return $out;
+            }
             $out['state']=['pending_stage'=>0,'pending_since'=>0];
             $out['status']='UNOWNED_OR_AUTO_NO_DELAY';
             return $out;
