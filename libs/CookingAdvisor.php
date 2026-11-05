@@ -198,7 +198,10 @@ final class JVHeliosCookingAdvisor
             ($held?($activityKind?'COOKING_ACTIVITY_RECENT':'COOKING_RECENTLY_LIKELY'):
             ($possible?'COOKING_POSSIBLE':'NO_CONFIRMED_COOKING')));
         $fan=max(1,min(4,(int)($signals['current_fan_level']??2)));
-        $automatic=($signals['helios_automatic_mode']??true)===true;
+        // Own manufacturer-timed SMART Party/Whisper is not a foreign
+        // manual override. Continue interpreting real cooking evidence.
+        $ownTimed=($signals['helios_smart_owns_timed_mode']??false)===true;
+        $automatic=($signals['helios_automatic_mode']??true)===true || $ownTimed;
         $residentMismatch=$bothNotHome && $likely;
         $occupancy['kitchen_activity_conflicts_with_nonhome_reports']=$residentMismatch;
         $occupancy['independent_kitchen_motion_can_indicate_guests']=true;
@@ -238,7 +241,8 @@ final class JVHeliosCookingAdvisor
                 'power_baseline_w'=>$baselineValid?round((float)$baseline,1):null,
                 'power_delta_from_baseline_w'=>$delta===null?null:round($delta,1),
                 'power_rise_supported'=>$powerRisePlausible,
-                'helios_automatic_mode'=>$automatic,'kitchen_light_on'=>$light,'recent_ground_floor_motion'=>$motion,
+                'helios_automatic_mode'=>$automatic,
+                'helios_smart_owns_timed_mode'=>$ownTimed,'kitchen_light_on'=>$light,'recent_ground_floor_motion'=>$motion,
                 'motion_zones'=>$motions,'kitchen_motion_recent'=>$kitchenMotion,
                 'kitchen_motion_extended_for_moderate'=>$extendedKitchenMotion,
                 'kitchen_motion_last_positive_age_seconds'=>is_int($lastKitchenPositiveAge)
