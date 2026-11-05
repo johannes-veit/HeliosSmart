@@ -5,7 +5,9 @@
  */
 final class JVHeliosSmartFanReliability
 {
-    public const RENEW_AFTER_SECONDS = 7 * 60;
+    // The watchdog re-evaluates safety near expiry. It never blindly
+    // reissues the same Party/Whisper to extend a native timer.
+    public const RENEW_AFTER_SECONDS = 12 * 60;
     public const MAX_EVENTS = 48;
 
     /** AUTO returning close to the device's own 15-minute expiry is
@@ -15,11 +17,18 @@ final class JVHeliosSmartFanReliability
     public static function nearExpectedNativeTimerReturn(array $s,int $now):bool
     {
         $sent=(int)($s['sent_at']??0);
+        $anchor=(int)($s['native_timer_anchor_at']??$sent);
         $until=(int)($s['until']??0);
+        // Party_Set on a running native Party has not been proven to
+        // reset its hardware timeout. Timestamp from the FIRST confirmed
+        // run of a mode, never the most recent intra-mode request.
+        $expected=$anchor+15*60;
         return in_array((int)($s['mode']??0),[2,3],true)
-            && $sent>0 && $sent<=$now
-            && $now-$sent>=12*60 && $now-$sent<=16*60
-            && $until>=$now-90 && $until<=$now+90
+            && $sent>0 && $anchor>0 && $anchor<=$sent && $sent<=$now
+            && $expected-90<=$now && $now<=$expected+90
+            // If a change command occurred during the timer, the last
+            // requested expiry may be later than the real native one.
+            && $until>=$now-120 && $until<=$now+16*60
             && (int)($s['error_retry_after']??0)<=$now;
     }
 
