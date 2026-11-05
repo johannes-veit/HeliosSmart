@@ -56,10 +56,18 @@ ok($w['both_residents_away_reported']===false,'Abwesend plus Firma nicht als bei
 $unc=$both;$unc['residents']['Carina']['status']='NICHT BESTAETIGT';
 $u=JVHeliosCookingAdvisor::analyze($unc,$now)['advice']['occupancy'];
 ok($u['known_away_status_count']===1 && $u['unknown_residents']===['Carina'],'Unklar bleibt unklar');
+ok($u['both_no_home_hints_fresh']===true,
+    'frische Meldungen Abwesend + Unklar sind gemaess ECO-Definition ohne Zuhause-Hinweis');
+ok($u['house_empty_proven']===false,
+    'fehlender Zuhause-Hinweis behauptet keine physische Abwesenheit');
+ok($a['both_no_home_hints_fresh']===false,
+    'Zuhause bei einem Bewohner vetoisiert Abwesenheits-ECO');
 $old=$both;$old['residents']['Johannes']['source_recent']=false;
 $o=JVHeliosCookingAdvisor::analyze($old,$now)['advice']['occupancy'];
 ok($o['residents']['Johannes']['state']==='UNKNOWN','Stale Abwesenheit wird nicht als aktuell gezählt');
 ok($o['known_away_status_count']===1,'Veraltete Abwesenheit nicht doppelt gezählt');
+ok($o['both_no_home_hints_fresh']===false,
+    'veraltetes Handy wird NICHT wie ein frisches Unklar als ECO-Freigabe behandelt');
 $cooking=$both;
 $cooking['light']['on']=true;
 $cooking['motions']['Wohnkueche']['recent']=true;
