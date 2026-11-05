@@ -368,21 +368,21 @@ it(count(array_filter($smartCalls,
     'single 15 minute manufacturer timed-stage command');
 $active->Evaluate();
 $smartWait=json_decode($active->value('DecisionJSON'),true);
-it(($smartWait['smart_fan_execution']['status']??'')==='SMART_OWNED_ACTIVE_WAIT_RENEWAL',
+it(($smartWait['smart_fan_execution']['status']??'')==='SMART_OWNED_ACTIVE_WAIT_NATIVE_TIMER',
     'no command flood during first 10 minutes');
 $active->WriteAttributeString('SmartFanTakeoverState',json_encode([
-    'sent_at'=>time()-8*60,'until'=>time()+7*60,
+    'sent_at'=>time()-13*60,'until'=>time()+2*60,
+    'native_timer_anchor_at'=>time()-13*60,
     'stage'=>3,'mode'=>2,'prior_program'=>3]));
 $beforeWatchdog=count($GLOBALS['calls']);
 $active->CheckSmartFanRenewal();
 $watched=json_decode($active->value('DecisionJSON'),true);
-it(($watched['smart_fan_execution']['status']??'')==='SMART_STAGE_CONFIRMED'
-    && count($GLOBALS['calls'])===$beforeWatchdog+1
-    && $GLOBALS['calls'][count($GLOBALS['calls'])-1][0]==='party',
-    '2-minute renewal watchdog safely invokes full Evaluate before own timer expiry');
+it(($watched['smart_fan_execution']['status']??'')==='SMART_OWNED_ACTIVE_WAIT_NATIVE_TIMER'
+    && count($GLOBALS['calls'])===$beforeWatchdog,
+    'near-expiry watchdog evaluates safety but never reissues same-stage Party');
 $active->CheckSmartFanRenewal();
-it(count($GLOBALS['calls'])===$beforeWatchdog+1,
-    'repeated watchdog tick does not flood Helios with fresh Party commands');
+it(count($GLOBALS['calls'])===$beforeWatchdog,
+    'repeated watchdog safety ticks do not flood Helios Party commands');
 
 $GLOBALS['weatherForTest']=['quality'=>'UNAVAILABLE','current'=>null,'forecast'=>[]];
 $active->Evaluate();
