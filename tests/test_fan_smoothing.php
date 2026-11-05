@@ -23,13 +23,13 @@ assertSmooth($r['plan']['target_stage']===2
     && $r['status']==='HOLD_CURRENT_STAGE_UNTIL_STABLE'
     && $r['remaining_seconds']===20*60,
     'low-demand S1 only after 20 minutes continuous evidence, holding owned S2');
-$r2=JVHeliosFanSmoothing::decide($base,$device,$owned,$r['state'],$now+19*60);
+$ownedLate=['mode'=>2,'stage'=>2,'sent_at'=>$now+15*60,'until'=>$now+30*60];
+$r2=JVHeliosFanSmoothing::decide($base,$device,$ownedLate,$r['state'],$now+19*60);
 assertSmooth($r2['plan']['target_stage']===2 && $r2['remaining_seconds']===60,
     'still on S2 one minute before quiet confirmation');
 $r3=JVHeliosFanSmoothing::decide($base,$device,$owned,$r2['state'],$now+20*60);
 assertSmooth($r3['plan']['target_stage']===1 && $r3['status']==='UNOWNED_OR_AUTO_NO_DELAY',
     'expired ownership must not authorize a previously queued S1');
-$ownedLate=['mode'=>2,'stage'=>2,'sent_at'=>$now+15*60,'until'=>$now+30*60];
 $r4=JVHeliosFanSmoothing::decide($base,$device,$ownedLate,$r2['state'],$now+20*60);
 assertSmooth($r4['plan']['target_stage']===1
     && $r4['status']==='STABLE_TARGET_CONFIRMED',
