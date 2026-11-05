@@ -49,6 +49,14 @@ final class JVHeliosCookingAdvisor
         }
         $bothAway=count($away)===2;
         $bothNotHome=count($away)+count($work)===2;
+        // The resident's requested energy policy uses a fresh positive
+        // HOME signal as the only indication of presence. UNKNOWN is
+        // permitted as 'no HOME signal', but NEVER proof of absence.
+        $bothSignalsFresh=
+            ($residents['Johannes']['source_recent']??false)===true
+            &&($residents['Carina']['source_recent']??false)===true;
+        $noHomeHints=$bothSignalsFresh && count($home)===0;
+
         $short='Johannes '.$stateLabels[$residents['Johannes']['state']]
             .' / Carina '.$stateLabels[$residents['Carina']['state']];
         $occupancy=[
@@ -59,6 +67,9 @@ final class JVHeliosCookingAdvisor
             'known_away_status_count'=>count($away),
             'both_residents_away_reported'=>$bothAway,
             'both_residents_nonhome_reported'=>$bothNotHome,
+            'both_no_home_hints_fresh'=>$noHomeHints,
+            'both_resident_sources_fresh'=>$bothSignalsFresh,
+            'unknown_resident_count'=>count($unknown),
             'home_presence_hint'=>count($home)>0,
             // 'ABWESEND' differs from UNKNOWN, but does not prove no other person is home.
             'house_empty_proven'=>false,'away_person_certified'=>false,
