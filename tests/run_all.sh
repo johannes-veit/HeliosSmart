@@ -50,6 +50,7 @@ php tests/test_fan_attribution.php
 php tests/test_active_season_control.php
 php tests/test_smart_fan_auto.php
 php tests/test_fan_smoothing.php
+php tests/test_recovery_gate.php
 php tests/test_smart_fan_reliability.php
 php tests/test_fan_demand_tracker.php
 php tests/test_smart_fan_cooling_gate.php
