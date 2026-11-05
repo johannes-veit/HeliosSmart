@@ -397,12 +397,13 @@ class HeliosSmart extends IPSModule
                     ? (float)$rhValue : null,
             ];
             if (!$hExists) {
+                // Do not delete the room's otherwise valid temperature:
+                // only its relative humidity and moisture trend are missing.
                 $missing[]=$name.' (LCN-Luftfeuchte #'.$h.' nicht vorhanden oder Link)';
-                continue;
             }
             if ($t<=0) {
-                // EG Flur hat keinen eindeutig zugeordneten Temperatur-Istwert im Backup.
-                // Relative Feuchte wird diagnostiziert; absolute Feuchte niemals geraten.
+                // EG Flur has no assured native room temperature source.
+                // RH-only readings are reported separately, not paired.
                 continue;
             }
             if (!IPS_VariableExists($t)) {
@@ -410,11 +411,12 @@ class HeliosSmart extends IPSModule
                 continue;
             }
             $tTime=(int)(IPS_GetVariable($t)['VariableUpdated']??0);
-            $hTime=(int)(IPS_GetVariable($h)['VariableUpdated']??0);
+            $hTime=$hExists?(int)(IPS_GetVariable($h)['VariableUpdated']??0):0;
             $rooms[]=[
-                'name'=>$name, 'temperature'=>GetValue($t), 'rh'=>GetValue($h),
+                'name'=>$name, 'temperature'=>GetValue($t),
+                'rh'=>$hExists?GetValue($h):null,
                 'temperature_observed_at'=>$tTime, 'humidity_observed_at'=>$hTime,
-                'observed_at'=>min($tTime,$hTime),
+                'observed_at'=>$hExists?min($tTime,$hTime):$tTime,
                 'wetroom'=>(bool)($r['wetroom']??false),
             ];
         }
