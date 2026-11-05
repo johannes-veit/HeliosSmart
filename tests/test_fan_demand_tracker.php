@@ -7,11 +7,13 @@ $tz=new DateTimeZone('Europe/Berlin');
 $start=(new DateTimeImmutable('2026-11-04 08:00:00',$tz))->getTimestamp();
 $away=['status'=>'BOTH_NONHOME_REPORTED',
  'both_residents_nonhome_reported'=>true,
- 'residents'=>['Johannes'=>['source_recent'=>true],
-              'Carina'=>['source_recent'=>true]]];
+ 'both_no_home_hints_fresh'=>true,
+ 'residents'=>['Johannes'=>['source_recent'=>true,'state'=>'WORK_PHONE_HINT'],
+              'Carina'=>['source_recent'=>true,'state'=>'AWAY_REPORTED']]];
 $x=['fan'=>3,'mode'=>0,'fan_fresh'=>true,'occupancy'=>$away,
  'max_room_rh'=>54.0,'native_extract_rh'=>57.0,'room_humidity_count'=>11,
- 'wet_need'=>false,'cooking_confirmed'=>false,'cooling_confirmed'=>false];
+ 'wet_need'=>false,'cooking_confirmed'=>false,'cooling_confirmed'=>false,
+ 'recent_house_activity'=>false];
 $state=[];
 for($i=0;$i<=30;$i++){
  $now=$start+$i*300;
@@ -21,7 +23,27 @@ for($i=0;$i<=30;$i++){
 }
 $a=$s['advice'];
 fanTrackerAssert($a['away_low_demand_eligible']===true,
- '30min stable phone-away and observed 15min flush enable bounded S1 advice');
+ '30min no HOME phone hint and observed 15min flush allow guarded S1 advice');
+$unknown=$away;
+$unknown['residents']['Carina']['state']='UNKNOWN';
+$unknown['status']='MIXED_OR_UNKNOWN';
+$unknown['both_residents_nonhome_reported']=false;
+$unknownResult=JVHeliosFanDemandTracker::update(
+    $state,array_replace($x,['occupancy'=>$unknown]),$now+300);
+fanTrackerAssert($unknownResult['advice']['away_low_demand_eligible']===true
+    &&$unknownResult['advice']['both_no_home_hints_fresh']===true
+    &&$unknownResult['advice']['home_hint_missing_is_not_absence_proof']===true,
+ 'user-defined fresh UNKNOWN + WORK qualifies ECO S1 without claiming empty house');
+$home=$away;$home['residents']['Carina']['state']='HOME_PHONE_HINT';
+$home['both_no_home_hints_fresh']=false;
+$homeResult=JVHeliosFanDemandTracker::update(
+    $state,array_replace($x,['occupancy'=>$home]),$now+300);
+fanTrackerAssert($homeResult['advice']['away_low_demand_eligible']===false,
+ 'one fresh HOME must immediately block ECO S1');
+$active=JVHeliosFanDemandTracker::update(
+    $state,array_replace($x,['recent_house_activity'=>true]),$now+300);
+fanTrackerAssert($active['advice']['away_low_demand_eligible']===false,
+ 'positive hallway or kitchen movement blocks ECO S1 even if both phone hints away');
 fanTrackerAssert($a['morning_ventilation_observed']===true
  &&$a['stage4_auto_samples_24h']===4
  &&$a['stage4_timed_samples_24h']===0,
