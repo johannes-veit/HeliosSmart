@@ -21,10 +21,15 @@ final class JVHeliosFanDemandTracker
         $people=(array)($presence['residents']??[]);
         $bothFresh=($people['Johannes']['source_recent']??false)===true
             &&($people['Carina']['source_recent']??false)===true;
-        $away=$bothFresh
-            &&($presence['both_residents_nonhome_reported']??false)===true
-            &&in_array((string)($presence['status']??''),[
-                'BOTH_AWAY_REPORTED','BOTH_NONHOME_REPORTED'],true);
+        // User-selected meaning: 'no fresh HOME hint' includes in-firma,
+        // abwesend and unklar. Treat it as an ECO opportunity only,
+        // never assert physical absence or authorize device OFF.
+        $noHomeHints=$bothFresh &&
+            ($presence['both_no_home_hints_fresh']??false)===true
+            &&($people['Johannes']['state']??'')!=='HOME_PHONE_HINT'
+            &&($people['Carina']['state']??'')!=='HOME_PHONE_HINT';
+        $activityVeto=($x['recent_house_activity']??true)!==false;
+        $away=$noHomeHints && !$activityVeto;
         // A stale controller response cannot be counted as a real fan sample.
         if(($x['fan_fresh']??false)===true && $validFan
             &&in_array($mode,[0,1,2,3,4],true))
@@ -84,21 +89,29 @@ final class JVHeliosFanDemandTracker
             &&($x['wet_need']??false)!==true
             &&($x['cooking_confirmed']??false)!==true
             &&($x['cooling_confirmed']??false)!==true;
-        $duringDay=$hour>=9 && $hour<17;
+        // Evening non-home hints are meaningful too; keep night quiet
+        // policies separate from daytime absence. No overnight OFF.
+        $duringDay=$hour>=9 && $hour<21;
         $safeAway=$away && $awayMinutes>=30
             &&$morningCompleted &&$duringDay &&$validConditions;
-        $reason=!$away?'AWAY_HINTS_NOT_BOTH_FRESH'
-            :($awayMinutes<30?'AWAY_NOT_STABLE_30MIN'
+        $reason=!$bothFresh?'RESIDENT_SOURCE_STALE'
+            :(!$noHomeHints?'ONE_OR_BOTH_HOME_HINTS_PRESENT'
+            :($activityVeto?'IN_HOUSE_ACTIVITY_VETO'
+            :($awayMinutes<30?'NO_HOME_HINTS_NOT_STABLE_30MIN'
             :(!$morningCompleted?'MORNING_FLUSH_NOT_OBSERVED'
             :(!$duringDay?'OUTSIDE_DAYTIME_WINDOW'
             :(!$validConditions?'ROOM_HUMIDITY_OR_AIR_DEMAND_VETO'
-            :'AWAY_LOW_DEMAND_WINDOW_OBSERVED'))));
+            :'NO_HOME_HINTS_LOW_DEMAND_WINDOW_OBSERVED')))));
         return [
             'state'=>['v'=>1,'samples'=>$rows],
             'advice'=>[
                 'status'=>$reason,
                 'away_low_demand_eligible'=>$safeAway,
-                'both_nonhome_phone_hints_fresh'=>$away,
+                'both_nonhome_phone_hints_fresh'=>($presence['both_residents_nonhome_reported']??false)===true
+                    &&$bothFresh,
+                'both_no_home_hints_fresh'=>$noHomeHints,
+                'home_hint_missing_is_not_absence_proof'=>true,
+                'in_house_activity_veto'=>$activityVeto,
                 'away_hint_contiguous_minutes'=>$awayMinutes,
                 'morning_ventilation_observed'=>$morningCompleted,
                 'morning_ventilation_samples_5min'=>$best,
