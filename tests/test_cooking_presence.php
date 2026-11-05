@@ -83,6 +83,12 @@ $stage['current_fan_level']=4;
 $r=JVHeliosCookingAdvisor::analyze($stage,$now,$seed);
 ck($r['advice']['suggested_fan_level']===null && !$r['advice']['potential_odor_boost'],
     'Bereits Stufe 4 nicht weiter steigern, nur Kochhinweis');
+$own=$input;$own['helios_automatic_mode']=false;
+$own['helios_smart_owns_timed_mode']=true;
+$r=JVHeliosCookingAdvisor::analyze($own,$now,$seed);
+ck($r['advice']['helios_automatic_mode']===true
+    && $r['advice']['helios_smart_owns_timed_mode']===true,
+    'confirmed own timed SMART Party is not a human manual override');
 $manual=$input;$manual['helios_automatic_mode']=false;
 $r=JVHeliosCookingAdvisor::analyze($manual,$now,$seed);
 ck(!$r['advice']['potential_odor_boost'],'Manuelle Helios-Bedienung hat Vorrang vor Kochvorschlag');

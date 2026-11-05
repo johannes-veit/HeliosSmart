@@ -2,6 +2,21 @@
 require_once __DIR__.'/../libs/SmartFanAuto.php';
 function ckFan($condition,$msg){if(!$condition){fwrite(STDERR,"FAIL SMART FAN AUTO: ".$msg."\n");exit(1);}}
 $now=1793430000;
+$afterRun=JVHeliosSmartFanAuto::cookingPriority([
+    'classification'=>'COOKING_RECENTLY_LIKELY',
+    'hold_until'=>$now+8*60,'potential_odor_boost'=>false],$now);
+ckFan($afterRun['confirmed'] && $afterRun['after_run'] && !$afterRun['strong'],
+    'own timed Party must retain bounded cooking S3 after-run, never a new S4');
+ckFan(!JVHeliosSmartFanAuto::cookingPriority([
+    'classification'=>'COOKING_RECENTLY_LIKELY',
+    'hold_until'=>$now-1],$now)['confirmed'],
+    'expired cooking after-run must not keep S3');
+ckFan(JVHeliosSmartFanAuto::cookingPriority([
+    'classification'=>'COOKING_LIKELY',
+    'power_multiple_samples'=>true,
+    'potential_odor_boost'=>false],$now)['strong'],
+    'strong fresh cooking still requests S4 while own Party already running');
+
 $valid=[
  'enabled'=>true,'native_ok'=>true,'live_fresh'=>true,
  'mode'=>0,'actual_fan'=>4,'native_week_program'=>3,

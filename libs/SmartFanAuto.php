@@ -10,6 +10,27 @@
  */
 final class JVHeliosSmartFanAuto
 {
+    /**
+     * Cooking evidence is independent from whether the native equipment is
+     * already in our own timed Party mode. Historical *bounded* evidence
+     * authorizes at most S3 odor after-run, never a new S4 event.
+     */
+    public static function cookingPriority(array $advice,int $now):array
+    {
+        $kind=(string)($advice['classification']??'');
+        $active=in_array($kind,
+            ['COOKING_LIKELY','COOKING_ACTIVITY_LIKELY'],true);
+        $recent=in_array($kind,
+            ['COOKING_RECENTLY_LIKELY','COOKING_ACTIVITY_RECENT'],true);
+        $hold=(int)($advice['hold_until']??0);
+        $afterRun=$recent && $hold>$now && $hold<=$now+15*60;
+        $strong=$active && (
+            ($advice['power_multiple_samples']??false)===true
+            ||($advice['power_moderate_distinct_updates']??false)===true);
+        return ['confirmed'=>$active||$afterRun,
+            'strong'=>$strong,'after_run'=>$afterRun];
+    }
+
     public static function decide(array $d,int $now):array
     {
         $out=['status'=>'FALLBACK_WEEKLY','reason'=>'UNSAFE_OR_INSUFFICIENT_INPUT',

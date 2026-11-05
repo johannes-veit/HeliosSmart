@@ -934,6 +934,29 @@ class HeliosSmart extends IPSModule
             if($level<1 || $level>4)return $result;
             $desiredMode=$level===1?3:2;
             $since=$now-(int)($state['sent_at']??0);
+            // Manufacturer-timed party may naturally return to AUTO in the
+            // last 90 seconds of its 15-minute timeout. Do not misclassify
+            // normal expiry as an actuator failure with 30-minute backoff.
+            if($mode===0
+                && JVHeliosSmartFanReliability::nearExpectedNativeTimerReturn(
+                    $state,$now)){
+                $this->WriteAttributeString('SmartFanTakeoverState',
+                    json_encode(['last_completed_at'=>$now,
+                        'auto_return_pause_until'=>$now+90]));
+                $result['status']='NATIVE_15MIN_TIMER_RETURN_CONFIRMED';
+                $result['verified']=true;
+                $result['readback']=$live;
+                $result['fallback_weekly']=true;
+                return $result;
+            }
+            if($mode===0
+                &&(int)($state['auto_return_pause_until']??0)>$now){
+                $result['status']='AUTO_AFTER_TIMER_RESTART_PAUSE';
+                $result['verified']=true;
+                $result['readback']=$live;
+                $result['fallback_weekly']=true;
+                return $result;
+            }
             if($owned && $mode===0 && $since>=0 && $since<10*60){
                 // Actual live AUTO readback disproves the prior SMART stage.
                 // Preserve manufacturer AUTO, make uncertainty visible and
@@ -966,7 +989,13 @@ class HeliosSmart extends IPSModule
             }
             if($owned && $since>=0 && $since<5*60
                 && ($live['fan']??null)!==$level && $level<3){
+                // The requested lower stage is NOT confirmed, but the
+                // previous owned stage may still be confirmed. Report both.
                 $result['status']='STAGE_CHANGE_MINIMUM_DWELL';
+                $result['current_stage_confirmed']=$mode===(int)($state['mode']??0)
+                    && ($live['fan']??null)===(int)($state['stage']??0);
+                $result['current_stage']=$live['fan']??null;
+                $result['change_retry_after_seconds']=max(0,5*60-$since);
                 return $result;
             }
             $fn=$desiredMode===3?'HELIOS_OperatingMode_Whisper_Set'
@@ -2562,6 +2591,19 @@ class HeliosSmart extends IPSModule
         $cookingInputs=$this->ReadCookingSignals($now);
         $cookingInputs['current_fan_level']=(int)GetValue($fanID);
         $cookingInputs['helios_automatic_mode']=($mode===0);
+        // Merely looking at mode 2/3 suggests 'manual' to CookingAdvisor,
+        // even when this module owns and has confirmed that timed mode.
+        // Read existing own state only; independent live checks still gate
+        // every real actuator operation later in Evaluate().
+        $cookingOwn=json_decode($this->ReadAttributeString('SmartFanTakeoverState'),true);
+        $cookingOwn=is_array($cookingOwn)?$cookingOwn:[];
+        $cookingInputs['helios_smart_owns_timed_mode']=
+            in_array((int)$mode,[2,3],true)
+            && (int)($cookingOwn['mode']??0)===(int)$mode
+            && (int)($cookingOwn['stage']??0)===(int)GetValue($fanID)
+            && (int)($cookingOwn['sent_at']??0)>0
+            && (int)($cookingOwn['sent_at']??0)<=$now
+            && (int)($cookingOwn['until']??0)>=$now;
         $cooking=JVHeliosCookingAdvisor::analyze($cookingInputs,$now,
             is_array($cookingState)?$cookingState:[]);
         $this->WriteAttributeString('CookingAdviceState',json_encode($cooking['state']));
@@ -2756,19 +2798,14 @@ class HeliosSmart extends IPSModule
                 &&(float)$wet['gradient_to_outside_gm3']>=4.0)
                 $strongWet=true;
         }
-        // Preserve strong cooking evidence even when vendor/SMART is already
-        // at S4 (the CookingAdvisor then correctly doesn't suggest a boost).
-        // Historical 15min cooking hold means S3 after-run, not new S4.
-        $cookStatus=(string)($decision['cooking_advice']['classification']??'');
-        $activeCooking=in_array($cookStatus,[
-            'COOKING_LIKELY','COOKING_ACTIVITY_LIKELY'],true);
-        $cookingConfirmed=$activeCooking
-            ||(($decision['cooking_advice']['potential_odor_boost']??false)===true
-                &&in_array($cookStatus,[
-                    'COOKING_RECENTLY_LIKELY','COOKING_ACTIVITY_RECENT'],true));
-        $cookingStrong=$activeCooking && (
-            ($decision['cooking_advice']['power_multiple_samples']??false)===true
-            ||($decision['cooking_advice']['power_moderate_distinct_updates']??false)===true);
+        // The old 'potential_odor_boost' is false whenever our own
+        // device-timed Party runs. Do not let this mistakenly discard the
+        // proven 15-minute cooking after-run or restart S4.
+        $cookPriority=JVHeliosSmartFanAuto::cookingPriority(
+            (array)($decision['cooking_advice']??[]),$now);
+        $cookingConfirmed=$cookPriority['confirmed'];
+        $cookingStrong=$cookPriority['strong'];
+        $decision['cooking_afterrun_active']=$cookPriority['after_run'];
         // Wetroom trends are two independent sensor changes with >=6 pp
         // rise; a raw RH value or an unverified "shower" guess is not enough.
         $trendRise=is_array($wetroomTrend['observed_rises']??null)
@@ -2947,6 +2984,14 @@ class HeliosSmart extends IPSModule
                     ?'SMART-STUFE WEITERHIN BESTAETIGT'
                     :'SMART-WEITERLAUF NICHT BESTAETIGT',
             'AUTO_FALLBACK_CONFIRMED'=>'HERSTELLER-AUTOMATIK BESTAETIGT',
+            'NATIVE_15MIN_TIMER_RETURN_CONFIRMED'
+                =>'HERSTELLER-AUTO NACH GERAETE-TIMER BESTAETIGT',
+            'AUTO_AFTER_TIMER_RESTART_PAUSE'
+                =>'HERSTELLER-AUTO BESTAETIGT / 90S ERNEUERUNGSPAUSE',
+            'STAGE_CHANGE_MINIMUM_DWELL'
+                =>($smartExecution['current_stage_confirmed']??false)
+                    ?'BISHERIGE SMART-STUFE BESTAETIGT / ABSENKUNG WARTET'
+                    :'STUFENABSENKUNG WARTET / IST-STUFE PRUEFEN',
             'NATIVE_AUTO_CONFIRMED_SMART_STAGE_NOT_ACTIVE'
                 =>'HERSTELLER-AUTO BESTAETIGT / SMART-STUFE NICHT AKTIV',
             'FALLBACK_PENDING_NATIVE_15MIN_TIMER_UNVERIFIED',

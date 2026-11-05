@@ -8,6 +8,21 @@ final class JVHeliosSmartFanReliability
     public const RENEW_AFTER_SECONDS = 7 * 60;
     public const MAX_EVENTS = 48;
 
+    /** AUTO returning close to the device's own 15-minute expiry is
+     * normal, and must not trigger a spurious 30-minute actuator error.
+     * This does NOT infer success when the manufacturer returned early.
+     */
+    public static function nearExpectedNativeTimerReturn(array $s,int $now):bool
+    {
+        $sent=(int)($s['sent_at']??0);
+        $until=(int)($s['until']??0);
+        return in_array((int)($s['mode']??0),[2,3],true)
+            && $sent>0 && $sent<=$now
+            && $now-$sent>=12*60 && $now-$sent<=16*60
+            && $until>=$now-90 && $until<=$now+90
+            && (int)($s['error_retry_after']??0)<=$now;
+    }
+
     /**
      * Called by the light-weight 2-minute watchdog. Only a still-owned,
      * device-timed mode may request a new full safe Evaluate() cycle.
