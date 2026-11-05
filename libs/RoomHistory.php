@@ -13,8 +13,26 @@ final class JVHeliosRoomHistory
             $hTime=(int)($room['humidity_observed_at']??$room['observed_at']??0);
             $time=$hTime; // Grundlinie wird nur bei wirklich neuer Feuchtemeldung aktualisiert.
             $pair=JVWeatherMath::readPair($room['temperature']??null,$room['rh']??null);
-            if ($name==='' || $pair===null || $tTime<=0 || $hTime<=0
-                || $tTime>$now+120 || $hTime>$now+120) continue;
+            // Missing/invalid humidity must not silently delete a room's
+            // independent temperature from the downstream thermal analysis.
+            // Without a real valid T/RH pair, do NOT update or infer any
+            // moisture baseline, shower event, or dewpoint.
+            $tempOK=$name!=='' && $tTime>0 && $tTime<=$now+120
+                && is_numeric($room['temperature']??null)
+                && is_finite((float)$room['temperature'])
+                && (float)$room['temperature']>=5.0
+                && (float)$room['temperature']<=40.0;
+            if($tempOK && ($pair===null || $hTime<=0 || $hTime>$now+120)) {
+                $room['rh']=null;
+                $room['humidity_observed_at']=0;
+                $room['humidity_data_quality']='MISSING_OR_INVALID';
+                $room['humidity_rise_gm3']=0.0; // Explicitly not an event.
+                $room['temperature_age_minutes']=max(0,(int)ceil(($now-$tTime)/60));
+                $room['humidity_age_minutes']=null;
+                $fresh[]=$room;
+                continue;
+            }
+            if (!$tempOK || $pair===null || $hTime<=0 || $hTime>$now+120) continue;
             // LCN-Humidity kann nur bei Wertaenderung Ereignisse senden. Ein
             // unveraenderter alter Wert ist kein Beweis fuer einen Sensordefekt.
             // Keine Feuchte-Boost-Empfehlung ohne frische Feuchtemeldung!
