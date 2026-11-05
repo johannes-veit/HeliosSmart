@@ -34,6 +34,7 @@ require_once __DIR__ . '/../libs/FanAttribution.php';
 require_once __DIR__ . '/../libs/NativeHeliosCoordination.php';
 require_once __DIR__ . '/../libs/SeasonProgramControl.php';
 require_once __DIR__ . '/../libs/SmartFanAuto.php';
+require_once __DIR__ . '/../libs/FanSmoothing.php';
 require_once __DIR__ . '/../libs/SmartFanReliability.php';
 require_once __DIR__ . '/../libs/FanDemandTracker.php';
 require_once __DIR__ . '/../libs/SmartFanCoolingGate.php';
@@ -80,6 +81,7 @@ class HeliosSmart extends IPSModule
         $this->RegisterPropertyBoolean('EnableSmartFanTakeover',false);
         $this->RegisterPropertyBoolean('EnableAwayEconomy',true);
         $this->RegisterAttributeString('SmartFanTakeoverState','{}');
+        $this->RegisterAttributeString('SmartFanSmoothingState','{}');
         $this->RegisterAttributeString('SmartFanReliabilityState','{}');
         $this->RegisterAttributeString('FanDemandHistory','{}');
         $this->RegisterAttributeString('ChatGPTDiagnosticState','{}');
@@ -939,7 +941,7 @@ class HeliosSmart extends IPSModule
                 if((int)($state['stage']??0)===1){
                     $state['quiet_started_at']=0;
                     $state['quiet_cooldown_until']=max(
-                        (int)($state['quiet_cooldown_until']??0),$now+90*60);
+                        (int)($state['quiet_cooldown_until']??0),$now+8*3600);
                 }
                 $this->WriteAttributeString('SmartFanTakeoverState',json_encode($state));
                 return $result;
@@ -971,7 +973,7 @@ class HeliosSmart extends IPSModule
             $wasQuiet=(int)($state['stage']??0)===1
                 && (int)($state['quiet_started_at']??0)>0;
             $cooldown=(int)($state['quiet_cooldown_until']??0);
-            if($wasQuiet && $level!==1)$cooldown=$now+90*60;
+            if($wasQuiet && $level!==1)$cooldown=$now+8*3600;
             $state=[
                 'sent_at'=>$now,
                 'until'=>$now+15*60,
@@ -2272,6 +2274,7 @@ class HeliosSmart extends IPSModule
                 'smart_effective'=>$d['smart_fan_effective_state']??'NICHT_BESTAETIGT',
                 'smart_ownership'=>$pick($smartState,['sent_at','until','stage',
                     'mode','quiet_started_at','quiet_cooldown_until','error_retry_after']),
+                'smart_smoothing'=>$d['smart_fan_smoothing']??[],
                 'smart_reliability'=>$d['smart_fan_reliability']
                     ??JVHeliosSmartFanReliability::diagnostic(
                         (array)(json_decode($this->ReadAttributeString('SmartFanReliabilityState'),true)??[])),
@@ -2840,7 +2843,8 @@ class HeliosSmart extends IPSModule
             'cooking_confirmed'=>$cookingConfirmed,
             'strong_cooking_need'=>$cookingStrong,
             'cooling_confirmed'=>($coolingGate['cooling_confirmed']??false)===true,
-            'quiet_requested'=>($decision['night_strategy']['quiet_eligible']??false)===true,
+            'quiet_requested'=>$this->ReadPropertyBoolean('EnableNightQuiet')
+                &&($decision['night_strategy']['quiet_eligible']??false)===true,
             'away_daytime_low_demand'=>$this->ReadPropertyBoolean('EnableAwayEconomy')
                 &&($history['advice']['away_low_demand_eligible']??false)===true,
             'quiet_started_at'=>(int)($smartState['quiet_started_at']??0),
@@ -2851,6 +2855,23 @@ class HeliosSmart extends IPSModule
             'high_power_safety'=>$this->ReadPropertyBoolean('HighPowerSafetyValidated'),
             'combustion_safe'=>$this->ReadPropertyBoolean('CombustionSafetyValidated'),
         ],$now);
+        // Smooth only discretionary changes while our own timed mode is
+        // still physically confirmed. If any safety veto is active, the
+        // previous fallback decision passes through without modification.
+        $smoothingRaw=json_decode($this->ReadAttributeString('SmartFanSmoothingState'),true);
+        $smoothed=JVHeliosFanSmoothing::decide($smartPlan, $deviceStatus,
+            $smartState, is_array($smoothingRaw)?$smoothingRaw:[], $now);
+        $smartPlan=$smoothed['plan'];
+        $this->WriteAttributeString('SmartFanSmoothingState',
+            json_encode($smoothed['state'],JSON_UNESCAPED_UNICODE));
+        $decision['smart_fan_smoothing']=[
+            'status'=>$smoothed['status'],
+            'remaining_seconds'=>$smoothed['remaining_seconds'],
+            'pending_target'=>$smoothed['state']['pending_stage'],
+            'pending_since'=>$smoothed['state']['pending_since'],
+            'effective_target'=>$smartPlan['target_stage']??null,
+            'original_target'=>$smartPlan['smoothing_original_target']??null,
+        ];
         $smartTimedStillPresent=!$smartEnabled
             && (int)($smartState['sent_at']??0)>0
             && (int)($smartState['until']??0)>=$now
