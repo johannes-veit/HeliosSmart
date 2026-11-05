@@ -27,7 +27,11 @@ final class JVHeliosNightStrategy {
         $reportedAway=in_array((string)($occupancy['status']??''),[
             'BOTH_AWAY_REPORTED','BOTH_NONHOME_REPORTED'],true);
         // Phone absence is not evidence of an empty house.
-        $quiet=!$override && $qualityOk;
+        // S1 is a limited NIGHT exception, not an all-day reaction to
+        // 'low demand'. Never jump directly from S3/S4 to S1.
+        // Verified daytime absence is considered separately by the
+        // SmartFan demand tracker, with its own ventilation prerequisites.
+        $quiet=$night && !$override && $qualityOk && $fan<=2;
         $reasonBasis=$night?'NACHT_RUHE':($reportedAway?'ABWESENHEIT_GEMELDET':'GERINGER_BEDARF');
         $stage=$override?max(2,min(4,(int)($candidate['suggested_level']??2))):($quiet?1:2);
         return [
