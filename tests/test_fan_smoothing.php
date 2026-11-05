@@ -8,6 +8,16 @@ $owned=['mode'=>2,'stage'=>2,'sent_at'=>$now-300,'until'=>$now+600];
 $device=['mode'=>2,'fan'=>2];
 $base=['execute'=>true,'target_stage'=>1,'reason'=>'SHORT_LOW_DEMAND_QUIET',
     'route'=>'WHISPER','minutes'=>15,'fallback_weekly'=>false];
+$autoStart=JVHeliosFanSmoothing::decide($base,
+    ['mode'=>0,'fan'=>3],[],[],$now);
+assertSmooth($autoStart['plan']['target_stage']===2
+    && $autoStart['status']==='ESTABLISH_S2_BEFORE_QUIET',
+    'AUTO S3 goes to stable S2 before a later S1 night interval');
+$autoStage2=JVHeliosFanSmoothing::decide($base,
+    ['mode'=>0,'fan'=>2],[],[],$now);
+assertSmooth($autoStage2['plan']['target_stage']===2
+    && $autoStage2['state']['pending_stage']===1,
+    'AUTO S2 is not immediately forced to S1 at night');
 $r=JVHeliosFanSmoothing::decide($base,$device,$owned,[],$now);
 assertSmooth($r['plan']['target_stage']===2
     && $r['status']==='HOLD_CURRENT_STAGE_UNTIL_STABLE'
