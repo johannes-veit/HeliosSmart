@@ -734,8 +734,8 @@ class HeliosSmart extends IPSModule
         }
     }
 
-    /** Only the active SMART-owned 15-minute mode is eligible for early renewal.
-     * Never sends a blind command; Evaluate rechecks ALL original safeguards.
+    /** Near-expiry safety re-evaluation only, not a blind device-timer
+     * extension. Same-stage owned Party/Whisper is never resent early.
      */
     public function CheckSmartFanRenewal(): void
     {
@@ -940,10 +940,15 @@ class HeliosSmart extends IPSModule
             if($mode===0
                 && JVHeliosSmartFanReliability::nearExpectedNativeTimerReturn(
                     $state,$now)){
+                $cooldown=(int)($state['quiet_cooldown_until']??0);
+                if((int)($state['stage']??0)===1)
+                    $cooldown=max($cooldown,$now+8*3600);
                 $this->WriteAttributeString('SmartFanTakeoverState',
                     json_encode(['last_completed_at'=>$now,
-                        'auto_return_pause_until'=>$now+90]));
-                $result['status']='NATIVE_15MIN_TIMER_RETURN_CONFIRMED';
+                        'auto_return_pause_until'=>$now+90,
+                        'quiet_started_at'=>0,
+                        'quiet_cooldown_until'=>$cooldown]));
+                $result['status']='NATIVE_AUTO_AT_EXPECTED_TIMER_BOUNDARY';
                 $result['verified']=true;
                 $result['readback']=$live;
                 $result['fallback_weekly']=true;
@@ -957,7 +962,10 @@ class HeliosSmart extends IPSModule
                 $result['fallback_weekly']=true;
                 return $result;
             }
-            if($owned && $mode===0 && $since>=0 && $since<10*60){
+            if($owned && $mode===0 && $since>=0){
+                // Any AUTO return before the FIRST expected device timer
+                // (not merely 10 min after the LAST command) is uncertain.
+                // Keep native AUTO and the existing 30min retry gate.
                 // Actual live AUTO readback disproves the prior SMART stage.
                 // Preserve manufacturer AUTO, make uncertainty visible and
                 // prevent repeated commands against a rejected short mode.
@@ -981,10 +989,20 @@ class HeliosSmart extends IPSModule
             }
             if($owned && $mode===$desiredMode
                 && (int)($state['stage']??0)===$level
-                && $since>=0 && $since<JVHeliosSmartFanReliability::RENEW_AFTER_SECONDS){
-                $result['status']='SMART_OWNED_ACTIVE_WAIT_RENEWAL';
-                $result['verified']=($live['fan']??null)===$level;
+                && $since>=0 && ($live['fan']??null)===$level){
+                // HELIOS returned to AUTO exactly 15 minutes after the
+                // FIRST Party request even after a subsequent same-stage
+                // "renewal". Never flood it with 7min renewal commands.
+                // Keep original device timer and let native AUTO return.
+                $result['status']='SMART_OWNED_ACTIVE_WAIT_NATIVE_TIMER';
+                $result['verified']=true;
+                $result['current_stage_confirmed']=true;
+                $result['current_stage']=$level;
                 $result['fallback_weekly']=false;
+                $anchor=(int)($state['native_timer_anchor_at']
+                    ??$state['sent_at']??0);
+                $result['estimated_first_timer_remaining_seconds']
+                    =max(0,$anchor+15*60-$now);
                 return $result;
             }
             if($owned && $since>=0 && $since<5*60
@@ -1009,8 +1027,12 @@ class HeliosSmart extends IPSModule
                 && (int)($state['quiet_started_at']??0)>0;
             $cooldown=(int)($state['quiet_cooldown_until']??0);
             if($wasQuiet && $level!==1)$cooldown=$now+8*3600;
+            $nativeAnchor=$owned && $mode===$desiredMode
+                ?(int)($state['native_timer_anchor_at']??$state['sent_at']??$now)
+                :$now;
             $state=[
                 'sent_at'=>$now,
+                'native_timer_anchor_at'=>$nativeAnchor,
                 'until'=>$now+15*60,
                 'stage'=>$level,
                 'mode'=>$desiredMode,
@@ -2975,17 +2997,29 @@ class HeliosSmart extends IPSModule
         if(!is_array($smartStateNow))$smartStateNow=$smartState;
         $this->SetValue('SmartFanTakeoverJSON',
             json_encode(['plan'=>$smartPlan,'execution'=>$smartExecution,
+                'device_timed_window'=>[
+                    'first_command_at'=>(int)($smartStateNow['native_timer_anchor_at']
+                        ??$smartStateNow['sent_at']??0),
+                    'last_command_at'=>(int)($smartStateNow['sent_at']??0),
+                    'expected_first_expiry_at'=>
+                        ((int)($smartStateNow['native_timer_anchor_at']
+                            ??$smartStateNow['sent_at']??0)>0
+                            ?(int)($smartStateNow['native_timer_anchor_at']
+                                ??$smartStateNow['sent_at'])+900:null),
+                    'manufacturer_reset_on_repeated_party_proven'=>false,
+                ],
                 'original_helios'=>$native['status']??'UNAVAILABLE',
                 'co2_voc_evidence'=>$sensorEvidence],JSON_UNESCAPED_UNICODE));
         $effectiveState=match ((string)($smartExecution['status']??'')){
             'SMART_STAGE_CONFIRMED'=>'SMART-STUFE AM GERAET BESTAETIGT',
-            'SMART_OWNED_ACTIVE_WAIT_RENEWAL'
+            'SMART_OWNED_ACTIVE_WAIT_RENEWAL',
+            'SMART_OWNED_ACTIVE_WAIT_NATIVE_TIMER'
                 =>($smartExecution['verified']??false)
                     ?'SMART-STUFE WEITERHIN BESTAETIGT'
                     :'SMART-WEITERLAUF NICHT BESTAETIGT',
             'AUTO_FALLBACK_CONFIRMED'=>'HERSTELLER-AUTOMATIK BESTAETIGT',
-            'NATIVE_15MIN_TIMER_RETURN_CONFIRMED'
-                =>'HERSTELLER-AUTO NACH GERAETE-TIMER BESTAETIGT',
+            'NATIVE_AUTO_AT_EXPECTED_TIMER_BOUNDARY'
+                =>'HERSTELLER-AUTO ZUR ERWARTETEN TIMERGRENZE BESTAETIGT',
             'AUTO_AFTER_TIMER_RESTART_PAUSE'
                 =>'HERSTELLER-AUTO BESTAETIGT / 90S ERNEUERUNGSPAUSE',
             'STAGE_CHANGE_MINIMUM_DWELL'
