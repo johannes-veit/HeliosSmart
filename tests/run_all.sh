@@ -4,6 +4,7 @@ cd "$(dirname "$0")/.."
 for p in libs/*.php WeatherZentrale/*.php HeliosSmart/*.php tests/simulation/*.php tests/research/*.php tests/*.php; do php -l "$p" >/dev/null; done
 php tests/check_symcon_structure.php
 php tests/test_core.php
+php tests/test_room_sensor_independence.php
 php tests/test_symcon_guard.php
 
 php tests/test_resilient_weather.php
@@ -50,6 +51,7 @@ php tests/test_fan_attribution.php
 php tests/test_active_season_control.php
 php tests/test_smart_fan_auto.php
 php tests/test_fan_smoothing.php
+php tests/test_recovery_gate.php
 php tests/test_smart_fan_reliability.php
 php tests/test_fan_demand_tracker.php
 php tests/test_smart_fan_cooling_gate.php

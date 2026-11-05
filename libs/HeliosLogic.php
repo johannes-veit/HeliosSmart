@@ -20,7 +20,9 @@ final class JVHeliosLogic
         $temperatures=[];$humidities=[];
         $roomAudit=[];
         foreach ((array)($input['rooms']??[]) as $r) {
-            if (!is_array($r) || !isset($r['temperature'],$r['rh'])) continue;
+            // Temperature remains valid even when RH is absent/stale. Never
+            // shrink the temperature coverage merely due to a missing RH value.
+            if (!is_array($r) || !isset($r['temperature'])) continue;
             $name=(string)($r['name']??'Raum');
             // LCN-Temperatur aktualisiert sich oft zyklisch, LCN-Feuchte
             // teilweise erst bei Wertaenderung. Zeiten getrennt behandeln.
@@ -30,7 +32,8 @@ final class JVHeliosLogic
             $humidityAge=$now-$humidityTime;
             $tempValid=$tempTime>0 && $tempAge>=-120 && $tempAge<=2*3600
                 && is_numeric($r['temperature']) && (float)$r['temperature']>=5 && (float)$r['temperature']<=40;
-            $humValid=$humidityTime>0 && $humidityAge>=-120 && $humidityAge<=self::MAX_SENSOR_AGE;
+            $humValid=isset($r['rh']) && $humidityTime>0
+                && $humidityAge>=-120 && $humidityAge<=self::MAX_SENSOR_AGE;
             $pair=$tempValid && $humValid ? JVWeatherMath::readPair($r['temperature'],$r['rh']) : null;
             $roomAudit[]=[
                 'name'=>$name,

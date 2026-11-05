@@ -79,8 +79,8 @@ ckFan(!$dec(['strong_wet_need'=>true,'native_sensor_control_unverified'=>true,
     'combustion_safe'=>true])['execute'],
  'actual native sensor read failure always vetoes party even during shower');
 ckFan($dec(['max_co2_ppm'=>1550,'high_power_enabled'=>true,
-    'high_power_safety'=>true,'combustion_safe'=>true])['target_stage']===4,
- 'native elevated CO2 may still require stage4');
+    'high_power_safety'=>true,'combustion_safe'=>true])['reason']==='NATIVE_CO2_VOC_HIGH_KEEP_DEVICE',
+ 'elevated native CO2 always retains native sensor-loop authority even with S4 opt-in');
 ckFan($dec(['model_airflow_accepted'=>true,
     'away_daytime_low_demand'=>true,'quiet_requested'=>false])
     ['reason']==='AWAY_DAYTIME_AFTER_OBSERVED_MORNING_VENTILATION',
@@ -97,6 +97,12 @@ ckFan($dec(['max_co2_ppm'=>1500,'minimum_airflow_validated'=>true])
  'high native CO2 without high-power approval returns complete device priority');
 ckFan($dec(['cooling_confirmed'=>true])['target_stage']===3,
  'true summer cooling overrides winter/quiet savings');
+ckFan($dec(['native_extract_rh'=>75.0])['fallback_weekly']===true,
+ 'native RH above 70 percent stays with humidity controller');
+ckFan($dec(['native_extract_rh'=>75.0,'high_power_enabled'=>true,
+    'high_power_safety'=>true,'combustion_safe'=>true])['reason']
+    ==='NATIVE_EXTRACT_HUMIDITY_HIGH_KEEP_DEVICE',
+ 'native humidity loop always stays in control, independent of high power checkbox');
 ckFan($dec(['native_extract_rh'=>75.0])['fallback_weekly']===true,
  'manufacturer high extract RH at S4 cannot be overridden downward');
 ckFan($dec(['native_sensor_stale'=>true])['fallback_weekly']===true,

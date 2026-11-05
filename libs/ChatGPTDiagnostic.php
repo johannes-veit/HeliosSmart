@@ -53,6 +53,7 @@ final class JVHeliosChatGPTDiagnostic
                 'Effektiver Zustand'=>$f['smart_effective']??null,
                 'Besitz-/Zeitfenster'=>$f['smart_ownership']??null,
                 'Sanfte Stufenwechsel / Verweilzeit'=>$f['smart_smoothing']??null,
+                'Beruhigte Wiederuebernahme / Sensorschutz'=>$f['smart_recovery']??null,
                 'SMART-Stabilitaet / letzte Ereignisse'=>$f['smart_reliability']??null,
                 'Rueckfall-/Saisonprogramm'=>$f['season']??null,
                 'Legacy Party/Ruhe'=>$f['legacy']??null,

@@ -105,20 +105,18 @@ final class JVHeliosSmartFanAuto
                 :'NATIVE_SENSOR_REGULATION_UNVERIFIED';
             return $out;
         }
-        // A genuinely high native CO2/VOC sensor request must NOT be
-        // silently downgraded to S3 simply because S4 approval is absent.
-        // Keep the manufacturer's own sensor/weekly regulation in charge.
-        if($nativeMoistureCaution && !$provenBoost4){
-            $out['reason']='NATIVE_EXTRACT_HUMIDITY_ELEVATED_KEEP_DEVICE';
+        // Party/Whisper masks manufacturer CO2/VOC/RH regulation. Even with
+        // permission for high-power S4, a measured native air-quality demand
+        // should remain with its *native* closed-loop control, rather than
+        // repeatedly imposing a 15-minute Party override.
+        if($badAir || $nativeHighRh){
+            $out['reason']=$badAir
+                ?'NATIVE_CO2_VOC_HIGH_KEEP_DEVICE'
+                :'NATIVE_EXTRACT_HUMIDITY_HIGH_KEEP_DEVICE';
             return $out;
         }
-        if(($badAir || $nativeHighRh) && !$highPower){
-            // Even if the manufacturer currently reports S2/S3, sending
-            // a timed SMART S3 could lock out a forthcoming native
-            // sensor demand for S4. Do not take over in that condition.
-            $out['reason']=$badAir
-                ?'NATIVE_CO2_VOC_HIGH_NO_S4_APPROVAL'
-                :'NATIVE_EXTRACT_HUMIDITY_HIGH_KEEP_DEVICE';
+        if($nativeMoistureCaution && !$provenBoost4){
+            $out['reason']='NATIVE_EXTRACT_HUMIDITY_ELEVATED_KEEP_DEVICE';
             return $out;
         }
         // Similarly never force a lower stage than the already measured
@@ -128,15 +126,13 @@ final class JVHeliosSmartFanAuto
             return $out;
         }
         // Safety-priority cases always beat energy savings or absence.
-        if($strongWet || $strongCook || $badAir || $nativeHighRh){
+        if($strongWet || $strongCook){
             // Shower/cook now get a short high-power boost IF confirmed
             // and specifically authorized. Normal humidity & calendar
             // alone never trigger S4.
             $level=$highPower?4:3;
-            $reason=$badAir?'NATIVE_CO2_OR_VOC_HIGH'
-                :($nativeHighRh?'NATIVE_HUMIDITY_HIGH'
-                    :($strongWet?'CONFIRMED_WETROOM_S4_BOOST'
-                        :'CONFIRMED_COOKING_S4_BOOST'));
+            $reason=$strongWet?'CONFIRMED_WETROOM_S4_BOOST'
+                :'CONFIRMED_COOKING_S4_BOOST';
         } elseif($wet || $cook || $cool){
             $level=3;
             $reason=$wet?'WETROOM_AIR_NEED':($cook?'COOKING':'SAFE_PASSIVE_COOLING');

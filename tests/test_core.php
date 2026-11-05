@@ -30,6 +30,21 @@ $d=JVHeliosLogic::decide($in);
 check($d['mode']==='PASSIVE_COOLING','Kühl-Boost bei wirklich kühler Zuluft');
 $in['supply_temperature']=29;
 check(JVHeliosLogic::decide($in)['mode']==='WEEKLY_BASE','Keine Kühlung bei zu warmer Zuluft');
+// Temperature measurements are independent of optional/stale humidity.
+$onlyT=['now'=>$now,'weather'=>$weather,'baseline_level'=>2,
+    'supply_temperature'=>21,'supply_fresh'=>true,
+    'rooms'=>[
+        ['name'=>'Room T only','temperature'=>22.0,'observed_at'=>$now-30],
+        ['name'=>'Room RH old','temperature'=>21.0,'rh'=>50,
+            'temperature_observed_at'=>$now-20,'humidity_observed_at'=>$now-4000],
+        ['name'=>'Room T and RH','temperature'=>21.5,'rh'=>48,'observed_at'=>$now-30],
+    ],
+];
+$coverage=JVHeliosLogic::decide($onlyT);
+check($coverage['fresh_room_count']===3
+    && $coverage['fresh_humidity_room_count']===1
+    && abs($coverage['indoor_temperature']-21.5)<0.01,
+    'Missing or stale RH never discards valid temperatures or fakes humidity freshness');
 $in['supply_temperature']=21;$in['supply_fresh']=false;
 check(JVHeliosLogic::decide($in)['mode']==='WEEKLY_BASE','Veralteter Helios-Fühler sperrt Kühl-Boost');
 // Bright Sky /current_weather: nur echte DWD-SYNOP-Messungen als Plausibilisierung.
