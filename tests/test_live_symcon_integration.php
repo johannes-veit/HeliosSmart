@@ -482,6 +482,16 @@ it(($hotRh['smart_fan_takeover']['reason']??'')
         ==='NATIVE_EXTRACT_HUMIDITY_HIGH_KEEP_DEVICE',
     'high native Helios extract RH preserves native control instead of SMART S3');
 $GLOBALS['nativeExtractRh']=53;
+$beforeHumidityRecover=count($GLOBALS['calls']);
+$healthSim->Evaluate();
+$humidityHolding=json_decode($healthSim->value('DecisionJSON'),true);
+it(($humidityHolding['smart_fan_recovery']['status']??'')==='WAIT_STABLE_NATIVE_HUMIDITY'
+    && count($GLOBALS['calls'])===$beforeHumidityRecover,
+    'after native humidity demand ends, SMART stays in manufacturer AUTO during stabilization');
+// Simulate 16 minutes of stable confirmed 53% without real-time waiting.
+$healthSim->WriteAttributeString('SmartFanRecoveryState',json_encode([
+    'v'=>1,'block_reason'=>'NATIVE_EXTRACT_HUMIDITY_HIGH_KEEP_DEVICE',
+    'recovery_since'=>time()-16*60,'blocked_at'=>time()-17*60]));
 $healthSim->Evaluate();
 $nativeSafe=json_decode($healthSim->value('DecisionJSON'),true);
 $trace=json_decode((string)$healthSim->value('SmartFanReliabilityJSON'),true);
@@ -560,13 +570,22 @@ $onChange->setProperty('EnableSmartFanTakeover',true);
 $onChange->Evaluate();
 $staleObserved=json_decode($onChange->value('DecisionJSON'),true);
 it(($staleObserved['smart_fan_takeover']['reason']??'')
-        ==='NATIVE_CO2_VOC_HIGH_NO_S4_APPROVAL'
+        ==='NATIVE_CO2_VOC_HIGH_KEEP_DEVICE'
     && ($staleObserved['smart_fan_execution']['attempted']??true)===false,
     'three-hour unchanged Symcon CO2 value is re-read at manufacturer before any S4 reduction');
 it($GLOBALS['nativeCo2Polls']===1 && $GLOBALS['nativeVocPolls']===1
     && ($GLOBALS['nativeIdentLookups']??-1)===0,
     'only installed old CO2/VOC sensors cause manufacturer GETs; no absent-ident lookup');
 $GLOBALS['nativeCo2LiveValue']=650;
+$onChange->Evaluate();
+$co2Recovery=json_decode($onChange->value('DecisionJSON'),true);
+it(($co2Recovery['smart_fan_recovery']['status']??'')==='WAIT_STABLE_SENSORS_AFTER_FALLBACK'
+    && ($co2Recovery['smart_fan_execution']['attempted']??false)===false,
+    'after live CO2 falls SMART recovery is deliberately debounced');
+// Move only the offline-harness re-entry timer; production waits for proof.
+$onChange->WriteAttributeString('SmartFanRecoveryState',json_encode([
+    'v'=>1,'block_reason'=>'NATIVE_CO2_VOC_HIGH_KEEP_DEVICE',
+    'recovery_since'=>time()-11*60,'blocked_at'=>time()-12*60]));
 $onChange->Evaluate();
 $freshObserved=json_decode($onChange->value('DecisionJSON'),true);
 $freshSensors=json_decode($onChange->value('SmartFanTakeoverJSON'),true);
@@ -585,7 +604,7 @@ $onChange->Evaluate();
 $highObserved=json_decode($onChange->value('DecisionJSON'),true);
 it($GLOBALS['nativeCo2Polls']>$beforeLivePolls
     && ($highObserved['smart_fan_takeover']['reason']??'')
-        ==='NATIVE_CO2_VOC_HIGH_NO_S4_APPROVAL'
+        ==='NATIVE_CO2_VOC_HIGH_KEEP_DEVICE'
     && ($highObserved['smart_fan_execution']['verified']??false)===true
     && $GLOBALS['deviceMode']===0,
     'fresh cached low CO2 never masks live high CO2; own timed Party safely cancelled');
