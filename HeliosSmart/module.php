@@ -2884,91 +2884,52 @@ class HeliosSmart extends IPSModule
         $this->WriteAttributeString('FanDemandHistory',
             json_encode($history['state'],JSON_UNESCAPED_UNICODE));
         $decision['fan_demand_tracking']=$history['advice'];
-        $smartPlan=JVHeliosSmartFanAuto::decide([
+        // V2 is the ONE live policy. Historical predictors/recovery/smoothing
+        // remain observation-only; they NEVER override this stage decision.
+        $smartState=JVHeliosSimpleFanV2::initialState($smartState);
+        $smartPlan=JVHeliosSimpleFanV2::plan([
+            'now'=>$now,
             'enabled'=>$smartEnabled,
             'native_ok'=>($native['write_allowed']??false)===true,
             'live_fresh'=>$live!==null,
             'mode'=>$deviceStatus['mode'],
             'actual_fan'=>$deviceStatus['fan'],
             'native_week_program'=>$deviceStatus['program'],
-            'owned_mode'=>(int)($smartState['mode']??0),
-            'owned_stage'=>(int)($smartState['stage']??0),
-            'owned_until'=>(int)($smartState['until']??0),
-            'owned_last_at'=>(int)($smartState['sent_at']??0),
-            'weather_quality'=>$decision['weather_quality']??'UNAVAILABLE',
-            'weather_age_seconds'=>isset($weather['current']['observed_at'])
-                ?$now-(int)$weather['current']['observed_at']:PHP_INT_MAX,
-            'room_temp_count'=>$decision['fresh_room_count']??0,
-            'room_humidity_count'=>$decision['fresh_humidity_room_count']??0,
-            'max_co2_ppm'=>$sensorEvidence['max_co2_ppm'],
-            'max_voc_ppm'=>$sensorEvidence['max_voc_ppm'],
-            'native_extract_rh'=>$sensorEvidence['native_extract_rh'],
-            'native_humidity_control_enabled'=>$nativeHumidityConfigured
-                ||(is_numeric($native['sensor_control_reported']['HumidityControl']??null)
-                    && (int)$native['sensor_control_reported']['HumidityControl']>0),
             'native_sensor_stale'=>$sensorEvidence['native_sensor_stale'],
             'native_sensor_control_unverified'=>$sensorSourceUnverified,
+            'native_extract_rh_live'=>$sensorEvidence['native_extract_rh_live'],
+            'native_extract_rh'=>$sensorEvidence['native_extract_rh'],
             'native_defrost_active'=>$sensorEvidence['native_defrost_active'],
-            'native_defrost_unknown_near_frost'
-                =>!$sensorEvidence['native_defrost_known']
-                    &&($weatherNow===null ||$weatherNow<=5.0),
+            'native_defrost_known'=>$sensorEvidence['native_defrost_known'],
+            'max_co2_ppm'=>$sensorEvidence['max_co2_ppm'],
+            'max_voc_ppm'=>$sensorEvidence['max_voc_ppm'],
             'wet_need'=>$wetActual,
             'strong_wet_need'=>$strongWet,
             'cooking_confirmed'=>$cookingConfirmed,
-            'strong_cooking_need'=>$cookingStrong,
             'direct_hob_boost'=>$hobBoost,
             'direct_hob_afterrun'=>$hobAfterrun,
-            'hob_source_id'=>$this->ReadPropertyInteger('HobPowerVariable'),
             'cooling_confirmed'=>($coolingGate['cooling_confirmed']??false)===true,
+            'weather_quality'=>$decision['weather_quality']??'UNAVAILABLE',
+            'weather_age_seconds'=>isset($weather['current']['observed_at'])
+                ?$now-(int)$weather['current']['observed_at']:PHP_INT_MAX,
             'quiet_requested'=>$this->ReadPropertyBoolean('EnableNightQuiet')
                 &&($decision['night_strategy']['quiet_eligible']??false)===true,
             'away_daytime_low_demand'=>$this->ReadPropertyBoolean('EnableAwayEconomy')
                 &&($history['advice']['away_low_demand_eligible']??false)===true,
-            'quiet_started_at'=>(int)($smartState['quiet_started_at']??0),
             'quiet_cooldown_until'=>(int)($smartState['quiet_cooldown_until']??0),
             'minimum_airflow_validated'=>$this->ReadPropertyBoolean('MinimumVentilationValidated'),
             'model_airflow_accepted'=>$this->ReadPropertyBoolean('AllowEstimatedAirflowLimitedParty'),
             'high_power_enabled'=>$this->ReadPropertyBoolean('EnableHighPowerParty'),
             'high_power_safety'=>$this->ReadPropertyBoolean('HighPowerSafetyValidated'),
             'combustion_safe'=>$this->ReadPropertyBoolean('CombustionSafetyValidated'),
-        ],$now);
-        // Safety-first return to original native regulation happens on the
-        // first invalid reading. Take back normal discretionary control only
-        // after a sustained healthy period; humidity has extra hysteresis.
-        $recoveryRaw=json_decode($this->ReadAttributeString('SmartFanRecoveryState'),true);
-        $recovery=JVHeliosRecoveryGate::assess($smartPlan,
-            is_array($recoveryRaw)?$recoveryRaw:[], [
-                'enabled'=>$smartEnabled,
-                'native_extract_rh'=>$sensorEvidence['native_extract_rh'],
-            ], $now);
-        $smartPlan=$recovery['plan'];
-        $this->WriteAttributeString('SmartFanRecoveryState',
-            json_encode($recovery['state'],JSON_UNESCAPED_UNICODE));
+        ]);
         $decision['smart_fan_recovery']=[
-            'status'=>$recovery['status'],
-            'block_reason'=>$recovery['state']['block_reason'],
-            'since'=>$recovery['state']['recovery_since'],
-            'required_seconds'=>$recovery['required_seconds'],
-            'remaining_seconds'=>$recovery['remaining_seconds'],
-            'native_extract_rh'=>$sensorEvidence['native_extract_rh'],
-        ];
-        // Smooth only discretionary changes while our own timed mode is
-        // still physically confirmed. If any safety veto is active, the
-        // previous fallback decision passes through without modification.
-        $smoothingRaw=json_decode($this->ReadAttributeString('SmartFanSmoothingState'),true);
-        $smoothed=JVHeliosFanSmoothing::decide($smartPlan, $deviceStatus,
-            $smartState, is_array($smoothingRaw)?$smoothingRaw:[], $now);
-        $smartPlan=$smoothed['plan'];
-        $this->WriteAttributeString('SmartFanSmoothingState',
-            json_encode($smoothed['state'],JSON_UNESCAPED_UNICODE));
+            'status'=>'NOT_USED_IN_SIMPLE_V2','block_reason'=>'',
+            'remaining_seconds'=>0];
         $decision['smart_fan_smoothing']=[
-            'status'=>$smoothed['status'],
-            'remaining_seconds'=>$smoothed['remaining_seconds'],
-            'pending_target'=>$smoothed['state']['pending_stage'],
-            'pending_since'=>$smoothed['state']['pending_since'],
+            'status'=>'NOT_USED_IN_SIMPLE_V2','remaining_seconds'=>0,
             'effective_target'=>$smartPlan['target_stage']??null,
-            'original_target'=>$smartPlan['smoothing_original_target']??null,
-        ];
+            'pending_target'=>0,'pending_since'=>0,'original_target'=>null];
         $smartTimedStillPresent=!$smartEnabled
             && (int)($smartState['sent_at']??0)>0
             && (int)($smartState['until']??0)>=$now
@@ -3022,6 +2983,14 @@ class HeliosSmart extends IPSModule
                 'original_helios'=>$native['status']??'UNAVAILABLE',
                 'co2_voc_evidence'=>$sensorEvidence],JSON_UNESCAPED_UNICODE));
         $effectiveState=match ((string)($smartExecution['status']??'')){
+            'SIMPLE_STAGE_CONFIRMED'=>'SMART V2: LUEFTERSTUFE AM GERAET BESTAETIGT',
+            'SIMPLE_START_SENT_WAIT_DEVICE','SIMPLE_WAIT_START_READBACK'
+                =>'SMART V2: WARTE AUF HERSTELLER-BESTAETIGUNG',
+            'SIMPLE_STOP_SENT_WAIT_AUTO','SIMPLE_WAIT_STOP_READBACK'
+                =>'SMART V2: GERAET WECHSELT ZU AUTO',
+            'SIMPLE_FOREIGN_MODE_KEEP'=>'FREMDE BEDIENUNG HAT VORRANG',
+            'SIMPLE_ACTUATOR_BACKOFF'=>'SMART V2: GERAETESPERRE NACH FEHLER',
+            'SIMPLE_MANUFACTURER_AUTO'=>'HERSTELLER-AUTO AKTIV',
             'SMART_STAGE_CONFIRMED'=>'SMART-STUFE AM GERAET BESTAETIGT',
             'SMART_STAGE_DELAYED_READBACK_CONFIRMED'
                 =>'SMART-STUFE NACH VERZOEGERTEM GERAETE-READBACK BESTAETIGT',
