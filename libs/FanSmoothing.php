@@ -68,6 +68,18 @@ final class JVHeliosFanSmoothing
             $out['status']='TARGET_UNCHANGED';
             return $out;
         }
+        // Once the explicitly timed five-minute cooktop after-run has
+        // ended, return immediately to the validated normal target.
+        // Do not silently hold S4 for another 20 minutes under ordinary
+        // discretionary anti-hunting. Native humidity/wet demands still
+        // have priority in the original planner.
+        if(($owned['hob_boost']??false)===true
+            &&($plan['direct_hob_boost']??false)!==true
+            &&$fan===4 &&$desired<4){
+            $out['state']=['pending_stage'=>0,'pending_since'=>0];
+            $out['status']='COOKTOP_AFTER_RUN_FINISHED_RELEASE_NOW';
+            return $out;
+        }
         // Mandatory ventilation recovery from S1 (<=30 min maximum)
         // and independently confirmed real humidity/air need are instant.
         $reason=(string)($plan['reason']??'');
@@ -75,6 +87,7 @@ final class JVHeliosFanSmoothing
             'WETROOM_AIR_NEED','COOKING','NATIVE_CO2_OR_VOC_HIGH',
             'NATIVE_HUMIDITY_HIGH','CONFIRMED_WETROOM_S4_BOOST',
             'CONFIRMED_COOKING_S4_BOOST',
+            'COOKTOP_POWER_ACTIVE_S4','COOKTOP_5MIN_AFTER_RUN_S4',
         ],true);
         if($priority || ($fan===1 && $desired>=2)) {
             $out['state']=['pending_stage'=>0,'pending_since'=>0];
