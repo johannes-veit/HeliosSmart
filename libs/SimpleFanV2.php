@@ -49,7 +49,13 @@ final class JVHeliosSimpleFanV2
         if(!is_numeric($rh)||!is_finite((float)$rh)
             ||(float)$rh<10||(float)$rh>100)
             return $deny('EXTRACT_HUMIDITY_NOT_VERIFIED');
-        if((float)$rh>=60.0)
+        $highEvidence=($d['direct_hob_boost']??false)===true
+            ||($d['strong_wet_need']??false)===true;
+        // Never suppress an independently confirmed cook/shower S4
+        // solely because exhaust RH reached 60-69%. At >=70% the
+        // manufacturer moisture regulator is always given control.
+        if((float)$rh>=70.0
+            ||((float)$rh>=60.0 &&!$highEvidence))
             return $deny('EXTRACT_HUMIDITY_KEEP_MANUFACTURER');
         if((is_numeric($d['max_co2_ppm']??null)
                 &&(float)$d['max_co2_ppm']>=1100)
@@ -206,8 +212,10 @@ final class JVHeliosSimpleFanV2
             } elseif($mode===0
                 &&$now<=(int)($s['pending_until']??0))
                 return self::result($s,'SIMPLE_WAIT_START_READBACK');
-            else
-                return self::error($s,$now,
+            elseif($mode!==0){
+                $s['phase']='IDLE';$s['mode']=0;$s['stage']=0;
+                return self::result($s,'SIMPLE_FOREIGN_MODE_KEEP');
+            } else return self::error($s,$now,
                     'SIMPLE_START_NOT_CONFIRMED_BACKOFF');
         }
         if($phase==='STOPPING'){
@@ -258,7 +266,9 @@ final class JVHeliosSimpleFanV2
         if($desired===1
             &&$now<(int)($s['quiet_cooldown_until']??0))
             return self::result($s,'SIMPLE_S1_COOLDOWN_KEEP_AUTO');
-        return self::start($s,$desired,$now);
+        // Never abruptly jump from manufacturer S3/S4 to a proposed
+        // low-airflow S1. Confirm a manufacturer-timed S2 first.
+        return self::start($s,$desired===1 &&$fan>2 ?2:$desired,$now);
     }
 
     /** Pure post-RPC failure transition: no blind retry on uncertain error. */
