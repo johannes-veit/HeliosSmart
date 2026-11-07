@@ -35,6 +35,7 @@ require_once __DIR__ . '/../libs/FanAttribution.php';
 require_once __DIR__ . '/../libs/NativeHeliosCoordination.php';
 require_once __DIR__ . '/../libs/SeasonProgramControl.php';
 require_once __DIR__ . '/../libs/SmartFanAuto.php';
+require_once __DIR__ . '/../libs/SimpleFanV2.php';
 require_once __DIR__ . '/../libs/FanSmoothing.php';
 require_once __DIR__ . '/../libs/RecoveryGate.php';
 require_once __DIR__ . '/../libs/SmartFanReliability.php';
@@ -173,12 +174,13 @@ class HeliosSmart extends IPSModule
         parent::ApplyChanges();
         $this->SetValue('Monitoring',!$this->ReadPropertyBoolean('EnableControl'));
         $this->SetTimerInterval('SmartTick',5*60*1000);
-        // Independent lightweight watchdog: normal room/weather learning remains
-        // at 5 minutes; safe SMART renewal gets a larger timer-expiry margin.
+        // V2: only run heavy Evaluate on pending native confirmations
+        // or near the end of a confirmed 15min timer. 20s wake does NOT
+        // by itself make an HTTP call or actuator command.
         $this->SetTimerInterval('SmartFanRenewalTick',
             $this->ReadPropertyBoolean('EnableControl')
             && $this->ReadPropertyBoolean('EnableSmartFanTakeover')
-                ? 2*60*1000 : 0);
+                ? 20*1000 : 0);
         $lastHobState=json_decode($this->ReadAttributeString('HobPowerState'),true);
         $this->SetTimerInterval('HobMonitorTick',
             $this->ReadPropertyBoolean('EnableHobPowerBoost')
@@ -804,17 +806,14 @@ class HeliosSmart extends IPSModule
         }
     }
 
-    /** Near-expiry safety re-evaluation only, not a blind device-timer
-     * extension. Same-stage owned Party/Whisper is never resent early.
-     */
+    /** Lightweight watchdog; one full safety evaluation only if needed. */
     public function CheckSmartFanRenewal(): void
     {
-        if (!$this->ReadPropertyBoolean('EnableControl')
-            || !$this->ReadPropertyBoolean('EnableSmartFanTakeover')) return;
-        $state=json_decode($this->ReadAttributeString('SmartFanTakeoverState'),true);
-        if(!is_array($state) || !JVHeliosSmartFanReliability::renewalDue($state,time()))
-            return;
-        $this->Evaluate();
+        if(!$this->ReadPropertyBoolean('EnableControl')
+            ||!$this->ReadPropertyBoolean('EnableSmartFanTakeover'))return;
+        $raw=json_decode($this->ReadAttributeString('SmartFanTakeoverState'),true);
+        if(JVHeliosSimpleFanV2::wakeDue(is_array($raw)?$raw:[],time()))
+            $this->Evaluate();
     }
 
     private function ReadSmartFanSensorEvidence(int $now): array
@@ -926,351 +925,76 @@ class HeliosSmart extends IPSModule
     }
 
     /**
-     * Device-owned expiry is essential: native FanLevel_SetForPeriod
-     * depends on a Symcon software timer and can leave MANUELL active
-     * during a SymBox outage. Instead use manufacturer Party/Whisper
-     * which expire INSIDE the Helios controller after max 15 min.
+     * V2: the ONLY runtime writer of native Party/Whisper. The PURE
+     * state machine chooses at most ONE native request per Evaluate.
+     * We persist a short pending state BEFORE the RPC, then rely on a
+     * later independent manufacturer readback to confirm the mode.
+     * No optimistic 2-second readback, no blind same-stage renewal.
      */
-    private function ExecuteSmartFanTakeover(array $plan,int $now): array
+    private function ExecuteSmartFanTakeover(array $plan,int $now):array
     {
-        $state=json_decode($this->ReadAttributeString('SmartFanTakeoverState'),true);
-        if(!is_array($state))$state=[];
-        $instance=$this->ReadPropertyInteger('HeliosInstance');
         $result=['attempted'=>false,'sent'=>false,'verified'=>false,
-            'status'=>$plan['reason']??'UNKNOWN',
+            'status'=>'SIMPLE_NO_ACTION',
             'target_stage'=>$plan['target_stage']??null,
-            'fallback_weekly'=>$plan['fallback_weekly']??true];
-        $owned=(int)($state['sent_at']??0)>0
-            && (int)($state['until']??0)>=$now
-            && in_array((int)($state['mode']??0),[2,3],true);
-        if(!function_exists('IPS_SemaphoreEnter')||!function_exists('IPS_SemaphoreLeave'))
+            'fallback_weekly'=>true,'controller'=>'SIMPLE_V2'];
+        if(!function_exists('IPS_SemaphoreEnter')
+            ||!function_exists('IPS_SemaphoreLeave'))
             return array_replace($result,['status'=>'SYMCON_LOCK_UNAVAILABLE']);
         $lock='JVHeliosParty_'.$this->InstanceID;
-        if(!IPS_SemaphoreEnter($lock,1000)){
-            $result['status']='DEVICE_COMMAND_BUSY';return $result;
-        }
+        if(!IPS_SemaphoreEnter($lock,1000))
+            return array_replace($result,['status'=>'DEVICE_COMMAND_BUSY']);
         try{
+            $raw=json_decode($this->ReadAttributeString('SmartFanTakeoverState'),true);
+            $old=is_array($raw)?$raw:[];
             $live=$this->ReadHeliosLive();
-            $mode=$live['mode']??null;
-            if(!$plan['execute']){
-                // A failed device readback never proves that the weekly
-                // programme has resumed. The native timer remains our
-                // secondary fallback if the SymBox is unreachable.
-                if($live===null && $owned) {
-                    $result['status']='FALLBACK_PENDING_NATIVE_15MIN_TIMER_UNVERIFIED';
-                    $result['fallback_weekly']=false;
-                    return $result;
-                }
-                // The only early cancel allowed is for our OWN verified
-                // timed command; never cancel a foreign Party/Whisper.
-                if($owned && $mode===(int)$state['mode']
-                    && ($live['fan']??null)===(int)($state['stage']??0)){
-                    $fn=$mode===3?'HELIOS_OperatingMode_Whisper_Set'
-                        :'HELIOS_OperatingMode_Party_Set';
-                    if(function_exists($fn)){
-                        $result['attempted']=true;
-                        $ok=$fn($instance,false,0,0);
-                        $after=$this->ReadHeliosLive();
-                        $result['status']=$ok!==false && ($after['mode']??null)===0
-                            ?'AUTO_FALLBACK_CONFIRMED':'AUTO_FALLBACK_PENDING';
-                        $result['verified']=($after['mode']??null)===0;
-                        if($result['verified'])$result['readback']=$after;
-                        if(!$result['verified']){
-                            $result['status']='FALLBACK_PENDING_NATIVE_TIMER_UNVERIFIED';
-                            $result['fallback_weekly']=false;
-                        }
-                    }
-                } elseif ($owned && $mode===0) {
-                    $result['status']='AUTO_FALLBACK_CONFIRMED';
-                    $result['verified']=true;
-                    $result['readback']=$live;
-                    $result['fallback_weekly']=true;
-                } elseif ($owned && $mode!==(int)$state['mode']) {
-                    $result['status']='ORIGINAL_DEVICE_MODE_CHANGED_DO_NOT_CANCEL';
-                    $result['fallback_weekly']=false;
-                }
-                if($result['verified'] || !$owned)
-                    $this->WriteAttributeString('SmartFanTakeoverState',
-                        json_encode(['last_completed_at'=>$now]));
-                return $result;
-            }
-            if($live===null || !in_array($mode,[0,2,3],true)){
-                $result['status']='HELIOS_LIVE_READBACK_FAILED';return $result;
-            }
-            // The native easyControls response can lag a successful
-            // Party_Set RPC by tens of seconds. The real 07.11.2026
-            // cooktop event showed AUTO/S2 two seconds after S4 was sent,
-            // followed by a physical Party/S4 eighteen seconds later.
-            // Keep an acknowledged, *still unconfirmed* command reserved
-            // for at most 90 seconds. Never blindly resend during this
-            // interval or label the delayed matching Party as foreign.
-            $pendingUntil=(int)($state['readback_pending_until']??0);
-            if($owned && $pendingUntil>0){
-                $matches=$mode===(int)($state['mode']??0)
-                    &&($live['fan']??null)===(int)($state['stage']??0);
-                if($matches){
-                    $state['readback_pending_until']=0;
-                    $state['readback_confirmed_at']=$now;
-                    $this->WriteAttributeString('SmartFanTakeoverState',
-                        json_encode($state));
-                    $result['status']='SMART_STAGE_DELAYED_READBACK_CONFIRMED';
-                    $result['verified']=true;
-                    $result['readback']=$live;
-                    $result['current_stage_confirmed']=true;
-                    $result['current_stage']=$live['fan'];
-                    $result['fallback_weekly']=false;
-                    return $result;
-                }
-                if($now<=$pendingUntil && $mode===0){
-                    $result['status']='SMART_STAGE_AWAITING_NATIVE_READBACK';
-                    $result['fallback_weekly']=false;
-                    $result['awaiting_readback_seconds']=$pendingUntil-$now;
-                    return $result;
-                }
-                // After the grace expires, manufacturer AUTO is a real
-                // failure and the existing 30min backoff remains intact.
-                // A different timed mode/stage is always left to the
-                // manufacturer (no false ownership or cancellation).
-            }
-            if($mode!==0 && (!$owned || $mode!==(int)($state['mode']??0))){
-                $result['status']='FOREIGN_DEVICE_MODE_NO_OVERRIDE';return $result;
-            }
-            $level=(int)($plan['target_stage']??0);
-            if($level<1 || $level>4)return $result;
-            $desiredMode=$level===1?3:2;
-            $hobBoost=$level===4 &&($plan['direct_hob_boost']??false)===true;
-            $hobStillOn=$hobBoost
-                &&($plan['direct_hob_afterrun']??false)!==true;
-            $since=$now-(int)($state['sent_at']??0);
-            // Manufacturer-timed party may naturally return to AUTO in the
-            // last 90 seconds of its 15-minute timeout. Do not misclassify
-            // normal expiry as an actuator failure with 30-minute backoff.
-            $expectedTimerReturn=$mode===0
-                &&JVHeliosSmartFanReliability::nearExpectedNativeTimerReturn(
-                    $state,$now);
-            if($expectedTimerReturn &&$hobBoost){
-                // A cooktop signal STILL requires stage 4. The previous
-                // vendor 15min Party really has expired: re-arm from AUTO,
-                // not by assuming a resend extended the old timer.
-                $state['until']=$now-1;
-                $owned=false;
-                $since=PHP_INT_MAX;
-                $this->WriteAttributeString('SmartFanTakeoverState',
-                    json_encode($state));
-            } elseif($expectedTimerReturn){
-                $cooldown=(int)($state['quiet_cooldown_until']??0);
-                if((int)($state['stage']??0)===1)
-                    $cooldown=max($cooldown,$now+8*3600);
-                $this->WriteAttributeString('SmartFanTakeoverState',
-                    json_encode(['last_completed_at'=>$now,
-                        'auto_return_pause_until'=>$now+90,
-                        'quiet_started_at'=>0,
-                        'quiet_cooldown_until'=>$cooldown]));
-                $result['status']='NATIVE_AUTO_AT_EXPECTED_TIMER_BOUNDARY';
-                $result['verified']=true;
-                $result['readback']=$live;
-                $result['fallback_weekly']=true;
-                return $result;
-            }
-            if($mode===0 &&!$hobBoost
-                &&(int)($state['auto_return_pause_until']??0)>$now){
-                $result['status']='AUTO_AFTER_TIMER_RESTART_PAUSE';
-                $result['verified']=true;
-                $result['readback']=$live;
-                $result['fallback_weekly']=true;
-                return $result;
-            }
-            if($owned && $mode===0 && $since>=0){
-                // Any AUTO return before the FIRST expected device timer
-                // (not merely 10 min after the LAST command) is uncertain.
-                // Keep native AUTO and the existing 30min retry gate.
-                // Actual live AUTO readback disproves the prior SMART stage.
-                // Preserve manufacturer AUTO, make uncertainty visible and
-                // prevent repeated commands against a rejected short mode.
-                $result['status']='NATIVE_AUTO_CONFIRMED_SMART_STAGE_NOT_ACTIVE';
-                $result['verified']=true;
-                $result['fallback_weekly']=true;
-                $result['readback']=$live;
-                $state['until']=$now-1;
-                $state['error_retry_after']=$now+30*60;
-                if((int)($state['stage']??0)===1){
-                    $state['quiet_started_at']=0;
-                    $state['quiet_cooldown_until']=max(
-                        (int)($state['quiet_cooldown_until']??0),$now+8*3600);
-                }
-                $this->WriteAttributeString('SmartFanTakeoverState',json_encode($state));
-                return $result;
-            }
-            if((int)($state['error_retry_after']??0)>$now){
-                $result['status']='SMART_ACTUATOR_ERROR_BACKOFF';
-                return $result;
-            }
-            // Cooktop is still ON. At minute 11–14 of an owned S4 Party,
-            // explicitly STOP the old Party, verify manufacturer AUTO, and
-            // then START a fresh 15min S4 Party. Same-stage 'renew' does not
-            // reset the old Helios timer on this installation.
-            // Under uncertain STOP/START readback, leave vendor control
-            // intact; never command blind or bypass true actuator backoff.
-            $anchor=(int)($state['native_timer_anchor_at']
-                ??$state['sent_at']??0);
-            $nativeAge=$anchor>0?$now-$anchor:-1;
-            $lastRearm=(int)($state['last_hob_rearm_at']??0);
-            if($hobStillOn &&$owned &&$mode===2
-                &&(int)($state['stage']??0)===4
-                &&($live['fan']??null)===4
-                &&$nativeAge>=11*60 &&$nativeAge<14*60
-                &&$since>=60 &&$lastRearm<=$now-90
-                &&function_exists('HELIOS_OperatingMode_Party_Set')){
-                // Write a durable reservation BEFORE the first RPC.
-                $state['last_hob_rearm_at']=$now;
-                $this->WriteAttributeString('SmartFanTakeoverState',
-                    json_encode($state));
-                $result['attempted']=true;
-                $stopped=HELIOS_OperatingMode_Party_Set(
-                    $instance,false,0,0);
-                $nativeAuto=$this->ReadHeliosLive();
-                if($stopped!==false &&$stopped!==null
-                    &&($nativeAuto['mode']??null)!==0
-                    &&function_exists('IPS_Sleep')){
-                    // Local Helios easyControls may report the old mode
-                    // briefly after a successful HTTP write.
-                    IPS_Sleep(300);
-                    $nativeAuto=$this->ReadHeliosLive();
-                }
-                if($stopped===false ||$stopped===null
-                    ||($nativeAuto['mode']??null)!==0){
-                    $result['status']='COOKTOP_REARM_STOP_NOT_CONFIRMED';
-                    return $result;
-                }
-                $renewed=[
-                    'sent_at'=>$now,'native_timer_anchor_at'=>$now,
-                    'until'=>$now+15*60,'stage'=>4,'mode'=>2,
-                    'readback_pending_until'=>0,
-                    'hob_boost'=>true,'last_hob_rearm_at'=>$now,
-                    'prior_program'=>$nativeAuto['program']??null,
-                    'quiet_started_at'=>0,
-                    'quiet_cooldown_until'=>
-                        (int)($state['quiet_cooldown_until']??0),
-                ];
-                $this->WriteAttributeString('SmartFanTakeoverState',
-                    json_encode($renewed));
-                $started=HELIOS_OperatingMode_Party_Set(
-                    $instance,true,4,15);
-                if($started===false ||$started===null){
-                    $renewed['until']=$now-1;
-                    $renewed['error_retry_after']=$now+10*60;
-                    $this->WriteAttributeString('SmartFanTakeoverState',
-                        json_encode($renewed));
-                    $result['status']='COOKTOP_REARM_START_FAILED_AUTO';
-                    return $result;
-                }
-                $result['sent']=true;
-                $after=$this->ReadHeliosLive();
-                if(($after['mode']??null)!==2
-                    &&function_exists('IPS_Sleep')){
-                    IPS_Sleep(300);
-                    $after=$this->ReadHeliosLive();
-                }
-                if($after!==null &&$after['mode']===2
-                    &&$after['fan']===4){
-                    $result['readback']=$after;
-                    $result['verified']=true;
-                    $result['fallback_weekly']=false;
-                    $result['status']='COOKTOP_S4_NATIVE_TIMER_REARM_CONFIRMED';
-                    return $result;
-                }
-                $renewed['readback_pending_until']=$now+90;
-                $this->WriteAttributeString('SmartFanTakeoverState',
-                    json_encode($renewed));
-                $result['status']='COOKTOP_S4_REARM_READBACK_PENDING';
-                return $result;
-            }
-            if($owned && $mode===$desiredMode
-                && (int)($state['stage']??0)===$level
-                && $since>=0 && ($live['fan']??null)===$level){
-                // HELIOS returned to AUTO exactly 15 minutes after the
-                // FIRST Party request even after a subsequent same-stage
-                // "renewal". Never flood it with 7min renewal commands.
-                // Keep original device timer and let native AUTO return.
-                $result['status']='SMART_OWNED_ACTIVE_WAIT_NATIVE_TIMER';
-                $result['verified']=true;
-                $result['current_stage_confirmed']=true;
-                $result['current_stage']=$level;
-                $result['fallback_weekly']=false;
-                $anchor=(int)($state['native_timer_anchor_at']
-                    ??$state['sent_at']??0);
-                $result['estimated_first_timer_remaining_seconds']
-                    =max(0,$anchor+15*60-$now);
-                return $result;
-            }
-            if($owned && $since>=0 && $since<5*60
-                && ($live['fan']??null)!==$level && $level<3
-                &&!(($state['hob_boost']??false)===true
-                    &&($plan['direct_hob_boost']??false)!==true)){
-                // The requested lower stage is NOT confirmed, but the
-                // previous owned stage may still be confirmed. Report both.
-                $result['status']='STAGE_CHANGE_MINIMUM_DWELL';
-                $result['current_stage_confirmed']=$mode===(int)($state['mode']??0)
-                    && ($live['fan']??null)===(int)($state['stage']??0);
-                $result['current_stage']=$live['fan']??null;
-                $result['change_retry_after_seconds']=max(0,5*60-$since);
-                return $result;
-            }
-            $fn=$desiredMode===3?'HELIOS_OperatingMode_Whisper_Set'
+            $step=JVHeliosSimpleFanV2::step($plan,$live,$old,$now);
+            $state=$step['state'];
+            $result['status']=$step['status'];
+            $result['verified']=$step['verified'];
+            $result['fallback_weekly']=$step['fallback_weekly'];
+            if($step['verified'] &&$live!==null)$result['readback']=$live;
+            // No manufacturer request during a pending confirmation,
+            // manual/vacation/foreign mode, or active retry backoff.
+            $action=$step['action']??null;
+            $this->WriteAttributeString('SmartFanTakeoverState',
+                json_encode($state,JSON_UNESCAPED_UNICODE));
+            if(!is_array($action))return $result;
+            $fn=((int)($action['mode']??0)===3)
+                ?'HELIOS_OperatingMode_Whisper_Set'
                 :'HELIOS_OperatingMode_Party_Set';
             if(!function_exists($fn)){
-                $result['status']='NATIVE_TIMED_MODE_NOT_SUPPORTED';return $result;
+                $bad=JVHeliosSimpleFanV2::writeFailed($state,$now);
+                $this->WriteAttributeString('SmartFanTakeoverState',
+                    json_encode($bad['state'],JSON_UNESCAPED_UNICODE));
+                return array_replace($result,['status'=>'NATIVE_TIMED_API_MISSING',
+                    'fallback_weekly'=>true]);
             }
-            // Never more than one action per tick, record intent before RPC
-            // so timeout/restart will not trigger a command flood.
-            $wasQuiet=(int)($state['stage']??0)===1
-                && (int)($state['quiet_started_at']??0)>0;
-            $cooldown=(int)($state['quiet_cooldown_until']??0);
-            if($wasQuiet && $level!==1)$cooldown=$now+8*3600;
-            $nativeAnchor=$owned && $mode===$desiredMode
-                ?(int)($state['native_timer_anchor_at']??$state['sent_at']??$now)
-                :$now;
-            $state=[
-                'sent_at'=>$now,
-                'native_timer_anchor_at'=>$nativeAnchor,
-                'until'=>$now+15*60,
-                'stage'=>$level,
-                'mode'=>$desiredMode,
-                'hob_boost'=>$hobBoost,
-                'readback_pending_until'=>0,
-                'prior_program'=>$live['program']??null,
-                'quiet_started_at'=>$level===1
-                    ?((int)($state['quiet_started_at']??0)>0
-                        ?(int)$state['quiet_started_at']:$now):0,
-                'quiet_cooldown_until'=>$cooldown,
-            ];
-            $this->WriteAttributeString('SmartFanTakeoverState',json_encode($state));
+            $this->WriteAttributeString('SmartFanTakeoverState',
+                json_encode($state,JSON_UNESCAPED_UNICODE));
             $result['attempted']=true;
-            $ok=$fn($instance,true,$level,15);
-            if($ok===false || $ok===null){
-                $state['error_retry_after']=$now+30*60;
-                $this->WriteAttributeString('SmartFanTakeoverState',json_encode($state));
-                $result['status']='NATIVE_TIMED_MODE_COMMAND_FAILED_BACKOFF_30MIN';
-                return $result; // device itself times out if command was accepted
-            }
-            $result['sent']=true;
-            $after=$this->ReadHeliosLive();
-            if($after!==null && $after['mode']===$desiredMode
-                && $after['fan']===$level){
-                $result['readback']=$after;
-                $result['status']='SMART_STAGE_CONFIRMED';
-                $result['verified']=true;
-                $result['fallback_weekly']=false;
+            $start=($action['type']??'')==='start';
+            $ok=$fn($this->ReadPropertyInteger('HeliosInstance'),
+                $start,(int)($action['stage']??0),
+                (int)($action['minutes']??0));
+            if($ok===false ||$ok===null){
+                $bad=JVHeliosSimpleFanV2::writeFailed($state,$now);
+                $this->WriteAttributeString('SmartFanTakeoverState',
+                    json_encode($bad['state'],JSON_UNESCAPED_UNICODE));
+                $result['status']='SIMPLE_RPC_FAILED_BACKOFF';
+                $result['fallback_weekly']=true;
                 return $result;
             }
-            $state['readback_pending_until']=$now+90;
-            $this->WriteAttributeString('SmartFanTakeoverState',
-                json_encode($state));
-            $result['status']='SMART_STAGE_SENT_READBACK_PENDING';
+            $result['sent']=true;
+            $result['status']=$start
+                ?'SIMPLE_START_SENT_WAIT_DEVICE'
+                :'SIMPLE_STOP_SENT_WAIT_AUTO';
+            $result['fallback_weekly']=false;
+            // Real easyControls lags the HTTP response by ~20 seconds.
+            // DO NOT make a second immediate GET and DO NOT claim success.
             return $result;
         }catch(Throwable $e){
-            $this->SendDebug('SmartStageRPC',substr($e->getMessage(),0,180),0);
-            $result['status']='SMART_STAGE_IO_ERROR';
+            $this->SendDebug('SimpleFanV2',substr($e->getMessage(),0,180),0);
+            $result['status']='SIMPLE_IO_UNCERTAIN';
             return $result;
         }finally{
             IPS_SemaphoreLeave($lock);
