@@ -53,6 +53,38 @@ final class JVHeliosSimpleFanV2
                 :'HUMIDITY_CLEAR'];
     }
 
+    /** Local LCN humidity hysteresis, independent of the native exhaust.
+     * A single room at 65% should not cause frequent S2/S3 toggling
+     * when measurement fluctuates around 64–65%.
+     */
+    public static function roomHumidityLatch(array $old,$rh,int $now):array
+    {
+        $state=$old;
+        $hold=($state['room_humidity_hold']??false)===true;
+        if(!is_numeric($rh) ||!is_finite((float)$rh)
+            ||(float)$rh<10||(float)$rh>100){
+            // No new low-airflow authorization from an absent LCN value.
+            return ['state'=>$state,'hold'=>true,
+                'reason'=>'ROOM_RH_UNKNOWN'];
+        }
+        if((float)$rh>=65){
+            $hold=true;
+            $state['room_humidity_clear_since']=0;
+        } elseif($hold &&(float)$rh<=61){
+            $since=(int)($state['room_humidity_clear_since']??0);
+            if($since<=0||$since>$now)
+                $state['room_humidity_clear_since']=$now;
+            elseif($now-$since>=10*60){
+                $hold=false;
+                $state['room_humidity_clear_since']=0;
+            }
+        } elseif($hold)$state['room_humidity_clear_since']=0;
+        $state['room_humidity_hold']=$hold;
+        return ['state'=>$state,'hold'=>$hold,
+            'reason'=>$hold?'ROOM_RH_WAIT_STABLE_BELOW_61'
+                :'ROOM_RH_CLEAR'];
+    }
+
     public static function plan(array $d):array
     {
         $o=['status'=>'FALLBACK_WEEKLY','reason'=>'UNVERIFIED',
@@ -132,7 +164,8 @@ final class JVHeliosSimpleFanV2
         } elseif(($d['wet_need']??false)===true
             ||($d['cooking_confirmed']??false)===true
             ||(is_numeric($d['max_room_rh']??null)
-                &&(float)$d['max_room_rh']>=65.0)){
+                &&(float)$d['max_room_rh']>=65.0)
+            ||($d['room_humidity_hold']??false)===true){
             $level=3;
             $reason='HUMIDITY_OR_INFERRED_COOKING';
         } elseif(($d['cooling_confirmed']??false)===true
