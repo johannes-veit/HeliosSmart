@@ -2422,7 +2422,9 @@ class HeliosSmart extends IPSModule
                          'started_duration_seconds','historical_flush_seen',
                          'daily_target_minutes']),
                     'smart_humidity_latch'=>$pick((array)($d['smart_humidity_latch']??[]),
-                        ['held','reason','extract_rh','clear_since','release_at_or_after']),
+                        ['held','reason','extract_rh','clear_since','release_at_or_after',
+                         'room_humidity_held','room_humidity_reason',
+                         'room_max_rh','room_clear_since']),
                     'timed_off_v2'=>$pick((array)($d['timed_off_v2']??[]),
                         ['configured','building_plan_validated','measured_airflow_validated',
                          'manufacturer_minimum_stage','available_only_if_all_safety_checks_pass']),
@@ -2924,14 +2926,21 @@ class HeliosSmart extends IPSModule
         $humidity=JVHeliosSimpleFanV2::humidityLatch(
             is_array($humidityRaw)?$humidityRaw:[],
             $sensorEvidence['native_extract_rh'],$now);
+        $roomHumidity=JVHeliosSimpleFanV2::roomHumidityLatch(
+            $humidity['state'],$maxRoomRh,$now);
         $this->WriteAttributeString('SimpleHumidityLatchState',
-            json_encode($humidity['state']));
+            json_encode($roomHumidity['state']));
         $decision['smart_humidity_latch']=[
             'held'=>$humidity['hold'],'reason'=>$humidity['reason'],
             'extract_rh'=>$sensorEvidence['native_extract_rh'],
             'clear_since'=>(int)($humidity['state']['humidity_clear_since']??0),
             'release_at_or_after'=>((int)($humidity['state']['humidity_clear_since']??0)>0
                 ?(int)$humidity['state']['humidity_clear_since']+600:null),
+            'room_humidity_held'=>$roomHumidity['hold'],
+            'room_humidity_reason'=>$roomHumidity['reason'],
+            'room_max_rh'=>$maxRoomRh,
+            'room_clear_since'=>
+                (int)($roomHumidity['state']['room_humidity_clear_since']??0),
         ];
         // The manufacturer, not the app's UI, defines whether fan
         // stage 0 is technically available. Evaluate only when the user
@@ -2984,6 +2993,7 @@ class HeliosSmart extends IPSModule
             'room_temp_count'=>$decision['fresh_room_count']??0,
             'room_humidity_count'=>$decision['fresh_humidity_room_count']??0,
             'max_room_rh'=>$maxRoomRh,
+            'room_humidity_hold'=>$roomHumidity['hold'],
             'native_sensor_stale'=>$sensorEvidence['native_sensor_stale'],
             'native_sensor_control_unverified'=>$sensorSourceUnverified,
             'native_extract_rh_live'=>$sensorEvidence['native_extract_rh_live'],
