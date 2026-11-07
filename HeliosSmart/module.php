@@ -88,6 +88,7 @@ class HeliosSmart extends IPSModule
         $this->RegisterPropertyBoolean('EnableProgramSwitch',false);
         $this->RegisterPropertyBoolean('EnableSmartFanTakeover',false);
         $this->RegisterPropertyBoolean('EnableAwayEconomy',true);
+        $this->RegisterPropertyBoolean('EnableDailyMorningFlush',true);
         $this->RegisterAttributeString('SmartFanTakeoverState','{}');
         $this->RegisterAttributeString('SmartFanSmoothingState','{}');
         $this->RegisterAttributeString('SmartFanRecoveryState','{}');
@@ -391,6 +392,7 @@ class HeliosSmart extends IPSModule
                 ['type'=>'CheckBox','name'=>'EnableControl','caption'=>'Aktive SMART-Lueftung: eigene zeitlich begrenzte Zusatzbefehle erlauben, nur nach Sicherheitsfreigaben'],
                 ['type'=>'CheckBox','name'=>'EnableProgramSwitch','caption'=>'Rueckfall-Wochenprofil saisonal anpassen: im Heizbetrieb Sommerprofil 4 durch Normalprofil 3 ersetzen'],
                 ['type'=>'CheckBox','name'=>'EnableSmartFanTakeover','caption'=>'SMART uebernimmt Stufen 1–4 mit nativen 15-Minuten-Zeitbefehlen; Wochenprogramm bleibt nur Rueckfallebene'],
+                ['type'=>'CheckBox','name'=>'EnableDailyMorningFlush','caption'=>'SMART V2: 1x taeglich 15 Min morgens Stufe 3 (07–10 Uhr), nur mit verifizierter trockenerer Aussenluft und sicherer Helios-Freigabe'],
                 ['type'=>'CheckBox','name'=>'EnableAwayEconomy','caption'=>'Stromsparende Abwesenheits-Lueftung: 30 Min keine frischen Zuhause-Handyhinweise bei BEIDEN (auch Firma, Abwesend, Unklar), keine aktuelle Hausbewegung, vorher morgens ausreichend gelueftet, unkritische Feuchte; max. kurzzeitige Stufe 1, sonst Stufe 2; NIE unbeaufsichtigt AUS'],
                 ['type'=>'Label','caption'=>'Kochfeld Shelly #47825: >5 W mit frischem Online-Wert loest sofort S4 aus, unabhaengig von Licht/Bewegung/SHADOW; unter/gleich 5 W nach zuvor EIN beginnt 5 Min S4-Nachlauf. SMART erneuert die nativen 15-Min-Gerätetimer nur mit bestaetigtem STOP/AUTO/START. Bei Offline/veralteten Daten keine Kochfeld-S4-Freigabe. Nativer Frost-/Feuchteschutz und S4-Freigaben haben immer Vorrang. Kein automatisches AUS.'],
                 ['type'=>'Label','caption'=>'SMART-PRIORITAET: Bei frischem Wetter, mindestens 9 Raumtemperaturen, 8 Raumfeuchten, funktionsfaehiger Original-Helios-Steuerung und Freigabe steuert SMART mit geraeteseitig zeitbegrenzten Party/Ruhe-Befehlen. Ohne Mess-/Betriebsnachweis oder bei Abbruch endet die eigene Anforderung nach spaetestens 15 Minuten und das Herstellerwochenprogramm uebernimmt. Unterhalb nomineller Stufe 3 nur bei ausdruecklicher Luftmengen-/Modellfreigabe.'],
@@ -2254,6 +2256,7 @@ class HeliosSmart extends IPSModule
                     'EnableControl'=>$this->ReadPropertyBoolean('EnableControl'),
                     'EnableSmartFanTakeover'=>$this->ReadPropertyBoolean('EnableSmartFanTakeover'),
                     'EnableAwayEconomy'=>$this->ReadPropertyBoolean('EnableAwayEconomy'),
+                    'EnableDailyMorningFlush'=>$this->ReadPropertyBoolean('EnableDailyMorningFlush'),
                     'EnableHobPowerBoost'=>$this->ReadPropertyBoolean('EnableHobPowerBoost'),
                     'EnableProgramSwitch'=>$this->ReadPropertyBoolean('EnableProgramSwitch'),
                     'EnableNightQuiet'=>$this->ReadPropertyBoolean('EnableNightQuiet'),
@@ -2906,7 +2909,8 @@ class HeliosSmart extends IPSModule
             &&(float)$outsideAH>=0 &&(float)$outsideAH<=25
             &&(float)$insideAH>=0 &&(float)$insideAH<=25
             &&(float)$outsideAH<=(float)$insideAH+0.3;
-        $morningWanted=$hour>=7 &&$hour<10
+        $morningWanted=$this->ReadPropertyBoolean('EnableDailyMorningFlush')
+            &&$hour>=7 &&$hour<10
             &&!($history['advice']['morning_ventilation_observed']??false)
             &&(!$startedToday ||$startedDuration<15*60)
             &&$morningGoodAir
