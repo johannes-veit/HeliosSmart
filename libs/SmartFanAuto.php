@@ -61,13 +61,20 @@ final class JVHeliosSmartFanAuto
                 $out['reason']='FOREIGN_PARTY_OR_WHISPER';return $out;
             }
         }
-        if(!in_array($d['weather_quality']??'',['VERIFIED','DWD_ONLY'],true)
+        $directHob=($d['direct_hob_boost']??false)===true;
+        // The physical Shelly cooktop signal is an independent demand:
+        // an unreliable weather forecast must not suppress actual cooking.
+        // The native HELIOS, antifrost, humidity and high-power safety
+        // gates still apply below. Weather may only control discretionary
+        // energy saving, cooling and ventilation schedules.
+        if(!$directHob &&
+            (!in_array($d['weather_quality']??'',['VERIFIED','DWD_ONLY'],true)
             || ($d['weather_age_seconds']??PHP_INT_MAX)>900
-            || ($d['weather_age_seconds']??-1)<0){
+            || ($d['weather_age_seconds']??-1)<0)){
             $out['reason']='WEATHER_NOT_VERIFIED_FRESH';return $out;
         }
-        if((int)($d['room_temp_count']??0)<9
-            ||(int)($d['room_humidity_count']??0)<8){
+        if(!$directHob && ((int)($d['room_temp_count']??0)<9
+            ||(int)($d['room_humidity_count']??0)<8)){
             $out['reason']='ROOM_DATA_INCOMPLETE';return $out;
         }
         $fan=$d['actual_fan']??null;
@@ -112,7 +119,7 @@ final class JVHeliosSmartFanAuto
         $highPower=(bool)($d['high_power_enabled']??false)
             && (bool)($d['high_power_safety']??false)
             && (bool)($d['combustion_safe']??false);
-        $provenBoost4=$highPower && ($strongWet || $strongCook);
+        $provenBoost4=$highPower && ($strongWet || $strongCook || $directHob);
         $nativeUnverified=($d['native_sensor_control_unverified']??false)===true;
         // An unverified native sensor controller forbids EVERY downshift.
         // The sole exception: an independently detected strong shower/cook
@@ -142,18 +149,21 @@ final class JVHeliosSmartFanAuto
         }
         // Similarly never force a lower stage than the already measured
         // S4 during an independently demonstrated strong wet/cooking event.
-        if(($strongWet || $strongCook) && !$highPower){
+        if(($strongWet || $strongCook || $directHob) && !$highPower){
             $out['reason']='STRONG_WET_OR_COOKING_KEEP_NATIVE_REGULATION';
             return $out;
         }
         // Safety-priority cases always beat energy savings or absence.
-        if($strongWet || $strongCook){
-            // Shower/cook now get a short high-power boost IF confirmed
-            // and specifically authorized. Normal humidity & calendar
-            // alone never trigger S4.
+        if($directHob || $strongWet || $strongCook){
+            // Direct cooktop watts take priority over guesswork from
+            // household power, kitchen light, occupancy and time of day.
+            // The five-minute OFF after-run is a real input to this branch.
             $level=$highPower?4:3;
-            $reason=$strongWet?'CONFIRMED_WETROOM_S4_BOOST'
-                :'CONFIRMED_COOKING_S4_BOOST';
+            $reason=$directHob
+                ?(($d['direct_hob_afterrun']??false)===true
+                    ?'COOKTOP_5MIN_AFTER_RUN_S4':'COOKTOP_POWER_ACTIVE_S4')
+                :($strongWet?'CONFIRMED_WETROOM_S4_BOOST'
+                :'CONFIRMED_COOKING_S4_BOOST');
         } elseif($wet || $cook || $cool){
             $level=3;
             $reason=$wet?'WETROOM_AIR_NEED':($cook?'COOKING':'SAFE_PASSIVE_COOLING');
@@ -182,6 +192,7 @@ final class JVHeliosSmartFanAuto
         $out['target_stage']=$level;
         $out['minutes']=15;
         $out['route']=$route;
+        $out['direct_hob_boost']=$directHob &&$level===4;
         $out['execute']=true;
         $out['fallback_weekly']=false;
         $out['evidence']=[
@@ -193,6 +204,9 @@ final class JVHeliosSmartFanAuto
             'cooking_demand'=>$cook,
             'strong_wetroom_event'=>$strongWet,
             'strong_cooking_event'=>$strongCook,
+            'cooktop_power_direct'=>$directHob,
+            'cooktop_afterrun'=>(bool)($d['direct_hob_afterrun']??false),
+            'cooktop_source_id'=>(int)($d['hob_source_id']??0),
             'native_sensor_unverified_high_only'=>$nativeUnverified,
             'cooling_demand'=>$cool,
             'model_airflow_accepted'=>(bool)($d['model_airflow_accepted']??false),

@@ -28,6 +28,7 @@ final class JVHeliosRecoveryGate
         return in_array((string)($plan['reason']??''), [
             'WETROOM_AIR_NEED', 'COOKING', 'CONFIRMED_WETROOM_S4_BOOST',
             'CONFIRMED_COOKING_S4_BOOST',
+            'COOKTOP_POWER_ACTIVE_S4','COOKTOP_5MIN_AFTER_RUN_S4',
         ], true);
     }
 

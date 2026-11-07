@@ -14,6 +14,7 @@ require_once __DIR__ . '/../libs/SmartStrategy.php';
 require_once __DIR__ . '/../libs/WetroomEvents.php';
 require_once __DIR__ . '/../libs/CookingAdvisor.php';
 require_once __DIR__ . '/../libs/CookingEvents.php';
+require_once __DIR__ . '/../libs/HobPowerDemand.php';
 require_once __DIR__ . '/../libs/PartyExecutor.php';
 require_once __DIR__ . '/../libs/AirflowModel.php';
 require_once __DIR__ . '/../libs/PartyMonitor.php';
@@ -61,6 +62,11 @@ class HeliosSmart extends IPSModule
         $this->RegisterPropertyInteger('KitchenMotionVariable',51040);
         $this->RegisterPropertyInteger('GroundFloorHallMotionVariable',39155);
         $this->RegisterPropertyInteger('HousePowerVariable',27700);
+        // Independent three-phase Shelly summation from "Kochfeld" #53982.
+        $this->RegisterPropertyInteger('HobPowerVariable',47825);
+        $this->RegisterPropertyInteger('HobOnlineVariable',59558);
+        $this->RegisterPropertyInteger('HobPowerThresholdW',5);
+        $this->RegisterPropertyBoolean('EnableHobPowerBoost',true);
         $this->RegisterPropertyInteger('ResidentShadowInstance',32969);
         // Sole EWT in HELIOS outside-air intake. Do not reuse FBH cooling Shelly.
         $this->RegisterPropertyInteger('EWTPumpSwitchVariable',0);
@@ -99,6 +105,8 @@ class HeliosSmart extends IPSModule
         $this->RegisterAttributeString('WetroomEventState', '{}');
         $this->RegisterAttributeString('CookingAdviceState', '{}');
         $this->RegisterAttributeString('CookingEventState', '{}');
+        $this->RegisterAttributeString('HobPowerState', '{}');
+        $this->RegisterAttributeString('HobWakeState', '{}');
         $this->RegisterAttributeInteger('LastCommandAt',0);
         $this->RegisterAttributeInteger('LastProgramAt',0);
         $this->RegisterAttributeInteger('LastNightQuietAt',0);
@@ -108,6 +116,7 @@ class HeliosSmart extends IPSModule
         $this->RegisterTimer('SmartTick',0,'JVHS_Evaluate($_IPS[\'TARGET\']);');
         $this->RegisterTimer('SmartFanRenewalTick',0,
             'JVHS_CheckSmartFanRenewal($_IPS[\'TARGET\']);');
+        $this->RegisterTimer('HobMonitorTick',0,'JVHS_Evaluate($_IPS[\'TARGET\']);');
         $this->RegisterTimer('EWTPumpFeedbackTick',0,'JVHS_CheckEWTPumpFeedback($_IPS[\'TARGET\']);');
         $this->RegisterVariableString('Status','Entscheidung / Status','',10);
         $this->RegisterVariableString('DecisionJSON','Letzte Empfehlung JSON','',20);
@@ -170,6 +179,12 @@ class HeliosSmart extends IPSModule
             $this->ReadPropertyBoolean('EnableControl')
             && $this->ReadPropertyBoolean('EnableSmartFanTakeover')
                 ? 2*60*1000 : 0);
+        $lastHobState=json_decode($this->ReadAttributeString('HobPowerState'),true);
+        $this->SetTimerInterval('HobMonitorTick',
+            $this->ReadPropertyBoolean('EnableHobPowerBoost')
+            && is_array($lastHobState)
+            && in_array((string)($lastHobState['phase']??''),
+                ['ON','AFTER_RUN'],true) ? 60*1000 : 0);
         // Pending Shelly readback timer is enabled only while awaiting feedback.
         $ewtState=json_decode($this->ReadAttributeString('EWTPumpControlState'),true);
         $this->SetTimerInterval('EWTPumpFeedbackTick',
@@ -228,6 +243,32 @@ class HeliosSmart extends IPSModule
         $ewtState['watched_status_ids']=$newEwt;
         $this->WriteAttributeString('EWTPumpControlState',json_encode($ewtState));
         foreach ($allDesired as $id) $this->RegisterMessage($id, VM_UPDATE);
+        // Direct cooktop device power is intentionally independent of the
+        // old house-power/kitchen-motion inference. Never subscribe to a
+        // link or a missing variable.
+        $hobWake=json_decode($this->ReadAttributeString('HobWakeState'),true);
+        $hobWake=is_array($hobWake)?$hobWake:[];
+        $oldHobID=(int)($hobWake['watched_id']??0);
+        $newHobID=$this->ReadPropertyBoolean('EnableHobPowerBoost')
+            ?(int)$this->ReadPropertyInteger('HobPowerVariable'):0;
+        if($newHobID>0 && (!IPS_VariableExists($newHobID)
+            ||(function_exists('IPS_GetObject')
+                && (int)(IPS_GetObject($newHobID)['ObjectType']??2)!==2)))
+            $newHobID=0;
+        if($oldHobID>0 && $oldHobID!==$newHobID
+            && !in_array($oldHobID,$allDesired,true)
+            && !in_array($oldHobID,$newEwt,true))
+            $this->UnregisterMessage($oldHobID,VM_UPDATE);
+        if($newHobID>0 && !in_array($newHobID,$allDesired,true)
+            && !in_array($newHobID,$newEwt,true))
+            $this->RegisterMessage($newHobID,VM_UPDATE);
+        if($oldHobID!==$newHobID) {
+            $hobWake=['watched_id'=>$newHobID,'last_bucket'=>-1,
+                'last_eval_at'=>0];
+            // Prevent ghost after-run on a newly assigned power source.
+            $this->WriteAttributeString('HobPowerState','{}');
+        } else $hobWake['watched_id']=$newHobID;
+        $this->WriteAttributeString('HobWakeState',json_encode($hobWake));
         $state=JVHeliosWetroomEvents::prune($state,$desired);
         $this->WriteAttributeString('WetroomEventState',json_encode($state));
         $this->WriteAttributeString('CookingEventState',json_encode(
@@ -246,6 +287,31 @@ class HeliosSmart extends IPSModule
     public function MessageSink($TimeStamp, $SenderID, $Message, $Data)
     {
         $sender=(int)$SenderID;
+        $hobID=$this->ReadPropertyBoolean('EnableHobPowerBoost')
+            ?$this->ReadPropertyInteger('HobPowerVariable'):0;
+        if($hobID>0 && $sender===$hobID && (int)$Message===VM_UPDATE){
+            $now=time();
+            $raw=is_array($Data)?($Data[0]??null):null;
+            if(!is_numeric($raw) || !is_finite((float)$raw)
+                ||(float)$raw<0 || (float)$raw>100000)return;
+            $bucket=(float)$raw>$this->ReadPropertyInteger('HobPowerThresholdW')?1:0;
+            $wake=json_decode($this->ReadAttributeString('HobWakeState'),true);
+            $wake=is_array($wake)?$wake:[];
+            $prior=(int)($wake['last_bucket']??-1);
+            $last=(int)($wake['last_eval_at']??0);
+            // Threshold transitions trigger an immediate assessment.
+            // During a longer meal, a 60s maximum event rate monitors
+            // the 15min manufacturer-owned Party timer without polling
+            // each phase or creating one action per power fluctuation.
+            $evaluate=$bucket!==$prior ||($bucket===1
+                &&($last<=0 ||$now-$last>=60));
+            $wake['last_bucket']=$bucket;
+            $wake['watched_id']=$hobID;
+            if($evaluate)$wake['last_eval_at']=$now;
+            $this->WriteAttributeString('HobWakeState',json_encode($wake));
+            if($evaluate)$this->Evaluate();
+            return;
+        }
         $statusIDs=[];
         foreach(['EWTPumpSwitchVariable','EWTPumpOnlineVariable',
             'EWTPumpHeartbeatVariable','EWTPumpPowerVariable'] as $property) {
@@ -313,6 +379,10 @@ class HeliosSmart extends IPSModule
                 ['type'=>'NumberSpinner','name'=>'KitchenMotionVariable','caption'=>'Bewegung Wohnen / Kueche (#51040)'],
                 ['type'=>'NumberSpinner','name'=>'GroundFloorHallMotionVariable','caption'=>'Bewegung EG Flur (#39155)'],
                 ['type'=>'NumberSpinner','name'=>'HousePowerVariable','caption'=>'Hausverbrauch W (#27700)'],
+                ['type'=>'CheckBox','name'=>'EnableHobPowerBoost','caption'=>'Kochfeld-Shelly #47825 direkt: Stufe 4 bei >5 W bis 5 Min nach Ausschalten (Sicherheitsfreigaben bleiben Voraussetzung)'],
+                ['type'=>'NumberSpinner','name'=>'HobPowerVariable','caption'=>'Kochfeld Shelly: Wirkleistung ALLER Phasen in W (Original #47825)'],
+                ['type'=>'NumberSpinner','name'=>'HobOnlineVariable','caption'=>'Kochfeld Shelly Online (Original #59558, Boolean)'],
+                ['type'=>'NumberSpinner','name'=>'HobPowerThresholdW','caption'=>'Kochfeld aktiv bei Leistung GROESSER 5 W (Hysterese/Nachlauf 5 Min)'],
                 ['type'=>'NumberSpinner','name'=>'ResidentShadowInstance','caption'=>'Anwesenheit SHADOW (#32969)'],
                 ['type'=>'NumberSpinner','name'=>'CookingPowerThresholdW','caption'=>'Leistungsschwelle W (Standard 2000)'],
                 ['type'=>'ValidationTextBox','name'=>'Rooms','caption'=>'Raumsensoren JSON'],
@@ -320,7 +390,7 @@ class HeliosSmart extends IPSModule
                 ['type'=>'CheckBox','name'=>'EnableProgramSwitch','caption'=>'Rueckfall-Wochenprofil saisonal anpassen: im Heizbetrieb Sommerprofil 4 durch Normalprofil 3 ersetzen'],
                 ['type'=>'CheckBox','name'=>'EnableSmartFanTakeover','caption'=>'SMART uebernimmt Stufen 1–4 mit nativen 15-Minuten-Zeitbefehlen; Wochenprogramm bleibt nur Rueckfallebene'],
                 ['type'=>'CheckBox','name'=>'EnableAwayEconomy','caption'=>'Stromsparende Abwesenheits-Lueftung: 30 Min keine frischen Zuhause-Handyhinweise bei BEIDEN (auch Firma, Abwesend, Unklar), keine aktuelle Hausbewegung, vorher morgens ausreichend gelueftet, unkritische Feuchte; max. kurzzeitige Stufe 1, sonst Stufe 2; NIE unbeaufsichtigt AUS'],
-                ['type'=>'Label','caption'=>'Stufe 4 fuer bestaetigtes Kochen (mehrere Strom-/Bewegungsbelege) oder Badfeuchteanstieg mit Mehrfachereignis, jeweils maximal 15 min und nur mit S4-Sicherheitsfreigaben. Normale RH-/Uhrzeitwerte erzeugen keine Stufe 4. Unklare native CO2/VOC-Sensorregelung sperrt jede Absenkung, aber nicht den kurzen, bereits freigegebenen S4-Boost. Herstellerdefrost hat Vorrang. Kein automatisches AUS.'],
+                ['type'=>'Label','caption'=>'Kochfeld Shelly #47825: >5 W mit frischem Online-Wert loest sofort S4 aus, unabhaengig von Licht/Bewegung/SHADOW; unter/gleich 5 W nach zuvor EIN beginnt 5 Min S4-Nachlauf. SMART erneuert die nativen 15-Min-Gerätetimer nur mit bestaetigtem STOP/AUTO/START. Bei Offline/veralteten Daten keine Kochfeld-S4-Freigabe. Nativer Frost-/Feuchteschutz und S4-Freigaben haben immer Vorrang. Kein automatisches AUS.'],
                 ['type'=>'Label','caption'=>'SMART-PRIORITAET: Bei frischem Wetter, mindestens 9 Raumtemperaturen, 8 Raumfeuchten, funktionsfaehiger Original-Helios-Steuerung und Freigabe steuert SMART mit geraeteseitig zeitbegrenzten Party/Ruhe-Befehlen. Ohne Mess-/Betriebsnachweis oder bei Abbruch endet die eigene Anforderung nach spaetestens 15 Minuten und das Herstellerwochenprogramm uebernimmt. Unterhalb nomineller Stufe 3 nur bei ausdruecklicher Luftmengen-/Modellfreigabe.'],
 
                 ['type'=>'Label','caption'=>'SOMMERPROFIL 4 -> NORMAL-/WINTERPROFIL 3 bei lokaler Kälte und nachweislich gesundem Helios AUTO. Kein dauerhaftes MANUELL: das Original geraeteregelt CO2/Feuchte/VOC und Wochenprogramm bleibt aktiv. Automatische Absenkung einer eventuell echten Sensor-Anforderung Stufe 4 ist nicht freigegeben.'],
@@ -330,7 +400,7 @@ class HeliosSmart extends IPSModule
                 ['type'=>'CheckBox','name'=>'AllowEstimatedAirflowLimitedParty','caption'=>'Modellbetrieb akzeptieren: Luftmengen NICHT gemessen; S3 max. 15 min oder separat freigegebener Nacht-Ruhebetrieb S1/30'],
                 ['type'=>'CheckBox','name'=>'MinimumVentilationValidated','caption'=>'Alternativ: reale Luftmengen fachlich eingemessen (nur bei vorhandenem Nachweis)'],
                 ['type'=>'CheckBox','name'=>'CombustionSafetyValidated','caption'=>'Feuerstaette / Dunstabzug / Lueftung gemeinsam sicher betrieben und entsprechend freigegeben'],
-                ['type'=>'CheckBox','name'=>'EnableHighPowerParty','caption'=>'Optional: bei Badfeuchte/Kochen S4 fuer 30 Minuten (Standard AUS)'],
+                ['type'=>'CheckBox','name'=>'EnableHighPowerParty','caption'=>'Stufe-4-Freigabe fuer Kochen/Bad (geraeteseitig jeweils 15 Min, bei Kochfeldbetrieb gesichert erneuerbar; Standard AUS)'],
                 ['type'=>'CheckBox','name'=>'HighPowerSafetyValidated','caption'=>'S4 Anlagen-Sicherheit mit Luftmengen/Druck und Feuerstaette/Dunstabzug tatsaechlich geprueft'],
                 ['type'=>'CheckBox','name'=>'DevicePartyReturnValidated','caption'=>'Party endet am Geraet eigenstaendig und Wochenprogramm laeuft wieder'],
             ],
@@ -933,13 +1003,26 @@ class HeliosSmart extends IPSModule
             $level=(int)($plan['target_stage']??0);
             if($level<1 || $level>4)return $result;
             $desiredMode=$level===1?3:2;
+            $hobBoost=$level===4 &&($plan['direct_hob_boost']??false)===true;
+            $hobStillOn=$hobBoost
+                &&($plan['direct_hob_afterrun']??false)!==true;
             $since=$now-(int)($state['sent_at']??0);
             // Manufacturer-timed party may naturally return to AUTO in the
             // last 90 seconds of its 15-minute timeout. Do not misclassify
             // normal expiry as an actuator failure with 30-minute backoff.
-            if($mode===0
-                && JVHeliosSmartFanReliability::nearExpectedNativeTimerReturn(
-                    $state,$now)){
+            $expectedTimerReturn=$mode===0
+                &&JVHeliosSmartFanReliability::nearExpectedNativeTimerReturn(
+                    $state,$now);
+            if($expectedTimerReturn &&$hobBoost){
+                // A cooktop signal STILL requires stage 4. The previous
+                // vendor 15min Party really has expired: re-arm from AUTO,
+                // not by assuming a resend extended the old timer.
+                $state['until']=$now-1;
+                $owned=false;
+                $since=PHP_INT_MAX;
+                $this->WriteAttributeString('SmartFanTakeoverState',
+                    json_encode($state));
+            } elseif($expectedTimerReturn){
                 $cooldown=(int)($state['quiet_cooldown_until']??0);
                 if((int)($state['stage']??0)===1)
                     $cooldown=max($cooldown,$now+8*3600);
@@ -954,7 +1037,7 @@ class HeliosSmart extends IPSModule
                 $result['fallback_weekly']=true;
                 return $result;
             }
-            if($mode===0
+            if($mode===0 &&!$hobBoost
                 &&(int)($state['auto_return_pause_until']??0)>$now){
                 $result['status']='AUTO_AFTER_TIMER_RESTART_PAUSE';
                 $result['verified']=true;
@@ -987,6 +1070,82 @@ class HeliosSmart extends IPSModule
                 $result['status']='SMART_ACTUATOR_ERROR_BACKOFF';
                 return $result;
             }
+            // Cooktop is still ON. At minute 11–14 of an owned S4 Party,
+            // explicitly STOP the old Party, verify manufacturer AUTO, and
+            // then START a fresh 15min S4 Party. Same-stage 'renew' does not
+            // reset the old Helios timer on this installation.
+            // Under uncertain STOP/START readback, leave vendor control
+            // intact; never command blind or bypass true actuator backoff.
+            $anchor=(int)($state['native_timer_anchor_at']
+                ??$state['sent_at']??0);
+            $nativeAge=$anchor>0?$now-$anchor:-1;
+            $lastRearm=(int)($state['last_hob_rearm_at']??0);
+            if($hobStillOn &&$owned &&$mode===2
+                &&(int)($state['stage']??0)===4
+                &&($live['fan']??null)===4
+                &&$nativeAge>=11*60 &&$nativeAge<14*60
+                &&$since>=60 &&$lastRearm<=$now-90
+                &&function_exists('HELIOS_OperatingMode_Party_Set')){
+                // Write a durable reservation BEFORE the first RPC.
+                $state['last_hob_rearm_at']=$now;
+                $this->WriteAttributeString('SmartFanTakeoverState',
+                    json_encode($state));
+                $result['attempted']=true;
+                $stopped=HELIOS_OperatingMode_Party_Set(
+                    $instance,false,0,0);
+                $nativeAuto=$this->ReadHeliosLive();
+                if($stopped!==false &&$stopped!==null
+                    &&($nativeAuto['mode']??null)!==0
+                    &&function_exists('IPS_Sleep')){
+                    // Local Helios easyControls may report the old mode
+                    // briefly after a successful HTTP write.
+                    IPS_Sleep(300);
+                    $nativeAuto=$this->ReadHeliosLive();
+                }
+                if($stopped===false ||$stopped===null
+                    ||($nativeAuto['mode']??null)!==0){
+                    $result['status']='COOKTOP_REARM_STOP_NOT_CONFIRMED';
+                    return $result;
+                }
+                $renewed=[
+                    'sent_at'=>$now,'native_timer_anchor_at'=>$now,
+                    'until'=>$now+15*60,'stage'=>4,'mode'=>2,
+                    'hob_boost'=>true,'last_hob_rearm_at'=>$now,
+                    'prior_program'=>$nativeAuto['program']??null,
+                    'quiet_started_at'=>0,
+                    'quiet_cooldown_until'=>
+                        (int)($state['quiet_cooldown_until']??0),
+                ];
+                $this->WriteAttributeString('SmartFanTakeoverState',
+                    json_encode($renewed));
+                $started=HELIOS_OperatingMode_Party_Set(
+                    $instance,true,4,15);
+                if($started===false ||$started===null){
+                    $renewed['until']=$now-1;
+                    $renewed['error_retry_after']=$now+10*60;
+                    $this->WriteAttributeString('SmartFanTakeoverState',
+                        json_encode($renewed));
+                    $result['status']='COOKTOP_REARM_START_FAILED_AUTO';
+                    return $result;
+                }
+                $result['sent']=true;
+                $after=$this->ReadHeliosLive();
+                if(($after['mode']??null)!==2
+                    &&function_exists('IPS_Sleep')){
+                    IPS_Sleep(300);
+                    $after=$this->ReadHeliosLive();
+                }
+                if($after!==null &&$after['mode']===2
+                    &&$after['fan']===4){
+                    $result['readback']=$after;
+                    $result['verified']=true;
+                    $result['fallback_weekly']=false;
+                    $result['status']='COOKTOP_S4_NATIVE_TIMER_REARM_CONFIRMED';
+                    return $result;
+                }
+                $result['status']='COOKTOP_S4_REARM_READBACK_PENDING';
+                return $result;
+            }
             if($owned && $mode===$desiredMode
                 && (int)($state['stage']??0)===$level
                 && $since>=0 && ($live['fan']??null)===$level){
@@ -1006,7 +1165,9 @@ class HeliosSmart extends IPSModule
                 return $result;
             }
             if($owned && $since>=0 && $since<5*60
-                && ($live['fan']??null)!==$level && $level<3){
+                && ($live['fan']??null)!==$level && $level<3
+                &&!(($state['hob_boost']??false)===true
+                    &&($plan['direct_hob_boost']??false)!==true)){
                 // The requested lower stage is NOT confirmed, but the
                 // previous owned stage may still be confirmed. Report both.
                 $result['status']='STAGE_CHANGE_MINIMUM_DWELL';
@@ -1036,6 +1197,7 @@ class HeliosSmart extends IPSModule
                 'until'=>$now+15*60,
                 'stage'=>$level,
                 'mode'=>$desiredMode,
+                'hob_boost'=>$hobBoost,
                 'prior_program'=>$live['program']??null,
                 'quiet_started_at'=>$level===1
                     ?((int)($state['quiet_started_at']??0)>0
@@ -1181,6 +1343,38 @@ class HeliosSmart extends IPSModule
         } finally {
             IPS_SemaphoreLeave($lock);
         }
+    }
+
+    /**
+     * Read ONLY the user's actual cooktop Shelly power sum, NEVER whole-house
+     * energy. Matching online variable must belong to the same device.
+     * A stale positive reading cannot keep high-power S4 indefinitely.
+     */
+    private function ReadHobPower(int $now):array
+    {
+        $id=$this->ReadPropertyInteger('HobPowerVariable');
+        $onlineID=$this->ReadPropertyInteger('HobOnlineVariable');
+        $sample=['id'=>$id,'watts'=>null,'age_seconds'=>null,
+            'configured'=>false,'online'=>false];
+        if(!$this->ReadPropertyBoolean('EnableHobPowerBoost')
+            ||$id<=0 ||$onlineID<=0
+            ||!IPS_VariableExists($id)||!IPS_VariableExists($onlineID))
+            return $sample;
+        if(function_exists('IPS_GetObject')
+            &&((int)(IPS_GetObject($id)['ObjectType']??-1)!==2
+                ||(int)(IPS_GetObject($onlineID)['ObjectType']??-1)!==2))
+            return $sample;
+        if(function_exists('IPS_GetParent')
+            &&(int)IPS_GetParent($id)!==(int)IPS_GetParent($onlineID))
+            return $sample;
+        $sample['configured']=true;
+        $online=GetValue($onlineID);
+        $sample['online']=$online===true ||$online===1;
+        $v=GetValue($id);
+        $age=$now-(int)(IPS_GetVariable($id)['VariableUpdated']??0);
+        $sample['age_seconds']=$age;
+        $sample['watts']=is_numeric($v)?(float)$v:null;
+        return $sample;
     }
 
     /** Only one event at a time, durable reservation before hardware RPC. */
@@ -2293,6 +2487,7 @@ class HeliosSmart extends IPSModule
                     'EnableControl'=>$this->ReadPropertyBoolean('EnableControl'),
                     'EnableSmartFanTakeover'=>$this->ReadPropertyBoolean('EnableSmartFanTakeover'),
                     'EnableAwayEconomy'=>$this->ReadPropertyBoolean('EnableAwayEconomy'),
+                    'EnableHobPowerBoost'=>$this->ReadPropertyBoolean('EnableHobPowerBoost'),
                     'EnableProgramSwitch'=>$this->ReadPropertyBoolean('EnableProgramSwitch'),
                     'EnableNightQuiet'=>$this->ReadPropertyBoolean('EnableNightQuiet'),
                     'MinimumVentilationValidated'=>$this->ReadPropertyBoolean('MinimumVentilationValidated'),
@@ -2324,13 +2519,21 @@ class HeliosSmart extends IPSModule
                     'native_extract_rh','native_extract_rh_live','native_sensor_stale',
                     'native_defrost_active','native_defrost_known']),
                 'smart_plan'=>$pick($plan,['status','reason','target_stage',
-                    'minutes','execute','fallback_weekly','route','evidence']),
+                    'minutes','execute','fallback_weekly','route','direct_hob_boost','evidence']),
+                'hob_power_direct'=>$pick((array)($d['hob_power_direct']??[]),
+                    ['source_variable_id','configured','source_online','source_fresh',
+                        'source_age_seconds','watts','threshold_strictly_greater_w',
+                        'phase','electrically_active','boost_requested',
+                        'five_minute_afterrun','afterrun_remaining_seconds',
+                        'off_seen_at','physical_cooking_proven']),
                 'smart_execution'=>$pick($execution,['status','attempted','sent',
                     'verified','fallback_weekly','target_stage','from_program',
                     'to_program']),
                 'smart_effective'=>$d['smart_fan_effective_state']??'NICHT_BESTAETIGT',
                 'smart_ownership'=>$pick($smartState,['sent_at','until','stage',
-                    'mode','quiet_started_at','quiet_cooldown_until','error_retry_after']),
+                    'mode','hob_boost','native_timer_anchor_at',
+                    'last_hob_rearm_at','quiet_started_at',
+                    'quiet_cooldown_until','error_retry_after']),
                 'smart_smoothing'=>$d['smart_fan_smoothing']??[],
                 'smart_recovery'=>$d['smart_fan_recovery']??[],
                 'smart_reliability'=>$d['smart_fan_reliability']
@@ -2427,6 +2630,10 @@ class HeliosSmart extends IPSModule
                         'priority_cooking','low_demand_reason']),
                 ],
                 'events'=>[
+                    'direct_hob'=>$pick((array)($d['hob_power_direct']??[]),
+                        ['source_variable_id','watts','source_online','source_fresh',
+                            'phase','boost_requested','five_minute_afterrun',
+                            'afterrun_remaining_seconds']),
                     'wetroom'=>$pick((array)($d['wetroom_trend']??[]),
                         ['observed_rises','summary']),
                     'cooking'=>$pick((array)($d['cooking_advice']??[]),
@@ -2621,6 +2828,24 @@ class HeliosSmart extends IPSModule
         // nur ein Mobiltelefonhinweis; fehlende Signale beweisen kein leeres Haus.
         $cookingState=json_decode($this->ReadAttributeString('CookingAdviceState'),true);
         $cookingInputs=$this->ReadCookingSignals($now);
+        // Actual three-phase cooktop power takes precedence over inferred
+        // cooking from household power or motion.
+        $hobOld=json_decode($this->ReadAttributeString('HobPowerState'),true);
+        $hob=JVHeliosHobPowerDemand::assess(
+            is_array($hobOld)?$hobOld:[],
+            $this->ReadHobPower($now),$now,
+            (float)$this->ReadPropertyInteger('HobPowerThresholdW'));
+        $this->WriteAttributeString('HobPowerState',
+            json_encode($hob['state'],JSON_UNESCAPED_UNICODE));
+        $decision['hob_power_direct']=$hob['advice'];
+        $hobBoost=($hob['advice']['boost_requested']??false)===true;
+        $hobAfterrun=($hob['advice']['five_minute_afterrun']??false)===true;
+        // 60s checks only during real cooktop power or the 5min afterrun.
+        // End of afterrun is checked without waiting for next 5min SmartTick.
+        $this->SetTimerInterval('HobMonitorTick',$hobBoost
+            ?($hobAfterrun?max(1000,min(60000,
+                ((int)$hob['advice']['afterrun_remaining_seconds']+1)*1000))
+                :60000):0);
         $cookingInputs['current_fan_level']=(int)GetValue($fanID);
         $cookingInputs['helios_automatic_mode']=($mode===0);
         // Merely looking at mode 2/3 suggests 'manual' to CookingAdvisor,
@@ -2835,8 +3060,8 @@ class HeliosSmart extends IPSModule
         // proven 15-minute cooking after-run or restart S4.
         $cookPriority=JVHeliosSmartFanAuto::cookingPriority(
             (array)($decision['cooking_advice']??[]),$now);
-        $cookingConfirmed=$cookPriority['confirmed'];
-        $cookingStrong=$cookPriority['strong'];
+        $cookingConfirmed=$cookPriority['confirmed']||$hobBoost;
+        $cookingStrong=$cookPriority['strong']||$hobBoost;
         $decision['cooking_afterrun_active']=$cookPriority['after_run'];
         // Wetroom trends are two independent sensor changes with >=6 pp
         // rise; a raw RH value or an unverified "shower" guess is not enough.
@@ -2917,12 +3142,15 @@ class HeliosSmart extends IPSModule
             'native_sensor_control_unverified'=>$sensorSourceUnverified,
             'native_defrost_active'=>$sensorEvidence['native_defrost_active'],
             'native_defrost_unknown_near_frost'
-                =>$weatherNow!==null && $weatherNow<=5.0
-                    && !$sensorEvidence['native_defrost_known'],
+                =>!$sensorEvidence['native_defrost_known']
+                    &&($weatherNow===null ||$weatherNow<=5.0),
             'wet_need'=>$wetActual,
             'strong_wet_need'=>$strongWet,
             'cooking_confirmed'=>$cookingConfirmed,
             'strong_cooking_need'=>$cookingStrong,
+            'direct_hob_boost'=>$hobBoost,
+            'direct_hob_afterrun'=>$hobAfterrun,
+            'hob_source_id'=>$this->ReadPropertyInteger('HobPowerVariable'),
             'cooling_confirmed'=>($coolingGate['cooling_confirmed']??false)===true,
             'quiet_requested'=>$this->ReadPropertyBoolean('EnableNightQuiet')
                 &&($decision['night_strategy']['quiet_eligible']??false)===true,
@@ -3027,6 +3255,8 @@ class HeliosSmart extends IPSModule
                 'co2_voc_evidence'=>$sensorEvidence],JSON_UNESCAPED_UNICODE));
         $effectiveState=match ((string)($smartExecution['status']??'')){
             'SMART_STAGE_CONFIRMED'=>'SMART-STUFE AM GERAET BESTAETIGT',
+            'COOKTOP_S4_NATIVE_TIMER_REARM_CONFIRMED'
+                =>'KOCHFELD STUFE 4 MIT NEUEM GERAETETIMER BESTAETIGT',
             'SMART_OWNED_ACTIVE_WAIT_RENEWAL',
             'SMART_OWNED_ACTIVE_WAIT_NATIVE_TIMER'
                 =>($smartExecution['verified']??false)
