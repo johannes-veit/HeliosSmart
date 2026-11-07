@@ -185,8 +185,8 @@ $r=JVHeliosSimpleFanV2::step($quiet,$on2,$r['state'],$now+25);
 v2($r['action']['type']==='stop',
     'verified S2 is intermediate before S1');
 $r=JVHeliosSimpleFanV2::step($quiet,$auto,$r['state'],$now+50);
-v2($r['action']['stage']===2,
-    'manufacturer AUTO S4 still needs stage2 while doing the quiet transition');
+v2($r['action']['stage']===1,
+    'fresh S2 proof allows single safe S1 handoff without endless S2 loop');
 // The policy remains independent of 0: no fan OFF command can be authored.
 mt_srand(6602026);
 for($i=0;$i<1600;$i++){
