@@ -52,6 +52,27 @@ fanTrackerAssert($a['off_authorized']===false,
  'Away never turns KWL completely off by itself');
 fanTrackerAssert($a['all_samples_24h']===31,
  'History is one sample per 5 minute bucket');
+fanTrackerAssert($a['stage0_samples_24h']===0
+ &&$a['large_stage_jumps_ge2_24h']===1,
+ 'read-only audit detects abrupt native stage 4 to 2 without inventing duration');
+fanTrackerAssert($a['recent_large_stage_jump_events'][0]['from_stage']===4
+ &&$a['recent_large_stage_jump_events'][0]['to_stage']===2
+ &&$a['recent_large_stage_jump_events'][0]['cause_confirmed']===false,
+ 'observed 5min jumps are kept distinct from proved causes');
+$zeroInput=array_replace($x,['fan'=>0,'mode'=>0,'occupancy'=>$away]);
+$zeroAudit=JVHeliosFanDemandTracker::update(
+    $state,$zeroInput,$now+300);
+fanTrackerAssert($zeroAudit['advice']['stage0_samples_24h']===1
+ &&$zeroAudit['advice']['stage0_no_home_hint_samples_24h']===1
+ &&$zeroAudit['advice']['stage0_home_hint_samples_24h']===0,
+ 'real recorded stage0 in a no-home hint interval is visible without allowing OFF');
+$zeroUnclear=$zeroInput;
+$zeroUnclear['occupancy']['residents']['Johannes']['source_recent']=false;
+$zeroUnclear['occupancy']['both_no_home_hints_fresh']=false;
+$unknownZero=JVHeliosFanDemandTracker::update(
+    $zeroAudit['state'],$zeroUnclear,$now+600);
+fanTrackerAssert($unknownZero['advice']['stage0_presence_context_unknown_samples_24h']===1,
+ 'stale phone cannot create a fictitious absence during detected stage0');
 $x['occupancy']['residents']['Carina']['source_recent']=false;
 $stale=JVHeliosFanDemandTracker::update($state,$x,$now+300);
 fanTrackerAssert($stale['advice']['away_low_demand_eligible']===false,

@@ -35,6 +35,13 @@ final class JVHeliosFanDemandTracker
             &&in_array($mode,[0,1,2,3,4],true))
             $rows[intdiv($now,300)]=[
                 't'=>$now,'f'=>$fan,'m'=>$mode,'away'=>$away,
+                // Only source-backed context, never a physical occupancy
+                // claim. Old 5-minute records intentionally lack this
+                // context and will be counted as UNKNOWN.
+                'no_home'=>$noHomeHints,'presence_fresh'=>$bothFresh,
+                'wet'=>($x['wet_need']??false)===true,
+                'cook'=>($x['cooking_confirmed']??false)===true,
+                'cool'=>($x['cooling_confirmed']??false)===true,
             ];
         ksort($rows,SORT_NUMERIC);
         $rows=array_slice(array_values($rows),-360);
@@ -44,14 +51,56 @@ final class JVHeliosFanDemandTracker
         $hour=(int)$today->format('G');
         $morning=[];
         $stage4=0;$stage4Auto=0;$stage4Timed=0;$last24=0;
+        $stage0=0;$stage0NoHome=0;$stage0WithHome=0;$stage0Unknown=0;
+        $largeJumps=[];$last24row=null;
+        $stage4AutoNoNeed=0;$stage4AutoEvidenceMissing=0;
         foreach($rows as $row){
             $t=(int)$row['t'];$f=(int)$row['f'];$m=(int)$row['m'];
             if($t>=$now-24*3600){
                 $last24++;
+                if($f===0) {
+                    $stage0++;
+                    if(($row['presence_fresh']??null)!==true)
+                        $stage0Unknown++;
+                    elseif(($row['no_home']??null)===true)
+                        $stage0NoHome++;
+                    else $stage0WithHome++;
+                }
+                if($last24row!==null){
+                    $gap=$t-(int)$last24row['t'];
+                    if($gap>0 && $gap<=8*60
+                        &&abs($f-(int)$last24row['f'])>=2){
+                        $need=is_bool($row['cook']??null)
+                            &&is_bool($last24row['cook']??null)
+                            &&is_bool($row['wet']??null)
+                            &&is_bool($last24row['wet']??null);
+                        $largeJumps[]=[
+                            'at'=>$t,
+                            'from_stage'=>(int)$last24row['f'],
+                            'to_stage'=>$f,
+                            'from_mode'=>(int)$last24row['m'],
+                            'to_mode'=>$m,
+                            'cooking_or_wet_evidence_near_transition'=>$need
+                                ?(($row['cook']||$row['wet'])
+                                    ||($last24row['cook']||$last24row['wet'])):null,
+                            'cooling_evidence_near_transition'=>$need
+                                ?(($row['cool']??false)===true
+                                    ||($last24row['cool']??false)===true):null,
+                            'cause_confirmed'=>false,
+                        ];
+                    }
+                }
+                $last24row=$row;
                 if($f===4){
                     $stage4++;
-                    if($m===0)$stage4Auto++;
-                    elseif($m===2||$m===3)$stage4Timed++;
+                    if($m===0){
+                        $stage4Auto++;
+                        if(!is_bool($row['cook']??null)
+                            ||!is_bool($row['wet']??null))
+                            $stage4AutoEvidenceMissing++;
+                        elseif(!$row['cook']&&!$row['wet'])
+                            $stage4AutoNoNeed++;
+                    } elseif($m===2||$m===3)$stage4Timed++;
                 }
             }
             $local=(new DateTimeImmutable('@'.$t))
@@ -118,6 +167,17 @@ final class JVHeliosFanDemandTracker
                 'reduced_stage_authorization_requires_independent_gates'=>true,
                 'off_authorized'=>false,
                 'off_reason'=>'HELIOS_AND_MOISTURE_PROTECTION_REQUIRE_PROVEN_VENTILATION_PLAN',
+                'stage0_samples_24h'=>$stage0,
+                'stage0_no_home_hint_samples_24h'=>$stage0NoHome,
+                'stage0_home_hint_samples_24h'=>$stage0WithHome,
+                'stage0_presence_context_unknown_samples_24h'=>$stage0Unknown,
+                'large_stage_jumps_ge2_24h'=>count($largeJumps),
+                'recent_large_stage_jump_events'=>array_slice($largeJumps,-6),
+                'large_jump_detection'=>'5_MIN_SAMPLES_ADJACENT_LE_8MIN',
+                'zero_and_jump_counts_not_exact_runtime'=>true,
+                'stage4_auto_no_wet_or_cooking_signal_samples_24h'=>$stage4AutoNoNeed,
+                'stage4_auto_without_saved_demand_context_samples_24h'=>$stage4AutoEvidenceMissing,
+                'stage4_auto_without_signals_is_not_proof_of_unnecessary_fan'=>true,
                 'stage4_samples_24h'=>$stage4,
                 'stage4_auto_samples_24h'=>$stage4Auto,
                 'stage4_timed_samples_24h'=>$stage4Timed,
