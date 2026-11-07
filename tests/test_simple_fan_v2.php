@@ -33,6 +33,11 @@ v2($plan(['weather_quality'=>'UNAVAILABLE',
     'unverified outdoor humidity blocks summer cooling only');
 v2($plan(['cooling_confirmed'=>true])['target_stage']===3,
     'verified summer cooling uses stage3 only');
+v2($plan(['morning_flush_requested'=>true])['target_stage']===3
+    &&$plan(['morning_flush_requested'=>true])['reason']==='MORNING_15MIN_FLUSH',
+    'one verified morning flush is a bounded S3 exception');
+v2($plan(['morning_flush_requested'=>true,'direct_hob_boost'=>true])['target_stage']===4,
+    'cooktop S4 always has higher priority than morning flush');
 v2($plan(['wet_need'=>true])['target_stage']===3,
     'mild bathroom humidity stage3');
 v2($plan(['cooking_confirmed'=>true])['target_stage']===3,
