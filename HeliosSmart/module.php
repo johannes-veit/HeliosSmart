@@ -949,6 +949,14 @@ class HeliosSmart extends IPSModule
             $raw=json_decode($this->ReadAttributeString('SmartFanTakeoverState'),true);
             $old=is_array($raw)?$raw:[];
             $live=$this->ReadHeliosLive();
+            if(($plan['reason']??'')==='NATIVE_NOT_READY'){
+                // Original Helios module status 209, invalid GUID or bad
+                // native live read is a HARD actuator veto. Never send a
+                // STOP request through an unhealthy native module either:
+                // let the pre-existing device-owned 15min timer expire.
+                $result['status']='SIMPLE_NATIVE_NOT_READY_NO_WRITES';
+                return $result;
+            }
             $step=JVHeliosSimpleFanV2::step($plan,$live,$old,$now);
             $state=$step['state'];
             $result['status']=$step['status'];
