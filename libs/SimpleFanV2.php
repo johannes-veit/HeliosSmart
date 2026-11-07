@@ -410,6 +410,13 @@ final class JVHeliosSimpleFanV2
         }
         if($phase==='STOPPING'){
             if($mode===0){
+                // Guard against an already calculated OFF demand from
+                // before STOP was confirmed. The 2-hour cooldown must
+                // prevent another 5min Whisper even if Evaluate supplied
+                // a stale plan while STOPPING.
+                if($ownedStage===0 &&$desired===0
+                    &&$now<(int)($s['off_next_allowed_at']??0))
+                    $desired=-1;
                 $s['phase']='IDLE';$s['pending_until']=0;
                 $s['readback_pending_until']=0;
                 $s['stage']=0;$s['mode']=0;

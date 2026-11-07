@@ -189,6 +189,11 @@ $offStop=JVHeliosSimpleFanV2::step($activeOffPlan,
 v2($offStop['action']['type']==='stop'
     &&$offStop['action']['mode']===3,
     'OFF ends early via manufacturer Whisper STOP, before 5min timeout');
+$staleOff=JVHeliosSimpleFanV2::step($activeOffPlan,
+    ['mode'=>0,'fan'=>2,'program'=>3],$offStop['state'],$now+4*60+20);
+v2($staleOff['action']===null
+    &&$staleOff['status']==='SIMPLE_MANUFACTURER_AUTO',
+    'stale OFF plan after STOP acknowledgement cannot re-arm 5-minute OFF');
 $offReturn=JVHeliosSimpleFanV2::step(
     $plan(array_replace($offReady,['off_next_allowed_at'=>$now+7200])),
     ['mode'=>0,'fan'=>2,'program'=>3],$offStop['state'],$now+4*60+30);
