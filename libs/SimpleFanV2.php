@@ -62,6 +62,13 @@ final class JVHeliosSimpleFanV2
             ||(is_numeric($d['max_voc_ppm']??null)
                 &&(float)$d['max_voc_ppm']>=1000))
             return $deny('AIR_QUALITY_KEEP_MANUFACTURER');
+        // The direct cooktop/humidity burst has independent physical
+        // evidence. Discretionary S1/S2/S3 need reliable room telemetry,
+        // not a network estimate or a learned seasonal recommendation.
+        $roomReliable=(int)($d['room_temp_count']??0)>=9
+            &&(int)($d['room_humidity_count']??0)>=8;
+        if(!$roomReliable &&!$highEvidence)
+            return $deny('ROOM_TELEMETRY_INCOMPLETE');
 
         // Only electrically measured cooktop activity (including its
         // bounded five-minute OFF after-run) or a verified strong bath
@@ -81,7 +88,9 @@ final class JVHeliosSimpleFanV2
                     ?'COOKTOP_5MIN_AFTER_RUN':'COOKTOP_POWER_ACTIVE')
                 :'CONFIRMED_SHOWER';
         } elseif(($d['wet_need']??false)===true
-            ||($d['cooking_confirmed']??false)===true){
+            ||($d['cooking_confirmed']??false)===true
+            ||(is_numeric($d['max_room_rh']??null)
+                &&(float)$d['max_room_rh']>=65.0)){
             $level=3;
             $reason='HUMIDITY_OR_INFERRED_COOKING';
         } elseif(($d['cooling_confirmed']??false)===true
