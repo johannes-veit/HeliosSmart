@@ -10,11 +10,47 @@
 final class JVHeliosSimpleFanV2
 {
     public const VERSION=2;
-    public const TIMER_SECONDS=900;
-    public const REARM_SECONDS=10*60;
+    // One 30-minute native S2 window replaces three 10-minute cycles.
+    // Short demand, S1 and separately validated OFF stay device-timed.
+    public const BASE_DURATION_MINUTES=30;
+    public const SHORT_DURATION_MINUTES=15;
+    public const OFF_DURATION_MINUTES=5;
+    public const REARM_MARGIN_SECONDS=4*60;
     public const ACK_SECONDS=90;
     public const ERROR_BACKOFF_SECONDS=15*60;
-    public const QUIET_COOLDOWN_SECONDS=8*3600;
+    public const QUIET_COOLDOWN_SECONDS=60*60;
+    public const OFF_COOLDOWN_SECONDS=2*3600;
+
+    /**
+     * RH hysteresis: enter vendor protection at 60% extract RH; require
+     * <=56% continuously for ten minutes before normal savings resume.
+     * A confirmed cooktop/shower still follows the independent S4 gates.
+     */
+    public static function humidityLatch(array $old,$rh,int $now):array
+    {
+        $state=self::initialState($old);
+        $hold=($state['humidity_hold']??false)===true;
+        if(!is_numeric($rh) ||!is_finite((float)$rh)){
+            return ['state'=>$state,'hold'=>true,'reason'=>'UNKNOWN_RH'];
+        }
+        $value=(float)$rh;
+        if($value>=60){
+            $hold=true;$state['humidity_clear_since']=0;
+        } elseif($hold &&$value<=56){
+            $since=(int)($state['humidity_clear_since']??0);
+            if($since<=0 ||$since>$now){
+                $state['humidity_clear_since']=$now;
+            } elseif($now-$since>=10*60){
+                $hold=false;$state['humidity_clear_since']=0;
+            }
+        } elseif($hold) {
+            $state['humidity_clear_since']=0;
+        }
+        $state['humidity_hold']=$hold;
+        return ['state'=>$state,'hold'=>$hold,
+            'reason'=>$hold?'HUMIDITY_WAIT_STABLE_BELOW_56'
+                :'HUMIDITY_CLEAR'];
+    }
 
     public static function plan(array $d):array
     {
@@ -31,7 +67,10 @@ final class JVHeliosSimpleFanV2
             return $deny('NATIVE_NOT_READY');
         if(!in_array($d['mode']??null,[0,2,3],true))
             return $deny('MANUAL_OR_VACATION_MODE');
-        if(!in_array($d['actual_fan']??null,[1,2,3,4],true))
+        $ownOff=($d['own_timed_off_active']??false)===true
+            &&($d['mode']??null)===3;
+        if(!in_array($d['actual_fan']??null,[1,2,3,4],true)
+            && !(($d['actual_fan']??null)===0 &&$ownOff))
             return $deny('FAN_LIVE_INVALID');
         if(!is_int($d['native_week_program']??null)
             ||($d['native_week_program']??5)>4
@@ -55,7 +94,9 @@ final class JVHeliosSimpleFanV2
         // solely because exhaust RH reached 60-69%. At >=70% the
         // manufacturer moisture regulator is always given control.
         if((float)$rh>=70.0
-            ||((float)$rh>=60.0 &&!$highEvidence))
+            ||(((float)$rh>=60.0
+                ||($d['native_humidity_hold']??false)===true)
+                &&!$highEvidence))
             return $deny('EXTRACT_HUMIDITY_KEEP_MANUFACTURER');
         if((is_numeric($d['max_co2_ppm']??null)
                 &&(float)$d['max_co2_ppm']>=1100)
@@ -118,13 +159,34 @@ final class JVHeliosSimpleFanV2
                 $reason=($d['away_daytime_low_demand']??false)===true
                     ?'SHADOW_NO_HOME_BOUNDED_S1':'NIGHT_BOUNDED_S1';
             }
+            // A five-minute hardware-timed OFF is an opt-in feature
+            // ONLY after real hygienic airflow/moisture verification.
+            // Unknown SHADOW or a model-only S1/S2 release cannot
+            // authorize it; a physical Helios min-stage 0 is required.
+            $offAllowed=$level<=2
+                &&($d['timed_off_enabled']??false)===true
+                &&($d['off_ventilation_plan_validated']??false)===true
+                &&($d['minimum_airflow_validated']??false)===true
+                &&($d['native_min_stage']??null)===0
+                &&($d['away_daytime_low_demand']??false)===true
+                &&(int)($d['away_no_home_minutes']??0)>=60
+                &&(float)$rh<50.0
+                &&is_numeric($d['max_room_rh']??null)
+                &&(float)$d['max_room_rh']<=55.0
+                &&(int)($d['off_next_allowed_at']??0)<=(int)($d['now']??0);
+            if($offAllowed){
+                $level=0;
+                $reason='VERIFIED_AWAY_FIVE_MINUTE_NATIVE_OFF';
+            }
         }
         $o['status']='SMART_OVERRIDE_READY';
         $o['reason']=$reason;
         $o['execute']=true;
         $o['target_stage']=$level;
-        $o['route']=$level===1?'WHISPER':'PARTY';
-        $o['minutes']=15;
+        $o['route']=$level<=1?'WHISPER':'PARTY';
+        $o['minutes']=$level===0?self::OFF_DURATION_MINUTES:
+            ($level===2?self::BASE_DURATION_MINUTES:
+                self::SHORT_DURATION_MINUTES);
         $o['fallback_weekly']=false;
         $o['evidence']=[
             'hob_active_or_afterrun'=>$hob,
@@ -132,7 +194,9 @@ final class JVHeliosSimpleFanV2
             'native_rh'=>(float)$rh,
             'airflow_real_validated'=>(bool)($d['minimum_airflow_validated']??false),
             'airflow_model_only'=>(bool)($d['model_airflow_accepted']??false),
-            'no_unattended_fan_off'=>true,
+            'off_requires_real_minimum_airflow_and_moisture_plan'=>true,
+            'timed_off_authorized'=>$level===0,
+            'off_hardware_autoreturn_minutes'=>self::OFF_DURATION_MINUTES,
             'weather_quality'=>$d['weather_quality']??'UNKNOWN',
         ];
         return $o;
@@ -211,16 +275,24 @@ final class JVHeliosSimpleFanV2
     private static function start(array $s,int $stage,int $now,
         string $reason=''):array
     {
-        $mode=$stage===1?3:2;
+        $mode=$stage<=1?3:2;
+        $duration=$stage===0?self::OFF_DURATION_MINUTES
+            :($stage===2?self::BASE_DURATION_MINUTES:
+                self::SHORT_DURATION_MINUTES);
         $s['phase']='STARTING';
         $s['mode']=$mode;$s['stage']=$stage;
         $s['sent_at']=$now;$s['native_timer_anchor_at']=$now;
-        $s['until']=$now+self::TIMER_SECONDS;
+        $s['duration_minutes']=$duration;
+        $s['until']=$now+$duration*60;
         $s['pending_until']=$now+self::ACK_SECONDS;
         $s['readback_pending_until']=$s['pending_until'];
         $s['last_command_at']=$now;
         $s['quiet_started_at']=$stage===1?$now:0;
         $s['hob_boost']=$stage===4;
+        if($stage===0){
+            $s['off_next_allowed_at']=$now+self::OFF_COOLDOWN_SECONDS;
+            $s['off_started_at']=$now;
+        }
         if($reason==='MORNING_15MIN_FLUSH'){
             $day=(new DateTimeImmutable('@'.$now))
                 ->setTimezone(new DateTimeZone('Europe/Berlin'))
@@ -232,7 +304,8 @@ final class JVHeliosSimpleFanV2
         }
         if($stage===1)$s['quiet_baseline_confirmed_at']=0;
         return self::result($s,'SIMPLE_START_REQUESTED',
-            ['type'=>'start','mode'=>$mode,'stage'=>$stage,'minutes'=>15]);
+            ['type'=>'start','mode'=>$mode,'stage'=>$stage,
+                'minutes'=>$duration]);
     }
 
     private static function stop(array $s,int $now):array
@@ -279,8 +352,10 @@ final class JVHeliosSimpleFanV2
         $match=$mode===$ownedMode &&$fan===$ownedStage
             &&in_array($mode,[2,3],true);
         $desired=($plan['execute']??false)===true
-            ?(int)($plan['target_stage']??0):0;
-        if($desired<1||$desired>4)$desired=0;
+            &&array_key_exists('target_stage',$plan)
+            &&$plan['target_stage']!==null
+                ?(int)$plan['target_stage']:-1;
+        if($desired<0||$desired>4)$desired=-1;
 
         if($phase==='STARTING'){
             if($match){
@@ -312,8 +387,9 @@ final class JVHeliosSimpleFanV2
         }
         if($phase==='ACTIVE'){
             if(!$match){
+                $expected=(int)($s['duration_minutes']??15)*60;
                 if($mode===0
-                    &&$now-(int)($s['sent_at']??0)>=13*60){
+                    &&$now-(int)($s['sent_at']??0)>=$expected-120){
                     if($ownedStage===1)
                         $s['quiet_cooldown_until']=max(
                             (int)($s['quiet_cooldown_until']??0),
@@ -332,13 +408,18 @@ final class JVHeliosSimpleFanV2
                 $shortMorning=$ownedStage===3
                     &&($plan['reason']??'')==='MORNING_15MIN_FLUSH';
                 $shortWhisper=$ownedStage===1;
-                $rearm=$age>=self::REARM_SECONDS
-                    &&!$shortMorning &&!$shortWhisper;
+                $shortOff=$ownedStage===0;
+                $duration=(int)($s['duration_minutes']
+                    ??self::SHORT_DURATION_MINUTES)*60;
+                $rearm=$age>=max(60,
+                    $duration-self::REARM_MARGIN_SECONDS)
+                    &&!$shortMorning &&!$shortWhisper &&!$shortOff;
                 // Short morning ventilation and quiet S1 must not
                 // unnecessarily create a second timer period.
                 // At 14min whisper explicitly ends and sets 8h cooldown.
-                if($desired===0 ||$desired!==$ownedStage
-                    ||$rearm ||($shortWhisper &&$age>=14*60)){
+                if($desired===-1 ||$desired!==$ownedStage
+                    ||$rearm ||($shortWhisper &&$age>=14*60)
+                    ||($shortOff &&$age>=4*60)){
                     return self::stop($s,$now);
                 }
                 return self::result($s,'SIMPLE_STAGE_CONFIRMED',
@@ -351,7 +432,7 @@ final class JVHeliosSimpleFanV2
         // manufacturer-owned Party/Whisper. The previous V1's party
         // must return to AUTO before V2 may start.
         if($mode!==0)return self::result($s,'SIMPLE_FOREIGN_MODE_KEEP');
-        if($desired===0){
+        if($desired===-1){
             $s['phase']='IDLE';$s['stage']=0;$s['mode']=0;
             return self::result($s,'SIMPLE_MANUFACTURER_AUTO');
         }
@@ -381,8 +462,13 @@ final class JVHeliosSimpleFanV2
     {
         $s=self::initialState($old);
         $phase=(string)($s['phase']??'IDLE');
-        return in_array($phase,['STARTING','STOPPING'],true)
-            ||($phase==='ACTIVE'
-                &&$now-(int)($s['sent_at']??0)>=9*60);
+        if(in_array($phase,['STARTING','STOPPING'],true))return true;
+        if($phase!=='ACTIVE')return false;
+        $elapsed=$now-(int)($s['sent_at']??0);
+        $stage=(int)($s['stage']??0);
+        $minutes=(int)($s['duration_minutes']??self::SHORT_DURATION_MINUTES);
+        $lead=$stage===0?60:($stage===1?2*60:
+            self::REARM_MARGIN_SECONDS+60);
+        return $elapsed>=max(0,$minutes*60-$lead);
     }
 }
