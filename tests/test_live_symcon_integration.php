@@ -55,6 +55,11 @@ function HELIOS_OperatingMode_Party_Set(...$args){
     $GLOBALS['calls'][]=['party',$args];
     if(($GLOBALS['failParty']??false)===true)return false;
     if(($args[1]??false)===false){$GLOBALS['deviceMode']=0;return true;}
+    if(($GLOBALS['deferPartyReadback']??false)===true){
+        // Simulates the acknowledged HTTP call with transient old
+        // manufacturer AUTO readback observed on 07 Nov 2026.
+        return true;
+    }
     $GLOBALS['deviceMode']=2;$GLOBALS['deviceFan']=(int)$args[2];$GLOBALS['remaining']=(int)$args[3];return true;
 }
 function HELIOS_OperatingMode_Get($id){$GLOBALS['getCalls']++;
@@ -696,5 +701,98 @@ $hobOffline=json_decode($hobSmart->value('DecisionJSON'),true);
 it(($hobOffline['hob_power_direct']['source_online']??true)===false
     &&($hobOffline['hob_power_direct']['boost_requested']??true)===false,
     'cooktop Shelly offline never authorizes stage4 from cached watts');
+
+// 07 Nov real-device regression: S4 accepted, native mode still AUTO
+// two seconds later, matching Party S4 appears only at ~20 seconds.
+$GLOBALS['nativeStatus']=102;
+$GLOBALS['nativeConfig']=['notif_script_active'=>false,
+    'notifscript_id'=>0,'timerinterval'=>61,'log_fanlevel'=>false];
+unset($GLOBALS['nativeSensorIDs'],$GLOBALS['nativeCo2LiveValue'],
+    $GLOBALS['nativeVocLiveValue']);
+$GLOBALS['deviceMode']=0;$GLOBALS['deviceFan']=2;$GLOBALS['deviceProgram']=3;
+$GLOBALS['values'][30441]=2;$GLOBALS['values'][58762]=0;
+$GLOBALS['values'][47825]=220.0;$GLOBALS['values'][59558]=true;
+$GLOBALS['variableTimeByID'][47825]=time()-1;
+$GLOBALS['weatherForTest']=[
+    'quality'=>'MODEL_SUPPORTED',
+    'current'=>JVWeatherMath::readPair(5,94)+['observed_at'=>time()-30],
+    'forecast'=>[],
+];
+$GLOBALS['nativeDefrost']=false;$GLOBALS['nativeExtractRh']=51;
+$GLOBALS['deferPartyReadback']=true;
+$delayed=new HeliosSmart();$delayed->Create();
+$delayed->setProperty('WeatherCenterInstance',42);
+$delayed->setProperty('EnableControl',true);
+$delayed->setProperty('EnableSmartFanTakeover',true);
+$delayed->setProperty('EnableHighPowerParty',true);
+$delayed->setProperty('HighPowerSafetyValidated',true);
+$delayed->setProperty('CombustionSafetyValidated',true);
+$delayed->setProperty('AllowEstimatedAirflowLimitedParty',true);
+$delayed->ApplyChanges();
+$beforeDelayed=count($GLOBALS['calls']);
+$delayed->Evaluate();
+$firstDelayed=json_decode($delayed->value('DecisionJSON'),true);
+$pending=json_decode($delayed->ReadAttributeString('SmartFanTakeoverState'),true);
+it(($firstDelayed['smart_fan_execution']['status']??'')
+        ==='SMART_STAGE_SENT_READBACK_PENDING'
+    &&($pending['readback_pending_until']??0)>time()
+    &&$GLOBALS['deviceMode']===0
+    &&count($GLOBALS['calls'])===$beforeDelayed+1,
+    'manufacturer returns old AUTO immediately after accepted cooktop S4; reserve late readback');
+$delayed->Evaluate();
+$inGrace=json_decode($delayed->value('DecisionJSON'),true);
+$graceState=json_decode($delayed->ReadAttributeString('SmartFanTakeoverState'),true);
+it(($inGrace['smart_fan_execution']['status']??'')
+        ==='SMART_STAGE_AWAITING_NATIVE_READBACK'
+    &&($graceState['error_retry_after']??0)===0
+    &&count($GLOBALS['calls'])===$beforeDelayed+1,
+    'old AUTO within 90s causes no duplicate command or 30min backoff');
+$GLOBALS['deferPartyReadback']=false;
+$GLOBALS['deviceMode']=2;$GLOBALS['deviceFan']=4;
+$GLOBALS['values'][30441]=4;$GLOBALS['values'][58762]=2;
+$delayed->Evaluate();
+$lateConfirmed=json_decode($delayed->value('DecisionJSON'),true);
+$confirmedState=json_decode($delayed->ReadAttributeString('SmartFanTakeoverState'),true);
+$reliabilityState=json_decode($delayed->value('SmartFanReliabilityJSON'),true);
+it(($lateConfirmed['smart_fan_execution']['status']??'')
+        ==='SMART_STAGE_DELAYED_READBACK_CONFIRMED'
+    &&($confirmedState['readback_pending_until']??-1)===0
+    &&($confirmedState['error_retry_after']??0)===0
+    &&$GLOBALS['deviceMode']===2 &&$GLOBALS['deviceFan']===4,
+    'late matching Party S4 becomes owned without false foreign classification');
+it(($reliabilityState['last_own_command_confirmed_at']??0)>0
+    &&($reliabilityState['confirmed_command_count']??0)===1
+    &&count($GLOBALS['calls'])===$beforeDelayed+1,
+    'asynchronously confirmed S4 command counted once without new actuation');
+$delayed->Evaluate();
+$repeatConfirmed=json_decode($delayed->value('SmartFanReliabilityJSON'),true);
+it(($repeatConfirmed['confirmed_command_count']??0)===1,
+    'repeated readback cannot double-count a confirmed command');
+// After 90s the same unresolved AUTO is a real failure and normal
+// actuator backoff must still apply.
+$GLOBALS['deviceMode']=0;$GLOBALS['deviceFan']=2;
+$GLOBALS['values'][30441]=2;$GLOBALS['values'][58762]=0;
+$expired=new HeliosSmart();$expired->Create();
+$expired->setProperty('WeatherCenterInstance',42);
+$expired->setProperty('EnableControl',true);
+$expired->setProperty('EnableSmartFanTakeover',true);
+$expired->setProperty('EnableHighPowerParty',true);
+$expired->setProperty('HighPowerSafetyValidated',true);
+$expired->setProperty('CombustionSafetyValidated',true);
+$expired->setProperty('AllowEstimatedAirflowLimitedParty',true);
+$expired->WriteAttributeString('SmartFanTakeoverState',json_encode([
+    'sent_at'=>time()-110,'native_timer_anchor_at'=>time()-110,
+    'until'=>time()+790,'stage'=>4,'mode'=>2,'hob_boost'=>true,
+    'readback_pending_until'=>time()-20,
+]));
+$beforeExpired=count($GLOBALS['calls']);
+$expired->Evaluate();
+$unconfirmed=json_decode($expired->value('DecisionJSON'),true);
+$expiredState=json_decode($expired->ReadAttributeString('SmartFanTakeoverState'),true);
+it(($unconfirmed['smart_fan_execution']['status']??'')
+        ==='NATIVE_AUTO_CONFIRMED_SMART_STAGE_NOT_ACTIVE'
+    &&($expiredState['error_retry_after']??0)>time()
+    &&count($GLOBALS['calls'])===$beforeExpired,
+    'genuine lack of confirmation past grace retains original actuator backoff');
 
 echo "ALLE $counter SYMCON-LIVE-INTEGRATIONSPRUEFUNGEN BESTANDEN\n";
