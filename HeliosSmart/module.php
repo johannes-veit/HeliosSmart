@@ -2887,6 +2887,41 @@ class HeliosSmart extends IPSModule
         // V2 is the ONE live policy. Historical predictors/recovery/smoothing
         // remain observation-only; they NEVER override this stage decision.
         $smartState=JVHeliosSimpleFanV2::initialState($smartState);
+        // One short daily morning ventilation (S3, 15min max):
+        // never ventilate wet Mosel fog into a drier house. The
+        // weather centre provides REAL external AH; Helios 'outside'
+        // would be after the sole EWT and must not be used here.
+        $localNow=(new DateTimeImmutable('@'.$now))
+            ->setTimezone(new DateTimeZone('Europe/Berlin'));
+        $day=$localNow->format('Y-m-d');
+        $hour=(int)$localNow->format('G');
+        $outsideAH=$weather['current']['absolute_humidity']??null;
+        $insideAH=$decision['indoor_absolute_humidity']??null;
+        $startedToday=(string)($smartState['morning_flush_day']??'')===$day;
+        $startedAt=(int)($smartState['morning_flush_started_at']??0);
+        $startedDuration=$startedToday &&$startedAt>0
+            ?max(0,$now-$startedAt):0;
+        $morningGoodAir=is_numeric($outsideAH)&&is_numeric($insideAH)
+            &&is_finite((float)$outsideAH)&&is_finite((float)$insideAH)
+            &&(float)$outsideAH>=0 &&(float)$outsideAH<=25
+            &&(float)$insideAH>=0 &&(float)$insideAH<=25
+            &&(float)$outsideAH<=(float)$insideAH+0.3;
+        $morningWanted=$hour>=7 &&$hour<10
+            &&!($history['advice']['morning_ventilation_observed']??false)
+            &&(!$startedToday ||$startedDuration<15*60)
+            &&$morningGoodAir
+            &&in_array($decision['weather_quality']??'',
+                ['VERIFIED','DWD_ONLY'],true)
+            &&isset($weather['current']['observed_at'])
+            &&$now-(int)$weather['current']['observed_at']<=900
+            &&$now-(int)$weather['current']['observed_at']>=0;
+        $decision['morning_flush_v2']=[
+            'requested'=>$morningWanted,'outside_air_suitable'=>$morningGoodAir,
+            'day'=>$day,'started_duration_seconds'=>$startedDuration,
+            'historical_flush_seen'=>
+                (bool)($history['advice']['morning_ventilation_observed']??false),
+            'daily_target_minutes'=>15,
+        ];
         $smartPlan=JVHeliosSimpleFanV2::plan([
             'now'=>$now,
             'enabled'=>$smartEnabled,
@@ -2909,6 +2944,7 @@ class HeliosSmart extends IPSModule
             'direct_hob_boost'=>$hobBoost,
             'direct_hob_afterrun'=>$hobAfterrun,
             'cooling_confirmed'=>($coolingGate['cooling_confirmed']??false)===true,
+            'morning_flush_requested'=>$morningWanted,
             'weather_quality'=>$decision['weather_quality']??'UNAVAILABLE',
             'weather_age_seconds'=>isset($weather['current']['observed_at'])
                 ?$now-(int)$weather['current']['observed_at']:PHP_INT_MAX,
