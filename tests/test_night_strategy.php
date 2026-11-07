@@ -37,8 +37,8 @@ $d['mode']='PASSIVE_COOLING';
 ns(JVHeliosNightStrategy::plan($d,2,$day)['target_stage']!==1,
  'Summer cooling overrides daytime absence and quiet optimization');
 $d['mode']='WEEKLY_BASE';
-ns(!JVHeliosNightStrategy::plan($d,3,$night)['quiet_eligible'],
- 'Never jump directly from manufacturer S3 to S1 at night');
+ns(JVHeliosNightStrategy::plan($d,3,$night)['quiet_eligible'],
+ 'Night S1 is eligible from S3; V2 actuator must first confirm intermediate S2');
 $morning=(new DateTimeImmutable('2026-10-31 06:00:00',new DateTimeZone('Europe/Berlin')))->getTimestamp();
 $d['mode']='WEEKLY_BASE';
 ns(!JVHeliosNightStrategy::plan($d,2,$morning)['quiet_eligible'],

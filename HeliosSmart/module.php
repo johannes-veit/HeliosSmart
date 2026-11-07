@@ -89,6 +89,11 @@ class HeliosSmart extends IPSModule
         $this->RegisterPropertyBoolean('EnableSmartFanTakeover',false);
         $this->RegisterPropertyBoolean('EnableAwayEconomy',true);
         $this->RegisterPropertyBoolean('EnableDailyMorningFlush',true);
+        // Five-minute manufacturer-owned OFF: disabled until the actual
+        // building airflow and absence moisture protection were verified.
+        $this->RegisterPropertyBoolean('EnableTimedAwayOff',false);
+        $this->RegisterPropertyBoolean('OffVentilationPlanValidated',false);
+        $this->RegisterAttributeString('SimpleHumidityLatchState','{}');
         $this->RegisterAttributeString('SmartFanTakeoverState','{}');
         $this->RegisterAttributeString('SmartFanSmoothingState','{}');
         $this->RegisterAttributeString('SmartFanRecoveryState','{}');
@@ -357,7 +362,7 @@ class HeliosSmart extends IPSModule
     {
         return json_encode([
             'elements'=>[
-                ['type'=>'Label','caption'=>'Vier-Stufen-Strategie: S1 optional als 30-min-Ruhe-/Sparbetrieb rund um die Uhr, S2 im Wochenprogramm, S3 nach Bedarf, S4 nur mit Freigabe. Nacht-S1 ist wegen ungesicherter Luftmenge standardmaessig AUS.'],
+                ['type'=>'Label','caption'=>'HELIOS SMART V2: S2 normale 30-Minuten-Grundlueftung, S1 als 15-Minuten-Sparprogramm nachts oder bei SHADOW-Abwesenheit (60-Min-Pause), S3 nach Bedarf, S4 bei echtem Kochen/Duschen. Optional Stufe 0 max. 5 Min nur mit Mess- und Feuchteschutzfreigaben. Native Hersteller-AUTO bleibt Fallback.'],
                 ['type'=>'NumberSpinner','name'=>'HeliosInstance','caption'=>'Original Helios Symcon Modul (hier #19285, gemeinsam genutzte einzige Geraeteinstanz)'],
                 ['type'=>'Label','caption'=>'Das originale HELIOS-Modul liest alle 61 Sekunden und fuehrt das Hersteller-Wochenprogramm aus. HELIOS SMART nutzt dessen native GETs; keine zweite direkte HTTP-Steuerung. Angewendete Helios-Konfiguration muss Status 102/OK haben. Bei Fehler 209 ist Eigenes Skript aktiv, aber keine Skript-ID gewaehlt. Fehler nur in der Originalinstanz beheben; HELIOS SMART veraendert diese Konfiguration nicht.'],
                 ['type'=>'Button','caption'=>'HELIOS-Originalinstanz jetzt nur lesend pruefen','onClick'=>'echo JVHS_CheckNativeHeliosIntegration($id);'],
@@ -393,15 +398,17 @@ class HeliosSmart extends IPSModule
                 ['type'=>'CheckBox','name'=>'EnableProgramSwitch','caption'=>'Rueckfall-Wochenprofil saisonal anpassen: im Heizbetrieb Sommerprofil 4 durch Normalprofil 3 ersetzen'],
                 ['type'=>'CheckBox','name'=>'EnableSmartFanTakeover','caption'=>'SMART uebernimmt Stufen 1–4 mit nativen 15-Minuten-Zeitbefehlen; Wochenprogramm bleibt nur Rueckfallebene'],
                 ['type'=>'CheckBox','name'=>'EnableDailyMorningFlush','caption'=>'SMART V2: 1x taeglich 15 Min morgens Stufe 3 (07–10 Uhr), nur mit verifizierter trockenerer Aussenluft und sicherer Helios-Freigabe'],
-                ['type'=>'CheckBox','name'=>'EnableAwayEconomy','caption'=>'Stromsparende Abwesenheits-Lueftung: 30 Min keine frischen Zuhause-Handyhinweise bei BEIDEN (auch Firma, Abwesend, Unklar), keine aktuelle Hausbewegung, vorher morgens ausreichend gelueftet, unkritische Feuchte; max. kurzzeitige Stufe 1, sonst Stufe 2; NIE unbeaufsichtigt AUS'],
-                ['type'=>'Label','caption'=>'Kochfeld Shelly #47825: >5 W mit frischem Online-Wert loest sofort S4 aus, unabhaengig von Licht/Bewegung/SHADOW; unter/gleich 5 W nach zuvor EIN beginnt 5 Min S4-Nachlauf. SMART erneuert die nativen 15-Min-Gerätetimer nur mit bestaetigtem STOP/AUTO/START. Bei Offline/veralteten Daten keine Kochfeld-S4-Freigabe. Nativer Frost-/Feuchteschutz und S4-Freigaben haben immer Vorrang. Kein automatisches AUS.'],
+                ['type'=>'CheckBox','name'=>'EnableTimedAwayOff','caption'=>'OPTIONAL Stufe 0 NUR bei mindestens 60 Min nachweislich fehlender Zuhause-Meldung, frischen RH-Daten und geraeteeigener Mindeststufe 0; max. 5 Min / 2h, automatische Hersteller-Rueckkehr (Standard AUS)'],
+                ['type'=>'CheckBox','name'=>'OffVentilationPlanValidated','caption'=>'Fachlich bestaetigt: Luftmengen und Feuchteschutz auch bei zeitweise komplett ausgeschalteter KWL nachweislich ausreichend (KEINE Freigabe allein durch Software; Standard AUS)'],
+                ['type'=>'CheckBox','name'=>'EnableAwayEconomy','caption'=>'Abwesenheits-Sparlueftung (09-23 Uhr): 30 Min keine frischen Zuhause-Handyhinweise BEIDER, keine Hausbewegung, morgens gelueftet und unkritische RH -> kurz S1, sonst S2. Stufe 0 NUR mit beiden separaten OFF-Sicherheitsfreigaben und nativer Hersteller-Mindeststufe 0.'],
+                ['type'=>'Label','caption'=>'Kochfeld Shelly #47825 >5 W: S4 sofort, 5 Min Nachlauf nach unter/gleich 5 W; nativer Feuchte-/Frostschutz hat Vorrang. S2 wird 30 Min geraeteintern gehalten, S3/S4 bis 15 Min. Kein hektisches Erneuern. Nur nach fachlich nachgewiesenem Luftwechsel und Feuchteschutz kann separate 5-Min-Stufe-0-Option aktiviert werden.'],
                 ['type'=>'Label','caption'=>'SMART-PRIORITAET: Bei frischem Wetter, mindestens 9 Raumtemperaturen, 8 Raumfeuchten, funktionsfaehiger Original-Helios-Steuerung und Freigabe steuert SMART mit geraeteseitig zeitbegrenzten Party/Ruhe-Befehlen. Ohne Mess-/Betriebsnachweis oder bei Abbruch endet die eigene Anforderung nach spaetestens 15 Minuten und das Herstellerwochenprogramm uebernimmt. Unterhalb nomineller Stufe 3 nur bei ausdruecklicher Luftmengen-/Modellfreigabe.'],
 
                 ['type'=>'Label','caption'=>'SOMMERPROFIL 4 -> NORMAL-/WINTERPROFIL 3 bei lokaler Kälte und nachweislich gesundem Helios AUTO. Kein dauerhaftes MANUELL: das Original geraeteregelt CO2/Feuchte/VOC und Wochenprogramm bleibt aktiv. Automatische Absenkung einer eventuell echten Sensor-Anforderung Stufe 4 ist nicht freigegeben.'],
                 ['type'=>'Button','caption'=>'SMART-LUEFTUNG JETZT AKTIVIEREN (Original pruefen, Programmautomatik und Zusatzsteuerung freigeben)','onClick'=>'echo JVHS_StartSmartFanControl($id);'],
                 ['type'=>'Button','caption'=>'SMART-LUEFTUNG STOPPEN – zurueck zum gespeicherten Helios-Wochenprogramm','onClick'=>'echo JVHS_StopSmartFanControl($id);'],
-                ['type'=>'CheckBox','name'=>'EnableNightQuiet','caption'=>'OPTIONAL: jederzeit Stufe 1 fuer 30 min bei geringem Bedarf mit Helios-Ruhebetrieb und Auto-Rueckfall (Modellluftmenge; Standard AUS)'],
-                ['type'=>'CheckBox','name'=>'AllowEstimatedAirflowLimitedParty','caption'=>'Modellbetrieb akzeptieren: Luftmengen NICHT gemessen; S3 max. 15 min oder separat freigegebener Nacht-Ruhebetrieb S1/30'],
+                ['type'=>'CheckBox','name'=>'EnableNightQuiet','caption'=>'Nachtruhe 23:00-06:00: bei geringem Bedarf kurzzeitig Stufe 1 (15-Min-Hersteller-Ruheprogramm, 60 Min Pause). Aus Stufe 3/4 nur mit bestaetigter Stufe-2-Zwischenphase. Kein OFF nachts bei Anwesenheit.'],
+                ['type'=>'CheckBox','name'=>'AllowEstimatedAirflowLimitedParty','caption'=>'Modellbetrieb: S1/S2 Luftmengen nicht gemessen. S2 bis 30 Min Hersteller-Party; S1 max. 15 Min mit Schutzbedingungen. Diese Modellfreigabe berechtigt niemals zu Stufe 0.'],
                 ['type'=>'CheckBox','name'=>'MinimumVentilationValidated','caption'=>'Alternativ: reale Luftmengen fachlich eingemessen (nur bei vorhandenem Nachweis)'],
                 ['type'=>'CheckBox','name'=>'CombustionSafetyValidated','caption'=>'Feuerstaette / Dunstabzug / Lueftung gemeinsam sicher betrieben und entsprechend freigegeben'],
                 ['type'=>'CheckBox','name'=>'EnableHighPowerParty','caption'=>'Stufe-4-Freigabe fuer Kochen/Bad (geraeteseitig jeweils 15 Min, bei Kochfeldbetrieb gesichert erneuerbar; Standard AUS)'],
@@ -2265,6 +2272,9 @@ class HeliosSmart extends IPSModule
                     'EnableSmartFanTakeover'=>$this->ReadPropertyBoolean('EnableSmartFanTakeover'),
                     'EnableAwayEconomy'=>$this->ReadPropertyBoolean('EnableAwayEconomy'),
                     'EnableDailyMorningFlush'=>$this->ReadPropertyBoolean('EnableDailyMorningFlush'),
+                    'EnableTimedAwayOff'=>$this->ReadPropertyBoolean('EnableTimedAwayOff'),
+                    'OffVentilationPlanValidated'=>
+                        $this->ReadPropertyBoolean('OffVentilationPlanValidated'),
                     'EnableHobPowerBoost'=>$this->ReadPropertyBoolean('EnableHobPowerBoost'),
                     'EnableProgramSwitch'=>$this->ReadPropertyBoolean('EnableProgramSwitch'),
                     'EnableNightQuiet'=>$this->ReadPropertyBoolean('EnableNightQuiet'),
@@ -2411,6 +2421,13 @@ class HeliosSmart extends IPSModule
                         ['requested','outside_air_suitable','day',
                          'started_duration_seconds','historical_flush_seen',
                          'daily_target_minutes']),
+                    'smart_humidity_latch'=>$pick((array)($d['smart_humidity_latch']??[]),
+                        ['held','reason','extract_rh','clear_since','release_at_or_after',
+                         'room_humidity_held','room_humidity_reason',
+                         'room_max_rh','room_clear_since']),
+                    'timed_off_v2'=>$pick((array)($d['timed_off_v2']??[]),
+                        ['configured','building_plan_validated','measured_airflow_validated',
+                         'manufacturer_minimum_stage','available_only_if_all_safety_checks_pass']),
                 ],
                 'events'=>[
                     'direct_hob'=>$pick((array)($d['hob_power_direct']??[]),
@@ -2902,6 +2919,57 @@ class HeliosSmart extends IPSModule
         // V2 is the ONE live policy. Historical predictors/recovery/smoothing
         // remain observation-only; they NEVER override this stage decision.
         $smartState=JVHeliosSimpleFanV2::initialState($smartState);
+        // Independent hysteresis state: avoid a write race with the
+        // device command owner state and native-60% humidity chatter.
+        $humidityRaw=json_decode(
+            $this->ReadAttributeString('SimpleHumidityLatchState'),true);
+        $humidity=JVHeliosSimpleFanV2::humidityLatch(
+            is_array($humidityRaw)?$humidityRaw:[],
+            $sensorEvidence['native_extract_rh'],$now);
+        $roomHumidity=JVHeliosSimpleFanV2::roomHumidityLatch(
+            $humidity['state'],$maxRoomRh,$now);
+        $this->WriteAttributeString('SimpleHumidityLatchState',
+            json_encode($roomHumidity['state']));
+        $decision['smart_humidity_latch']=[
+            'held'=>$humidity['hold'],'reason'=>$humidity['reason'],
+            'extract_rh'=>$sensorEvidence['native_extract_rh'],
+            'clear_since'=>(int)($humidity['state']['humidity_clear_since']??0),
+            'release_at_or_after'=>((int)($humidity['state']['humidity_clear_since']??0)>0
+                ?(int)$humidity['state']['humidity_clear_since']+600:null),
+            'room_humidity_held'=>$roomHumidity['hold'],
+            'room_humidity_reason'=>$roomHumidity['reason'],
+            'room_max_rh'=>$maxRoomRh,
+            'room_clear_since'=>
+                (int)($roomHumidity['state']['room_humidity_clear_since']??0),
+        ];
+        // The manufacturer, not the app's UI, defines whether fan
+        // stage 0 is technically available. Evaluate only when the user
+        // has opted in AND certified the building's ventilation plan.
+        $nativeMinFan=null;
+        if($this->ReadPropertyBoolean('EnableTimedAwayOff')
+            &&$this->ReadPropertyBoolean('OffVentilationPlanValidated')
+            &&$this->ReadPropertyBoolean('MinimumVentilationValidated')
+            &&($native['write_allowed']??false)===true
+            &&function_exists('HELIOS_System_FanLevelMin_Get')){
+            try{
+                $minimum=HELIOS_System_FanLevelMin_Get(
+                    $this->ReadPropertyInteger('HeliosInstance'));
+                if(is_int($minimum) &&in_array($minimum,[0,1],true))
+                    $nativeMinFan=$minimum;
+            }catch(Throwable $e){
+                $this->SendDebug('TimedOffMinimumStage',
+                    substr($e->getMessage(),0,140),0);
+            }
+        }
+        $decision['timed_off_v2']=[
+            'configured'=>$this->ReadPropertyBoolean('EnableTimedAwayOff'),
+            'building_plan_validated'=>
+                $this->ReadPropertyBoolean('OffVentilationPlanValidated'),
+            'measured_airflow_validated'=>
+                $this->ReadPropertyBoolean('MinimumVentilationValidated'),
+            'manufacturer_minimum_stage'=>$nativeMinFan,
+            'available_only_if_all_safety_checks_pass'=>true,
+        ];
         $morningReport=JVHeliosSimpleFanV2::morningFlush([
             'enabled'=>$this->ReadPropertyBoolean('EnableDailyMorningFlush'),
             'observed_morning_ventilation'=>
@@ -2925,10 +2993,12 @@ class HeliosSmart extends IPSModule
             'room_temp_count'=>$decision['fresh_room_count']??0,
             'room_humidity_count'=>$decision['fresh_humidity_room_count']??0,
             'max_room_rh'=>$maxRoomRh,
+            'room_humidity_hold'=>$roomHumidity['hold'],
             'native_sensor_stale'=>$sensorEvidence['native_sensor_stale'],
             'native_sensor_control_unverified'=>$sensorSourceUnverified,
             'native_extract_rh_live'=>$sensorEvidence['native_extract_rh_live'],
             'native_extract_rh'=>$sensorEvidence['native_extract_rh'],
+            'native_humidity_hold'=>$humidity['hold'],
             'native_defrost_active'=>$sensorEvidence['native_defrost_active'],
             'native_defrost_known'=>$sensorEvidence['native_defrost_known'],
             'max_co2_ppm'=>$sensorEvidence['max_co2_ppm'],
@@ -2947,6 +3017,18 @@ class HeliosSmart extends IPSModule
                 &&($decision['night_strategy']['quiet_eligible']??false)===true,
             'away_daytime_low_demand'=>$this->ReadPropertyBoolean('EnableAwayEconomy')
                 &&($history['advice']['away_low_demand_eligible']??false)===true,
+            'away_no_home_minutes'=>
+                (int)($history['advice']['away_hint_contiguous_minutes']??0),
+            'timed_off_enabled'=>$this->ReadPropertyBoolean('EnableTimedAwayOff'),
+            'off_ventilation_plan_validated'=>
+                $this->ReadPropertyBoolean('OffVentilationPlanValidated'),
+            'native_min_stage'=>$nativeMinFan,
+            'off_next_allowed_at'=>(int)($smartState['off_next_allowed_at']??0),
+            'own_timed_off_active'=>
+                (int)($smartState['stage']??-1)===0
+                &&in_array((string)($smartState['phase']??''),
+                    ['STARTING','ACTIVE','STOPPING'],true)
+                &&(int)($smartState['mode']??0)===3,
             'quiet_cooldown_until'=>(int)($smartState['quiet_cooldown_until']??0),
             'minimum_airflow_validated'=>$this->ReadPropertyBoolean('MinimumVentilationValidated'),
             'model_airflow_accepted'=>$this->ReadPropertyBoolean('AllowEstimatedAirflowLimitedParty'),
