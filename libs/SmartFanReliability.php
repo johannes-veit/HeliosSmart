@@ -130,7 +130,25 @@ final class JVHeliosSmartFanReliability
         $commandSentAt=(int)($x['command_sent_at'] ?? $now);
         $sent = ($exec['sent'] ?? false) === true
             && $commandSentAt > (int)($old['last_own_command_sent_at'] ?? 0);
-        $confirmed = $sent && $verified;
+        $lastSent=$sent ? $commandSentAt
+            :(int)($old['last_own_command_sent_at']??0);
+        // Native HELIOS confirms many commands only in a later Evaluate
+        // tick. Counting exclusively sent+verified in ONE tick made the
+        // confirmed-command timestamp remain weeks behind, even while
+        // a genuine owned S2/S4 was repeatedly observed as verified.
+        $ownedConfirmed=$verified
+            &&in_array((string)($exec['status']??''),[
+                'SMART_STAGE_CONFIRMED',
+                'SMART_STAGE_DELAYED_READBACK_CONFIRMED',
+                'COOKTOP_S4_NATIVE_TIMER_REARM_CONFIRMED',
+                'SMART_OWNED_ACTIVE_WAIT_NATIVE_TIMER',
+                'SMART_OWNED_ACTIVE_WAIT_RENEWAL',
+            ],true)
+            &&in_array((int)($after['mode']??0),[2,3],true)
+            &&($after['fan']??null)===$target;
+        $confirmed=$ownedConfirmed &&$lastSent>0
+            &&$lastSent<=$now
+            &&$lastSent>(int)($old['last_own_command_confirmed_at']??0);
         return [
             'version' => 1,
             'fingerprint' => $fingerprint,

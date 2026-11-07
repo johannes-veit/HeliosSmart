@@ -997,6 +997,41 @@ class HeliosSmart extends IPSModule
             if($live===null || !in_array($mode,[0,2,3],true)){
                 $result['status']='HELIOS_LIVE_READBACK_FAILED';return $result;
             }
+            // The native easyControls response can lag a successful
+            // Party_Set RPC by tens of seconds. The real 07.11.2026
+            // cooktop event showed AUTO/S2 two seconds after S4 was sent,
+            // followed by a physical Party/S4 eighteen seconds later.
+            // Keep an acknowledged, *still unconfirmed* command reserved
+            // for at most 90 seconds. Never blindly resend during this
+            // interval or label the delayed matching Party as foreign.
+            $pendingUntil=(int)($state['readback_pending_until']??0);
+            if($owned && $pendingUntil>0){
+                $matches=$mode===(int)($state['mode']??0)
+                    &&($live['fan']??null)===(int)($state['stage']??0);
+                if($matches){
+                    $state['readback_pending_until']=0;
+                    $state['readback_confirmed_at']=$now;
+                    $this->WriteAttributeString('SmartFanTakeoverState',
+                        json_encode($state));
+                    $result['status']='SMART_STAGE_DELAYED_READBACK_CONFIRMED';
+                    $result['verified']=true;
+                    $result['readback']=$live;
+                    $result['current_stage_confirmed']=true;
+                    $result['current_stage']=$live['fan'];
+                    $result['fallback_weekly']=false;
+                    return $result;
+                }
+                if($now<=$pendingUntil && $mode===0){
+                    $result['status']='SMART_STAGE_AWAITING_NATIVE_READBACK';
+                    $result['fallback_weekly']=false;
+                    $result['awaiting_readback_seconds']=$pendingUntil-$now;
+                    return $result;
+                }
+                // After the grace expires, manufacturer AUTO is a real
+                // failure and the existing 30min backoff remains intact.
+                // A different timed mode/stage is always left to the
+                // manufacturer (no false ownership or cancellation).
+            }
             if($mode!==0 && (!$owned || $mode!==(int)($state['mode']??0))){
                 $result['status']='FOREIGN_DEVICE_MODE_NO_OVERRIDE';return $result;
             }
@@ -1110,6 +1145,7 @@ class HeliosSmart extends IPSModule
                 $renewed=[
                     'sent_at'=>$now,'native_timer_anchor_at'=>$now,
                     'until'=>$now+15*60,'stage'=>4,'mode'=>2,
+                    'readback_pending_until'=>0,
                     'hob_boost'=>true,'last_hob_rearm_at'=>$now,
                     'prior_program'=>$nativeAuto['program']??null,
                     'quiet_started_at'=>0,
@@ -1143,6 +1179,9 @@ class HeliosSmart extends IPSModule
                     $result['status']='COOKTOP_S4_NATIVE_TIMER_REARM_CONFIRMED';
                     return $result;
                 }
+                $renewed['readback_pending_until']=$now+90;
+                $this->WriteAttributeString('SmartFanTakeoverState',
+                    json_encode($renewed));
                 $result['status']='COOKTOP_S4_REARM_READBACK_PENDING';
                 return $result;
             }
@@ -1198,6 +1237,7 @@ class HeliosSmart extends IPSModule
                 'stage'=>$level,
                 'mode'=>$desiredMode,
                 'hob_boost'=>$hobBoost,
+                'readback_pending_until'=>0,
                 'prior_program'=>$live['program']??null,
                 'quiet_started_at'=>$level===1
                     ?((int)($state['quiet_started_at']??0)>0
@@ -1223,6 +1263,9 @@ class HeliosSmart extends IPSModule
                 $result['fallback_weekly']=false;
                 return $result;
             }
+            $state['readback_pending_until']=$now+90;
+            $this->WriteAttributeString('SmartFanTakeoverState',
+                json_encode($state));
             $result['status']='SMART_STAGE_SENT_READBACK_PENDING';
             return $result;
         }catch(Throwable $e){
@@ -2532,6 +2575,7 @@ class HeliosSmart extends IPSModule
                 'smart_effective'=>$d['smart_fan_effective_state']??'NICHT_BESTAETIGT',
                 'smart_ownership'=>$pick($smartState,['sent_at','until','stage',
                     'mode','hob_boost','native_timer_anchor_at',
+                    'readback_pending_until','readback_confirmed_at',
                     'last_hob_rearm_at','quiet_started_at',
                     'quiet_cooldown_until','error_retry_after']),
                 'smart_smoothing'=>$d['smart_fan_smoothing']??[],
@@ -3255,6 +3299,10 @@ class HeliosSmart extends IPSModule
                 'co2_voc_evidence'=>$sensorEvidence],JSON_UNESCAPED_UNICODE));
         $effectiveState=match ((string)($smartExecution['status']??'')){
             'SMART_STAGE_CONFIRMED'=>'SMART-STUFE AM GERAET BESTAETIGT',
+            'SMART_STAGE_DELAYED_READBACK_CONFIRMED'
+                =>'SMART-STUFE NACH VERZOEGERTEM GERAETE-READBACK BESTAETIGT',
+            'SMART_STAGE_AWAITING_NATIVE_READBACK'
+                =>'SMART-BEFEHL GESENDET / GERAETE-BESTAETIGUNG LAEUFT',
             'COOKTOP_S4_NATIVE_TIMER_REARM_CONFIRMED'
                 =>'KOCHFELD STUFE 4 MIT NEUEM GERAETETIMER BESTAETIGT',
             'SMART_OWNED_ACTIVE_WAIT_RENEWAL',
