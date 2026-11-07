@@ -156,6 +156,7 @@ final class JVHeliosSimpleFanV2
         $s['last_command_at']=$now;
         $s['quiet_started_at']=$stage===1?$now:0;
         $s['hob_boost']=$stage===4;
+        if($stage===1)$s['quiet_baseline_confirmed_at']=0;
         return self::result($s,'SIMPLE_START_REQUESTED',
             ['type'=>'start','mode'=>$mode,'stage'=>$stage,'minutes'=>15]);
     }
@@ -241,6 +242,8 @@ final class JVHeliosSimpleFanV2
                     'SIMPLE_OWNED_MODE_INTERRUPTED');
             } else {
                 $age=$now-(int)($s['sent_at']??0);
+                if($ownedStage===2 &&$desired===1)
+                    $s['quiet_baseline_confirmed_at']=$now;
                 // The 15 minute hardware timer is anchored at the first
                 // START, never any "renewal". STOP -> AUTO -> START is
                 // a two-phase handshake with only one device write/tick.
@@ -267,8 +270,14 @@ final class JVHeliosSimpleFanV2
             &&$now<(int)($s['quiet_cooldown_until']??0))
             return self::result($s,'SIMPLE_S1_COOLDOWN_KEEP_AUTO');
         // Never abruptly jump from manufacturer S3/S4 to a proposed
-        // low-airflow S1. Confirm a manufacturer-timed S2 first.
-        return self::start($s,$desired===1 &&$fan>2 ?2:$desired,$now);
+        // low-airflow S1. After a *freshly confirmed* S2 of our own,
+        // the next AUTO handoff may start S1 without getting stuck
+        // in an endless S2 -> AUTO -> S2 loop.
+        $baseline=(int)($s['quiet_baseline_confirmed_at']??0);
+        $baselineFresh=$baseline>0 &&$baseline<=$now
+            &&$now-$baseline<=3*60;
+        $entry=($desired===1 &&$fan>2 &&!$baselineFresh)?2:$desired;
+        return self::start($s,$entry,$now);
     }
 
     /** Pure post-RPC failure transition: no blind retry on uncertain error. */
