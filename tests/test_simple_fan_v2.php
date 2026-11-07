@@ -223,4 +223,75 @@ for($i=0;$i<1600;$i++){
         &&$action['minutes']===15),
         'fuzz: at most one bounded start command');
 }
+
+// Verify the 07:00-10:00 daily flush against exact Berlin local times,
+// weather freshness, indoor/outdoor absolute moisture and the daily latch.
+$morningAt=(new DateTimeImmutable('2026-11-07T07:30:00+01:00'))->getTimestamp();
+$inputs=['enabled'=>true,'weather_quality'=>'VERIFIED',
+    'weather_age_seconds'=>45,'outside_ah'=>5.8,'indoor_ah'=>8.5,
+    'observed_morning_ventilation'=>false];
+$gate=static fn(array $over=[],array $state=[],?int $ts=null):array=>
+    JVHeliosSimpleFanV2::morningFlush(array_replace($inputs,$over),$state,
+        $ts??$morningAt);
+v2($gate()['requested']===true,
+    'real weather allows exactly one morning ventilation');
+v2($gate(['weather_quality'=>'MODEL_SUPPORTED'])['requested']===false,
+    'unconfirmed morning fog/model weather never initiates a flush');
+v2($gate(['weather_age_seconds'=>1000])['requested']===false,
+    'stale external weather never initiates a flush');
+v2($gate(['outside_ah'=>9.6])['requested']===false,
+    'higher absolute outdoor humidity avoids introducing damp fog');
+v2($gate(['indoor_ah'=>5.9])['requested']===false,
+    'outside must be measurably drier than inside');
+v2($gate(['observed_morning_ventilation'=>true])['requested']===false,
+    'observed morning ventilation prevents a redundant daily boost');
+v2($gate(['enabled'=>false])['requested']===false,
+    'daily flush can be disabled independently of normal S2');
+v2($gate([],[],(new DateTimeImmutable('2026-11-07T12:30:00+01:00'))
+        ->getTimestamp())['requested']===false,
+    'no morning flush later in the day');
+$morningState=['morning_flush_day'=>'2026-11-07',
+    'morning_flush_started_at'=>$morningAt-16*60];
+v2($gate([],$morningState)['requested']===false,
+    'one started 15min flush is not repeated after timeout');
+$partialState=['morning_flush_day'=>'2026-11-07',
+    'morning_flush_started_at'=>$morningAt-8*60];
+v2($gate([],$partialState)['requested']===true,
+    'morning timer is continued within its one bounded 15min window');
+// A short morning S3 must not be renewed at minute ten.
+$morningPlan=$plan(['morning_flush_requested'=>true]);
+$monStart=JVHeliosSimpleFanV2::step($morningPlan,
+    ['mode'=>0,'fan'=>2,'program'=>3],[],$morningAt);
+$monAck=JVHeliosSimpleFanV2::step($morningPlan,
+    ['mode'=>2,'fan'=>3,'program'=>3],
+    $monStart['state'],$morningAt+30);
+$mon10=JVHeliosSimpleFanV2::step($morningPlan,
+    ['mode'=>2,'fan'=>3,'program'=>3],
+    $monAck['state'],$morningAt+10*60+10);
+v2($mon10['verified']&&$mon10['action']===null,
+    'single 15min morning period is not blindly restarted at minute ten');
+$monFinish=JVHeliosSimpleFanV2::step($plan(),
+    ['mode'=>2,'fan'=>3,'program'=>3],
+    $mon10['state'],$morningAt+15*60+10);
+v2($monFinish['action']['type']==='stop',
+    'after 15min morning flush, return to normal S2 without long dwell');
+
+// Failback after normal device-owned timed S1 expiry still latches 8h.
+$quietPlan=$plan(['quiet_requested'=>true]);
+$quietStart=JVHeliosSimpleFanV2::step($quietPlan,
+    ['mode'=>0,'fan'=>2,'program'=>3],[],$morningAt);
+$quietAck=JVHeliosSimpleFanV2::step($quietPlan,
+    ['mode'=>3,'fan'=>1,'program'=>3],
+    $quietStart['state'],$morningAt+20);
+$quietElapsed=JVHeliosSimpleFanV2::step($quietPlan,
+    ['mode'=>3,'fan'=>1,'program'=>3],
+    $quietAck['state'],$morningAt+10*60);
+v2($quietElapsed['action']===null,'short S1 is not re-armed every 10min');
+$quietStop=JVHeliosSimpleFanV2::step($quietPlan,
+    ['mode'=>3,'fan'=>1,'program'=>3],
+    $quietElapsed['state'],$morningAt+14*60);
+v2($quietStop['action']['type']==='stop'
+    &&$quietStop['state']['quiet_cooldown_until']>=$morningAt+8*3600,
+    'S1 14min exit establishes full 8-hour recovery pause');
+
 echo "SIMPLE V2: deterministic policy, manufacturer timer FSM, safety and 1600 simulations passed\n";
