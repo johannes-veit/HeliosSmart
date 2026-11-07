@@ -366,6 +366,7 @@ $active=new HeliosSmart();$active->Create();
 $active->setProperty('WeatherCenterInstance',42);
 $active->setProperty('EnableControl',true);
 $active->setProperty('EnableSmartFanTakeover',true);
+$active->setProperty('EnableDailyMorningFlush',false);
 $active->setProperty('AllowEstimatedAirflowLimitedParty',true);
 $active->setProperty('EnableProgramSwitch',false);
 $initial=count($GLOBALS['calls']);
