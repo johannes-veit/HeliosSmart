@@ -2474,6 +2474,7 @@ class HeliosSmart extends IPSModule
                     'EnableControl'=>$this->ReadPropertyBoolean('EnableControl'),
                     'EnableSmartFanTakeover'=>$this->ReadPropertyBoolean('EnableSmartFanTakeover'),
                     'EnableAwayEconomy'=>$this->ReadPropertyBoolean('EnableAwayEconomy'),
+                    'EnableHobPowerBoost'=>$this->ReadPropertyBoolean('EnableHobPowerBoost'),
                     'EnableProgramSwitch'=>$this->ReadPropertyBoolean('EnableProgramSwitch'),
                     'EnableNightQuiet'=>$this->ReadPropertyBoolean('EnableNightQuiet'),
                     'MinimumVentilationValidated'=>$this->ReadPropertyBoolean('MinimumVentilationValidated'),
@@ -3132,6 +3133,7 @@ class HeliosSmart extends IPSModule
             'strong_cooking_need'=>$cookingStrong,
             'direct_hob_boost'=>$hobBoost,
             'direct_hob_afterrun'=>$hobAfterrun,
+            'hob_source_id'=>$this->ReadPropertyInteger('HobPowerVariable'),
             'cooling_confirmed'=>($coolingGate['cooling_confirmed']??false)===true,
             'quiet_requested'=>$this->ReadPropertyBoolean('EnableNightQuiet')
                 &&($decision['night_strategy']['quiet_eligible']??false)===true,
