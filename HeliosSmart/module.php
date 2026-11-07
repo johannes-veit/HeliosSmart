@@ -1003,13 +1003,26 @@ class HeliosSmart extends IPSModule
             $level=(int)($plan['target_stage']??0);
             if($level<1 || $level>4)return $result;
             $desiredMode=$level===1?3:2;
+            $hobBoost=$level===4 &&($plan['direct_hob_boost']??false)===true;
+            $hobStillOn=$hobBoost
+                &&($plan['direct_hob_afterrun']??false)!==true;
             $since=$now-(int)($state['sent_at']??0);
             // Manufacturer-timed party may naturally return to AUTO in the
             // last 90 seconds of its 15-minute timeout. Do not misclassify
             // normal expiry as an actuator failure with 30-minute backoff.
-            if($mode===0
-                && JVHeliosSmartFanReliability::nearExpectedNativeTimerReturn(
-                    $state,$now)){
+            $expectedTimerReturn=$mode===0
+                &&JVHeliosSmartFanReliability::nearExpectedNativeTimerReturn(
+                    $state,$now);
+            if($expectedTimerReturn &&$hobBoost){
+                // A cooktop signal STILL requires stage 4. The previous
+                // vendor 15min Party really has expired: re-arm from AUTO,
+                // not by assuming a resend extended the old timer.
+                $state['until']=$now-1;
+                $owned=false;
+                $since=PHP_INT_MAX;
+                $this->WriteAttributeString('SmartFanTakeoverState',
+                    json_encode($state));
+            } elseif($expectedTimerReturn){
                 $cooldown=(int)($state['quiet_cooldown_until']??0);
                 if((int)($state['stage']??0)===1)
                     $cooldown=max($cooldown,$now+8*3600);
@@ -1024,7 +1037,7 @@ class HeliosSmart extends IPSModule
                 $result['fallback_weekly']=true;
                 return $result;
             }
-            if($mode===0
+            if($mode===0 &&!$hobBoost
                 &&(int)($state['auto_return_pause_until']??0)>$now){
                 $result['status']='AUTO_AFTER_TIMER_RESTART_PAUSE';
                 $result['verified']=true;
@@ -1057,6 +1070,69 @@ class HeliosSmart extends IPSModule
                 $result['status']='SMART_ACTUATOR_ERROR_BACKOFF';
                 return $result;
             }
+            // Cooktop is still ON. At minute 11–14 of an owned S4 Party,
+            // explicitly STOP the old Party, verify manufacturer AUTO, and
+            // then START a fresh 15min S4 Party. Same-stage 'renew' does not
+            // reset the old Helios timer on this installation.
+            // Under uncertain STOP/START readback, leave vendor control
+            // intact; never command blind or bypass true actuator backoff.
+            $anchor=(int)($state['native_timer_anchor_at']
+                ??$state['sent_at']??0);
+            $nativeAge=$anchor>0?$now-$anchor:-1;
+            $lastRearm=(int)($state['last_hob_rearm_at']??0);
+            if($hobStillOn &&$owned &&$mode===2
+                &&(int)($state['stage']??0)===4
+                &&($live['fan']??null)===4
+                &&$nativeAge>=11*60 &&$nativeAge<14*60
+                &&$since>=60 &&$lastRearm<=$now-90
+                &&function_exists('HELIOS_OperatingMode_Party_Set')){
+                // Write a durable reservation BEFORE the first RPC.
+                $state['last_hob_rearm_at']=$now;
+                $this->WriteAttributeString('SmartFanTakeoverState',
+                    json_encode($state));
+                $result['attempted']=true;
+                $stopped=HELIOS_OperatingMode_Party_Set(
+                    $instance,false,0,0);
+                $nativeAuto=$this->ReadHeliosLive();
+                if($stopped===false ||$stopped===null
+                    ||($nativeAuto['mode']??null)!==0){
+                    $result['status']='COOKTOP_REARM_STOP_NOT_CONFIRMED';
+                    return $result;
+                }
+                $renewed=[
+                    'sent_at'=>$now,'native_timer_anchor_at'=>$now,
+                    'until'=>$now+15*60,'stage'=>4,'mode'=>2,
+                    'hob_boost'=>true,'last_hob_rearm_at'=>$now,
+                    'prior_program'=>$nativeAuto['program']??null,
+                    'quiet_started_at'=>0,
+                    'quiet_cooldown_until'=>
+                        (int)($state['quiet_cooldown_until']??0),
+                ];
+                $this->WriteAttributeString('SmartFanTakeoverState',
+                    json_encode($renewed));
+                $started=HELIOS_OperatingMode_Party_Set(
+                    $instance,true,4,15);
+                if($started===false ||$started===null){
+                    $renewed['until']=$now-1;
+                    $renewed['error_retry_after']=$now+10*60;
+                    $this->WriteAttributeString('SmartFanTakeoverState',
+                        json_encode($renewed));
+                    $result['status']='COOKTOP_REARM_START_FAILED_AUTO';
+                    return $result;
+                }
+                $result['sent']=true;
+                $after=$this->ReadHeliosLive();
+                if($after!==null &&$after['mode']===2
+                    &&$after['fan']===4){
+                    $result['readback']=$after;
+                    $result['verified']=true;
+                    $result['fallback_weekly']=false;
+                    $result['status']='COOKTOP_S4_NATIVE_TIMER_REARM_CONFIRMED';
+                    return $result;
+                }
+                $result['status']='COOKTOP_S4_REARM_READBACK_PENDING';
+                return $result;
+            }
             if($owned && $mode===$desiredMode
                 && (int)($state['stage']??0)===$level
                 && $since>=0 && ($live['fan']??null)===$level){
@@ -1076,7 +1152,9 @@ class HeliosSmart extends IPSModule
                 return $result;
             }
             if($owned && $since>=0 && $since<5*60
-                && ($live['fan']??null)!==$level && $level<3){
+                && ($live['fan']??null)!==$level && $level<3
+                &&!(($state['hob_boost']??false)===true
+                    &&($plan['direct_hob_boost']??false)!==true)){
                 // The requested lower stage is NOT confirmed, but the
                 // previous owned stage may still be confirmed. Report both.
                 $result['status']='STAGE_CHANGE_MINIMUM_DWELL';
@@ -1106,6 +1184,7 @@ class HeliosSmart extends IPSModule
                 'until'=>$now+15*60,
                 'stage'=>$level,
                 'mode'=>$desiredMode,
+                'hob_boost'=>$hobBoost,
                 'prior_program'=>$live['program']??null,
                 'quiet_started_at'=>$level===1
                     ?((int)($state['quiet_started_at']??0)>0
@@ -2438,7 +2517,9 @@ class HeliosSmart extends IPSModule
                     'to_program']),
                 'smart_effective'=>$d['smart_fan_effective_state']??'NICHT_BESTAETIGT',
                 'smart_ownership'=>$pick($smartState,['sent_at','until','stage',
-                    'mode','quiet_started_at','quiet_cooldown_until','error_retry_after']),
+                    'mode','hob_boost','native_timer_anchor_at',
+                    'last_hob_rearm_at','quiet_started_at',
+                    'quiet_cooldown_until','error_retry_after']),
                 'smart_smoothing'=>$d['smart_fan_smoothing']??[],
                 'smart_recovery'=>$d['smart_fan_recovery']??[],
                 'smart_reliability'=>$d['smart_fan_reliability']
@@ -3155,6 +3236,8 @@ class HeliosSmart extends IPSModule
                 'co2_voc_evidence'=>$sensorEvidence],JSON_UNESCAPED_UNICODE));
         $effectiveState=match ((string)($smartExecution['status']??'')){
             'SMART_STAGE_CONFIRMED'=>'SMART-STUFE AM GERAET BESTAETIGT',
+            'COOKTOP_S4_NATIVE_TIMER_REARM_CONFIRMED'
+                =>'KOCHFELD STUFE 4 MIT NEUEM GERAETETIMER BESTAETIGT',
             'SMART_OWNED_ACTIVE_WAIT_RENEWAL',
             'SMART_OWNED_ACTIVE_WAIT_NATIVE_TIMER'
                 =>($smartExecution['verified']??false)
