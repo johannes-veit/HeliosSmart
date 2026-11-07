@@ -33,6 +33,37 @@ $valid=[
  'owned_mode'=>0,'owned_stage'=>0,'owned_until'=>0,'owned_last_at'=>0,
 ];
 $dec=static fn(array $x=[]) =>JVHeliosSmartFanAuto::decide(array_replace($valid,$x),$now);
+$hob=$dec([
+    'actual_fan'=>2,'direct_hob_boost'=>true,'direct_hob_afterrun'=>false,
+    'weather_quality'=>'MODEL_SUPPORTED','weather_age_seconds'=>1100,
+    'room_temp_count'=>3,'room_humidity_count'=>3,
+    'high_power_enabled'=>true,'high_power_safety'=>true,
+    'combustion_safe'=>true]);
+ckFan($hob['execute']===true&&$hob['target_stage']===4
+    &&$hob['reason']==='COOKTOP_POWER_ACTIVE_S4'
+    &&($hob['direct_hob_boost']??false)===true,
+    'real cooktop watts override forecast quality and motion/SHADOW inference');
+$hobAfter=$dec([
+    'actual_fan'=>4,'direct_hob_boost'=>true,'direct_hob_afterrun'=>true,
+    'high_power_enabled'=>true,'high_power_safety'=>true,
+    'combustion_safe'=>true]);
+ckFan($hobAfter['target_stage']===4
+    &&$hobAfter['reason']==='COOKTOP_5MIN_AFTER_RUN_S4',
+    '5 minute source-confirmed cooktop OFF afterrun keeps stage4');
+ckFan(!$dec([
+    'direct_hob_boost'=>true,'high_power_enabled'=>false,
+    'high_power_safety'=>true,'combustion_safe'=>true])['execute'],
+    'cooktop power cannot bypass missing high-power opt in');
+ckFan(!$dec([
+    'direct_hob_boost'=>true,'native_defrost_active'=>true,
+    'high_power_enabled'=>true,'high_power_safety'=>true,
+    'combustion_safe'=>true])['execute'],
+    'native defrost always vetoes even physical cooktop power S4');
+ckFan(!$dec([
+    'direct_hob_boost'=>true,'native_sensor_stale'=>true,
+    'high_power_enabled'=>true,'high_power_safety'=>true,
+    'combustion_safe'=>true])['execute'],
+    'native sensor failure vetoes S4 while cooktop is active');
 $r=$dec();
 ckFan($r['execute']===true && $r['target_stage']===3
  && !$r['fallback_weekly'] && $r['route']==='PARTY',
