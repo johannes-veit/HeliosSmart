@@ -2399,6 +2399,10 @@ class HeliosSmart extends IPSModule
                     'night'=>$pick((array)($d['night_strategy']??[]),
                         ['quiet_eligible','priority_cooling','priority_humidity',
                         'priority_cooking','low_demand_reason']),
+                    'morning_flush_v2'=>$pick((array)($d['morning_flush_v2']??[]),
+                        ['requested','outside_air_suitable','day',
+                         'started_duration_seconds','historical_flush_seen',
+                         'daily_target_minutes']),
                 ],
                 'events'=>[
                     'direct_hob'=>$pick((array)($d['hob_power_direct']??[]),
