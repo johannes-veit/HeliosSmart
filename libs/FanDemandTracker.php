@@ -140,7 +140,9 @@ final class JVHeliosFanDemandTracker
             &&($x['cooling_confirmed']??false)!==true;
         // Evening non-home hints are meaningful too; keep night quiet
         // policies separate from daytime absence. No overnight OFF.
-        $duringDay=$hour>=9 && $hour<21;
+        // Evening non-home hints count until night quiet begins at 23:00.
+        // Morning and nighttime demand guards remain unchanged.
+        $duringDay=$hour>=9 && $hour<23;
         $safeAway=$away && $awayMinutes>=30
             &&$morningCompleted &&$duringDay &&$validConditions;
         if(!$bothFresh)$reason='RESIDENT_SOURCE_STALE';
