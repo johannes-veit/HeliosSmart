@@ -178,6 +178,10 @@ final class JVHeliosSimpleFanV2
 
     private static function error(array $s,int $now,string $why):array
     {
+        if((int)($s['stage']??0)===1)
+            $s['quiet_cooldown_until']=max(
+                (int)($s['quiet_cooldown_until']??0),
+                $now+self::QUIET_COOLDOWN_SECONDS);
         $s['phase']='BACKOFF';
         $s['error_retry_after']=$now+self::ERROR_BACKOFF_SECONDS;
         $s['pending_until']=0;$s['readback_pending_until']=0;
@@ -236,6 +240,10 @@ final class JVHeliosSimpleFanV2
             if(!$match){
                 if($mode===0
                     &&$now-(int)($s['sent_at']??0)>=13*60){
+                    if($ownedStage===1)
+                        $s['quiet_cooldown_until']=max(
+                            (int)($s['quiet_cooldown_until']??0),
+                            $now+self::QUIET_COOLDOWN_SECONDS);
                     $s['phase']='IDLE';$s['stage']=0;$s['mode']=0;
                     $phase='IDLE';
                 } else return self::error($s,$now,
