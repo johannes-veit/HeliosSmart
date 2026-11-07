@@ -139,6 +139,7 @@ final class JVHeliosSmartFanReliability
         $ownedConfirmed=$verified
             &&in_array((string)($exec['status']??''),[
                 'SMART_STAGE_CONFIRMED',
+                'SIMPLE_STAGE_CONFIRMED',
                 'SMART_STAGE_DELAYED_READBACK_CONFIRMED',
                 'COOKTOP_S4_NATIVE_TIMER_REARM_CONFIRMED',
                 'SMART_OWNED_ACTIVE_WAIT_NATIVE_TIMER',

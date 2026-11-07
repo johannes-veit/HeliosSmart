@@ -50,6 +50,7 @@ php tests/test_summer_airflow.php
 php tests/test_ewt_pump.php
 php tests/test_fan_attribution.php
 php tests/test_active_season_control.php
+php tests/test_simple_fan_v2.php
 php tests/test_smart_fan_auto.php
 php tests/test_fan_smoothing.php
 php tests/test_recovery_gate.php
