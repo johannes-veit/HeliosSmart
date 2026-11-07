@@ -390,7 +390,7 @@ class HeliosSmart extends IPSModule
                 ['type'=>'CheckBox','name'=>'EnableProgramSwitch','caption'=>'Rueckfall-Wochenprofil saisonal anpassen: im Heizbetrieb Sommerprofil 4 durch Normalprofil 3 ersetzen'],
                 ['type'=>'CheckBox','name'=>'EnableSmartFanTakeover','caption'=>'SMART uebernimmt Stufen 1–4 mit nativen 15-Minuten-Zeitbefehlen; Wochenprogramm bleibt nur Rueckfallebene'],
                 ['type'=>'CheckBox','name'=>'EnableAwayEconomy','caption'=>'Stromsparende Abwesenheits-Lueftung: 30 Min keine frischen Zuhause-Handyhinweise bei BEIDEN (auch Firma, Abwesend, Unklar), keine aktuelle Hausbewegung, vorher morgens ausreichend gelueftet, unkritische Feuchte; max. kurzzeitige Stufe 1, sonst Stufe 2; NIE unbeaufsichtigt AUS'],
-                ['type'=>'Label','caption'=>'Stufe 4 fuer bestaetigtes Kochen (mehrere Strom-/Bewegungsbelege) oder Badfeuchteanstieg mit Mehrfachereignis, jeweils maximal 15 min und nur mit S4-Sicherheitsfreigaben. Normale RH-/Uhrzeitwerte erzeugen keine Stufe 4. Unklare native CO2/VOC-Sensorregelung sperrt jede Absenkung, aber nicht den kurzen, bereits freigegebenen S4-Boost. Herstellerdefrost hat Vorrang. Kein automatisches AUS.'],
+                ['type'=>'Label','caption'=>'Kochfeld Shelly #47825: >5 W mit frischem Online-Wert loest sofort S4 aus, unabhaengig von Licht/Bewegung/SHADOW; unter/gleich 5 W nach zuvor EIN beginnt 5 Min S4-Nachlauf. SMART erneuert die nativen 15-Min-Gerätetimer nur mit bestaetigtem STOP/AUTO/START. Bei Offline/veralteten Daten keine Kochfeld-S4-Freigabe. Nativer Frost-/Feuchteschutz und S4-Freigaben haben immer Vorrang. Kein automatisches AUS.'],
                 ['type'=>'Label','caption'=>'SMART-PRIORITAET: Bei frischem Wetter, mindestens 9 Raumtemperaturen, 8 Raumfeuchten, funktionsfaehiger Original-Helios-Steuerung und Freigabe steuert SMART mit geraeteseitig zeitbegrenzten Party/Ruhe-Befehlen. Ohne Mess-/Betriebsnachweis oder bei Abbruch endet die eigene Anforderung nach spaetestens 15 Minuten und das Herstellerwochenprogramm uebernimmt. Unterhalb nomineller Stufe 3 nur bei ausdruecklicher Luftmengen-/Modellfreigabe.'],
 
                 ['type'=>'Label','caption'=>'SOMMERPROFIL 4 -> NORMAL-/WINTERPROFIL 3 bei lokaler Kälte und nachweislich gesundem Helios AUTO. Kein dauerhaftes MANUELL: das Original geraeteregelt CO2/Feuchte/VOC und Wochenprogramm bleibt aktiv. Automatische Absenkung einer eventuell echten Sensor-Anforderung Stufe 4 ist nicht freigegeben.'],
@@ -400,7 +400,7 @@ class HeliosSmart extends IPSModule
                 ['type'=>'CheckBox','name'=>'AllowEstimatedAirflowLimitedParty','caption'=>'Modellbetrieb akzeptieren: Luftmengen NICHT gemessen; S3 max. 15 min oder separat freigegebener Nacht-Ruhebetrieb S1/30'],
                 ['type'=>'CheckBox','name'=>'MinimumVentilationValidated','caption'=>'Alternativ: reale Luftmengen fachlich eingemessen (nur bei vorhandenem Nachweis)'],
                 ['type'=>'CheckBox','name'=>'CombustionSafetyValidated','caption'=>'Feuerstaette / Dunstabzug / Lueftung gemeinsam sicher betrieben und entsprechend freigegeben'],
-                ['type'=>'CheckBox','name'=>'EnableHighPowerParty','caption'=>'Optional: bei Badfeuchte/Kochen S4 fuer 30 Minuten (Standard AUS)'],
+                ['type'=>'CheckBox','name'=>'EnableHighPowerParty','caption'=>'Stufe-4-Freigabe fuer Kochen/Bad (geraeteseitig jeweils 15 Min, bei Kochfeldbetrieb gesichert erneuerbar; Standard AUS)'],
                 ['type'=>'CheckBox','name'=>'HighPowerSafetyValidated','caption'=>'S4 Anlagen-Sicherheit mit Luftmengen/Druck und Feuerstaette/Dunstabzug tatsaechlich geprueft'],
                 ['type'=>'CheckBox','name'=>'DevicePartyReturnValidated','caption'=>'Party endet am Geraet eigenstaendig und Wochenprogramm laeuft wieder'],
             ],
@@ -1094,6 +1094,14 @@ class HeliosSmart extends IPSModule
                 $stopped=HELIOS_OperatingMode_Party_Set(
                     $instance,false,0,0);
                 $nativeAuto=$this->ReadHeliosLive();
+                if($stopped!==false &&$stopped!==null
+                    &&($nativeAuto['mode']??null)!==0
+                    &&function_exists('IPS_Sleep')){
+                    // Local Helios easyControls may report the old mode
+                    // briefly after a successful HTTP write.
+                    IPS_Sleep(300);
+                    $nativeAuto=$this->ReadHeliosLive();
+                }
                 if($stopped===false ||$stopped===null
                     ||($nativeAuto['mode']??null)!==0){
                     $result['status']='COOKTOP_REARM_STOP_NOT_CONFIRMED';
@@ -1122,6 +1130,11 @@ class HeliosSmart extends IPSModule
                 }
                 $result['sent']=true;
                 $after=$this->ReadHeliosLive();
+                if(($after['mode']??null)!==2
+                    &&function_exists('IPS_Sleep')){
+                    IPS_Sleep(300);
+                    $after=$this->ReadHeliosLive();
+                }
                 if($after!==null &&$after['mode']===2
                     &&$after['fan']===4){
                     $result['readback']=$after;
@@ -2617,6 +2630,10 @@ class HeliosSmart extends IPSModule
                         'priority_cooking','low_demand_reason']),
                 ],
                 'events'=>[
+                    'direct_hob'=>$pick((array)($d['hob_power_direct']??[]),
+                        ['source_variable_id','watts','source_online','source_fresh',
+                            'phase','boost_requested','five_minute_afterrun',
+                            'afterrun_remaining_seconds']),
                     'wetroom'=>$pick((array)($d['wetroom_trend']??[]),
                         ['observed_rises','summary']),
                     'cooking'=>$pick((array)($d['cooking_advice']??[]),
