@@ -28,7 +28,8 @@ final class JVHeliosSimpleFanV2
      */
     public static function humidityLatch(array $old,$rh,int $now):array
     {
-        $state=self::initialState($old);
+        // This is a separate persisted attribute, not the actuator FSM.
+        $state=$old;
         $hold=($state['humidity_hold']??false)===true;
         if(!is_numeric($rh) ||!is_finite((float)$rh)){
             return ['state'=>$state,'hold'=>true,'reason'=>'UNKNOWN_RH'];
