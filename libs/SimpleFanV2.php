@@ -90,6 +90,12 @@ final class JVHeliosSimpleFanV2
             &&($d['weather_age_seconds']??-1)>=0){
             $level=3;
             $reason='VERIFIED_PASSIVE_COOLING';
+        } elseif(($d['morning_flush_requested']??false)===true){
+            // Exactly one bounded daily flush where outside absolute
+            // humidity has already been validated against the rooms.
+            // Never a forecast-only, fog-driven or open-ended boost.
+            $level=3;
+            $reason='MORNING_15MIN_FLUSH';
         } else {
             $flow=($d['minimum_airflow_validated']??false)===true
                 ||($d['model_airflow_accepted']??false)===true;
@@ -144,7 +150,8 @@ final class JVHeliosSimpleFanV2
                     'ACTIVE','STARTING','STOPPING'],true)];
     }
 
-    private static function start(array $s,int $stage,int $now):array
+    private static function start(array $s,int $stage,int $now,
+        string $reason=''):array
     {
         $mode=$stage===1?3:2;
         $s['phase']='STARTING';
@@ -156,6 +163,15 @@ final class JVHeliosSimpleFanV2
         $s['last_command_at']=$now;
         $s['quiet_started_at']=$stage===1?$now:0;
         $s['hob_boost']=$stage===4;
+        if($reason==='MORNING_15MIN_FLUSH'){
+            $day=(new DateTimeImmutable('@'.$now))
+                ->setTimezone(new DateTimeZone('Europe/Berlin'))
+                ->format('Y-m-d');
+            if((string)($s['morning_flush_day']??'')!==$day){
+                $s['morning_flush_day']=$day;
+                $s['morning_flush_started_at']=$now;
+            }
+        }
         if($stage===1)$s['quiet_baseline_confirmed_at']=0;
         return self::result($s,'SIMPLE_START_REQUESTED',
             ['type'=>'start','mode'=>$mode,'stage'=>$stage,'minutes'=>15]);
@@ -285,7 +301,8 @@ final class JVHeliosSimpleFanV2
         $baselineFresh=$baseline>0 &&$baseline<=$now
             &&$now-$baseline<=3*60;
         $entry=($desired===1 &&$fan>2 &&!$baselineFresh)?2:$desired;
-        return self::start($s,$entry,$now);
+        return self::start($s,$entry,$now,
+            (string)($plan['reason']??''));
     }
 
     /** Pure post-RPC failure transition: no blind retry on uncertain error. */
