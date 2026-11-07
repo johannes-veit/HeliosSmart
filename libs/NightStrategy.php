@@ -31,7 +31,10 @@ final class JVHeliosNightStrategy {
         // 'low demand'. Never jump directly from S3/S4 to S1.
         // Verified daytime absence is considered separately by the
         // SmartFan demand tracker, with its own ventilation prerequisites.
-        $quiet=$night && !$override && $qualityOk && $fan<=2;
+        // A nominal manufacturer S3 at 23:00 is not a veto by itself.
+        // V2's single actuator performs a confirmed intermediate S2
+        // before permitting a bounded S1, rather than direct S3->S1.
+        $quiet=$night && !$override && $qualityOk;
         $reasonBasis=$night?'NACHT_RUHE':($reportedAway?'ABWESENHEIT_GEMELDET':'GERINGER_BEDARF');
         $stage=$override?max(2,min(4,(int)($candidate['suggested_level']??2))):($quiet?1:2);
         return [
