@@ -610,4 +610,91 @@ it($GLOBALS['nativeCo2Polls']>$beforeLivePolls
     'fresh cached low CO2 never masks live high CO2; own timed Party safely cancelled');
 unset($GLOBALS['nativeSensorIDs'],$GLOBALS['variableTimeByID'],
     $GLOBALS['nativeCo2LiveValue'],$GLOBALS['nativeVocLiveValue']);
+// Separate cooktop Shelly current (three phases) is sufficient for S4
+// with existing operator approvals even when forecast is only a model.
+$GLOBALS['deviceMode']=0;$GLOBALS['deviceFan']=2;
+$GLOBALS['deviceProgram']=3;$GLOBALS['values'][30441]=2;
+$GLOBALS['values'][47825]=140.0;
+$GLOBALS['values'][59558]=true;
+$GLOBALS['variableTimeByID'][47825]=time()-1;
+$GLOBALS['nativeDefrost']=false;
+$GLOBALS['nativeExtractRh']=50;
+$GLOBALS['weatherForTest']=[
+    'quality'=>'MODEL_SUPPORTED',
+    'current'=>JVWeatherMath::readPair(4,96)+['observed_at'=>time()-20],
+    'forecast'=>[],
+];
+$hobSmart=new HeliosSmart();$hobSmart->Create();
+$hobSmart->setProperty('WeatherCenterInstance',42);
+$hobSmart->setProperty('EnableControl',true);
+$hobSmart->setProperty('EnableSmartFanTakeover',true);
+$hobSmart->setProperty('EnableHighPowerParty',true);
+$hobSmart->setProperty('HighPowerSafetyValidated',true);
+$hobSmart->setProperty('CombustionSafetyValidated',true);
+$hobSmart->setProperty('AllowEstimatedAirflowLimitedParty',true);
+$hobSmart->ApplyChanges();
+it(isset($hobSmart->getWatches()[47825]),
+    'cooktop power #47825 subscribes to original Symcon VM_UPDATE');
+$hobSmart->Evaluate();
+$hobOn=json_decode($hobSmart->value('DecisionJSON'),true);
+it(($hobOn['hob_power_direct']['electrically_active']??false)===true
+    &&($hobOn['smart_fan_takeover']['reason']??'')==='COOKTOP_POWER_ACTIVE_S4'
+    &&($hobOn['smart_fan_execution']['status']??'')==='SMART_STAGE_CONFIRMED'
+    &&$GLOBALS['deviceMode']===2 &&$GLOBALS['deviceFan']===4,
+    'direct three-phase cooktop >5W triggers confirmed native Party S4 even without weather VERIFIED');
+// Existing manufacturer Party has NOT been proven to extend from a repeated
+// same-stage request. Simulate its 12-minute old real native timer and
+// validate a verified stop+rearm rather than a blind retry.
+$hobNow=time();
+$hobSmart->WriteAttributeString('SmartFanTakeoverState',json_encode([
+    'sent_at'=>$hobNow-12*60,
+    'native_timer_anchor_at'=>$hobNow-12*60,
+    'until'=>$hobNow+3*60,
+    'stage'=>4,'mode'=>2,'hob_boost'=>true,
+    'last_hob_rearm_at'=>0,
+    'quiet_started_at'=>0,'quiet_cooldown_until'=>0,
+]));
+$beforeHobRearm=count($GLOBALS['calls']);
+$hobSmart->Evaluate();
+$rearmed=json_decode($hobSmart->value('DecisionJSON'),true);
+$hobCalls=array_slice($GLOBALS['calls'],$beforeHobRearm);
+it(($rearmed['smart_fan_execution']['status']??'')
+        ==='COOKTOP_S4_NATIVE_TIMER_REARM_CONFIRMED'
+    &&count($hobCalls)===2
+    &&$hobCalls[0][0]==='party'&&$hobCalls[0][1][1]===false
+    &&$hobCalls[1][0]==='party'&&$hobCalls[1][1][1]===true
+    &&$hobCalls[1][1][2]===4
+    &&$GLOBALS['deviceMode']===2 &&$GLOBALS['deviceFan']===4,
+    'active cooktop S4 gets a fully verified manufacturer AUTO stop and fresh 15min timer');
+$rearmedState=json_decode($hobSmart->ReadAttributeString('SmartFanTakeoverState'),true);
+it(($rearmedState['native_timer_anchor_at']??0)>=$hobNow
+    &&($rearmedState['hob_boost']??false)===true,
+    'cooktop rearm stores the NEW hardware timer anchor, never fictitious extension');
+$GLOBALS['values'][47825]=0.0;
+$GLOBALS['variableTimeByID'][47825]=time()-1;
+$hobSmart->MessageSink(time(),47825,VM_UPDATE,[0.0,true]);
+$hobOff=json_decode($hobSmart->value('DecisionJSON'),true);
+it(($hobOff['hob_power_direct']['five_minute_afterrun']??false)===true
+    &&($hobOff['smart_fan_takeover']['target_stage']??0)===4
+    &&$GLOBALS['deviceMode']===2 &&$GLOBALS['deviceFan']===4,
+    'cooktop OFF edge starts 5-minute S4 afterrun without ending the Party early');
+$hobSmart->WriteAttributeString('HobPowerState',json_encode([
+    'phase'=>'AFTER_RUN','off_at'=>time()-301,'watched_id'=>47825,
+]));
+$hobSmart->Evaluate();
+$ended=json_decode($hobSmart->value('DecisionJSON'),true);
+it(($ended['hob_power_direct']['boost_requested']??true)===false
+    &&($ended['hob_power_direct']['phase']??'')==='OFF'
+    &&$GLOBALS['deviceMode']===0,
+    'after full 5min OFF, own S4 Party cancels and manufacturer AUTO is restored');
+// Unrelated logged statuses must not fabricate an active cooktop.
+$GLOBALS['values'][47825]=120.0;
+$GLOBALS['values'][59558]=false;
+$GLOBALS['variableTimeByID'][47825]=time()-1;
+$hobSmart->Evaluate();
+$hobOffline=json_decode($hobSmart->value('DecisionJSON'),true);
+it(($hobOffline['hob_power_direct']['source_online']??true)===false
+    &&($hobOffline['hob_power_direct']['boost_requested']??true)===false,
+    'cooktop Shelly offline never authorizes stage4 from cached watts');
+
 echo "ALLE $counter SYMCON-LIVE-INTEGRATIONSPRUEFUNGEN BESTANDEN\n";
