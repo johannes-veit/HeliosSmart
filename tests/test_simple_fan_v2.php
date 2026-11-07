@@ -112,6 +112,25 @@ v2($firstClear['hold'] &&$fiveMinutes['hold'] &&!$fullyClear['hold'],
 v2($plan(['native_extract_rh'=>55,'native_humidity_hold'=>true])['execute']===false,
     'RH hysteresis state is a real veto in V2 planner');
 
+// A locally humid bathroom must not oscillate normal S2/S3 at 64/65%.
+$localWet=JVHeliosSimpleFanV2::roomHumidityLatch([],66,$now);
+v2($localWet['hold']===true,
+    'local RH >=65 starts S3 humidity demand hold');
+$localStill=JVHeliosSimpleFanV2::roomHumidityLatch(
+    $localWet['state'],63,$now+120);
+v2($localStill['hold']===true,
+    'room RH 63 remains S3; no flapping around 65');
+$localStart=JVHeliosSimpleFanV2::roomHumidityLatch(
+    $localStill['state'],60,$now+180);
+$localMid=JVHeliosSimpleFanV2::roomHumidityLatch(
+    $localStart['state'],60,$now+480);
+$localDone=JVHeliosSimpleFanV2::roomHumidityLatch(
+    $localMid['state'],60,$now+780);
+v2($localStart['hold']&&$localMid['hold']&&!$localDone['hold'],
+    'release S3 only after room RH <=61 continuously for 10min');
+v2($plan(['max_room_rh'=>60,'room_humidity_hold'=>true])['target_stage']===3,
+    'room RH hold remains effective after 66->60% fall');
+
 // Optional timed OFF is deliberately fail-closed on every protection.
 $offReady=[
     'actual_fan'=>2,'minimum_airflow_validated'=>true,
