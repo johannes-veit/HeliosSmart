@@ -206,7 +206,7 @@ final class JVHeliosSmartFanAuto
             'strong_cooking_event'=>$strongCook,
             'cooktop_power_direct'=>$directHob,
             'cooktop_afterrun'=>(bool)($d['direct_hob_afterrun']??false),
-            'cooktop_source_id'=>47825,
+            'cooktop_source_id'=>(int)($d['hob_source_id']??0),
             'native_sensor_unverified_high_only'=>$nativeUnverified,
             'cooling_demand'=>$cool,
             'model_airflow_accepted'=>(bool)($d['model_airflow_accepted']??false),
