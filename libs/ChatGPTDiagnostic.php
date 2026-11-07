@@ -49,6 +49,7 @@ final class JVHeliosChatGPTDiagnostic
             ],
             'SMART-ENTSCHEIDUNG / SCHALTUNGEN'=>[
                 'Plan und Begruendung'=>$f['smart_plan']??null,
+                'Kochfeld-Shelly direkt / 5-Min-Nachlauf'=>$f['hob_power_direct']??null,
                 'Schaltbestaetigung / Fallback'=>$f['smart_execution']??null,
                 'Effektiver Zustand'=>$f['smart_effective']??null,
                 'Besitz-/Zeitfenster'=>$f['smart_ownership']??null,
