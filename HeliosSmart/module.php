@@ -2426,7 +2426,13 @@ class HeliosSmart extends IPSModule
                     'native_extract_rh','native_extract_rh_live','native_sensor_stale',
                     'native_defrost_active','native_defrost_known']),
                 'smart_plan'=>$pick($plan,['status','reason','target_stage',
-                    'minutes','execute','fallback_weekly','route','evidence']),
+                    'minutes','execute','fallback_weekly','route','direct_hob_boost','evidence']),
+                'hob_power_direct'=>$pick((array)($d['hob_power_direct']??[]),
+                    ['source_variable_id','configured','source_online','source_fresh',
+                        'source_age_seconds','watts','threshold_strictly_greater_w',
+                        'phase','electrically_active','boost_requested',
+                        'five_minute_afterrun','afterrun_remaining_seconds',
+                        'off_seen_at','physical_cooking_proven']),
                 'smart_execution'=>$pick($execution,['status','attempted','sent',
                     'verified','fallback_weekly','target_stage','from_program',
                     'to_program']),
@@ -2723,6 +2729,24 @@ class HeliosSmart extends IPSModule
         // nur ein Mobiltelefonhinweis; fehlende Signale beweisen kein leeres Haus.
         $cookingState=json_decode($this->ReadAttributeString('CookingAdviceState'),true);
         $cookingInputs=$this->ReadCookingSignals($now);
+        // Actual three-phase cooktop power takes precedence over inferred
+        // cooking from household power or motion.
+        $hobOld=json_decode($this->ReadAttributeString('HobPowerState'),true);
+        $hob=JVHeliosHobPowerDemand::assess(
+            is_array($hobOld)?$hobOld:[],
+            $this->ReadHobPower($now),$now,
+            (float)$this->ReadPropertyInteger('HobPowerThresholdW'));
+        $this->WriteAttributeString('HobPowerState',
+            json_encode($hob['state'],JSON_UNESCAPED_UNICODE));
+        $decision['hob_power_direct']=$hob['advice'];
+        $hobBoost=($hob['advice']['boost_requested']??false)===true;
+        $hobAfterrun=($hob['advice']['five_minute_afterrun']??false)===true;
+        // 60s checks only during real cooktop power or the 5min afterrun.
+        // End of afterrun is checked without waiting for next 5min SmartTick.
+        $this->SetTimerInterval('HobMonitorTick',$hobBoost
+            ?($hobAfterrun?max(1000,min(60000,
+                ((int)$hob['advice']['afterrun_remaining_seconds']+1)*1000))
+                :60000):0);
         $cookingInputs['current_fan_level']=(int)GetValue($fanID);
         $cookingInputs['helios_automatic_mode']=($mode===0);
         // Merely looking at mode 2/3 suggests 'manual' to CookingAdvisor,
@@ -2937,8 +2961,8 @@ class HeliosSmart extends IPSModule
         // proven 15-minute cooking after-run or restart S4.
         $cookPriority=JVHeliosSmartFanAuto::cookingPriority(
             (array)($decision['cooking_advice']??[]),$now);
-        $cookingConfirmed=$cookPriority['confirmed'];
-        $cookingStrong=$cookPriority['strong'];
+        $cookingConfirmed=$cookPriority['confirmed']||$hobBoost;
+        $cookingStrong=$cookPriority['strong']||$hobBoost;
         $decision['cooking_afterrun_active']=$cookPriority['after_run'];
         // Wetroom trends are two independent sensor changes with >=6 pp
         // rise; a raw RH value or an unverified "shower" guess is not enough.
@@ -3019,12 +3043,14 @@ class HeliosSmart extends IPSModule
             'native_sensor_control_unverified'=>$sensorSourceUnverified,
             'native_defrost_active'=>$sensorEvidence['native_defrost_active'],
             'native_defrost_unknown_near_frost'
-                =>$weatherNow!==null && $weatherNow<=5.0
-                    && !$sensorEvidence['native_defrost_known'],
+                =>!$sensorEvidence['native_defrost_known']
+                    &&($weatherNow===null ||$weatherNow<=5.0),
             'wet_need'=>$wetActual,
             'strong_wet_need'=>$strongWet,
             'cooking_confirmed'=>$cookingConfirmed,
             'strong_cooking_need'=>$cookingStrong,
+            'direct_hob_boost'=>$hobBoost,
+            'direct_hob_afterrun'=>$hobAfterrun,
             'cooling_confirmed'=>($coolingGate['cooling_confirmed']??false)===true,
             'quiet_requested'=>$this->ReadPropertyBoolean('EnableNightQuiet')
                 &&($decision['night_strategy']['quiet_eligible']??false)===true,
