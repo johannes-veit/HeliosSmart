@@ -7,6 +7,7 @@ $now=1794078000;
 $b=[
     'now'=>$now,'enabled'=>true,'native_ok'=>true,'live_fresh'=>true,
     'mode'=>0,'actual_fan'=>3,'native_week_program'=>3,
+    'room_temp_count'=>11,'room_humidity_count'=>11,'max_room_rh'=>54,
     'native_sensor_stale'=>false,'native_sensor_control_unverified'=>false,
     'native_extract_rh_live'=>true,'native_extract_rh'=>49,
     'native_defrost_active'=>false,'native_defrost_known'=>true,
@@ -40,6 +41,12 @@ v2($plan(['morning_flush_requested'=>true,'direct_hob_boost'=>true])['target_sta
     'cooktop S4 always has higher priority than morning flush');
 v2($plan(['wet_need'=>true])['target_stage']===3,
     'mild bathroom humidity stage3');
+v2($plan(['max_room_rh'=>66])['target_stage']===3,
+    'localized 66% room humidity raises S2 to S3 without false shower S4');
+v2($plan(['room_temp_count'=>3])['execute']===false,
+    'partial LCN room outage cannot authorize S1 or S2');
+v2($plan(['room_humidity_count'=>2,'direct_hob_boost'=>true])['target_stage']===4,
+    'real cooktop evidence remains independent of optional LCN room outage');
 v2($plan(['cooking_confirmed'=>true])['target_stage']===3,
     'household-power cooking guess never forces stage4');
 v2($plan(['direct_hob_boost'=>true])['target_stage']===4,
