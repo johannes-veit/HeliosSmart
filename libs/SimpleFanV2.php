@@ -280,9 +280,16 @@ final class JVHeliosSimpleFanV2
                 // The 15 minute hardware timer is anchored at the first
                 // START, never any "renewal". STOP -> AUTO -> START is
                 // a two-phase handshake with only one device write/tick.
+                $shortMorning=$ownedStage===3
+                    &&($plan['reason']??'')==='MORNING_15MIN_FLUSH';
+                $shortWhisper=$ownedStage===1;
+                $rearm=$age>=self::REARM_SECONDS
+                    &&!$shortMorning &&!$shortWhisper;
+                // Short morning ventilation and quiet S1 must not
+                // unnecessarily create a second timer period.
+                // At 14min whisper explicitly ends and sets 8h cooldown.
                 if($desired===0 ||$desired!==$ownedStage
-                    ||$age>=self::REARM_SECONDS
-                    ||($ownedStage===1 &&$age>=14*60)){
+                    ||$rearm ||($shortWhisper &&$age>=14*60)){
                     return self::stop($s,$now);
                 }
                 return self::result($s,'SIMPLE_STAGE_CONFIRMED',
