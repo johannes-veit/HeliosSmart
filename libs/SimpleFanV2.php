@@ -138,6 +138,55 @@ final class JVHeliosSimpleFanV2
         return $o;
     }
 
+    /**
+     * A single fifteen-minute morning S3 flush. Use actual WEATHER
+     * outdoor absolute humidity, never the HELIOS sensor after EWT.
+     * All conditions are auditable and independent of inferred phone
+     * occupancy. A full morning already observed by the tracker wins.
+     */
+    public static function morningFlush(array $x,array $state,int $now):array
+    {
+        $local=(new DateTimeImmutable('@'.$now))
+            ->setTimezone(new DateTimeZone('Europe/Berlin'));
+        $day=$local->format('Y-m-d');
+        $hour=(int)$local->format('G');
+        $last=(int)($state['morning_flush_started_at']??0);
+        $sameDay=(string)($state['morning_flush_day']??'')===$day;
+        $elapsed=$sameDay &&$last>0?max(0,$now-$last):0;
+        $outside=$x['outside_ah']??null;
+        $inside=$x['indoor_ah']??null;
+        $dry=is_numeric($outside)&&is_numeric($inside)
+            &&is_finite((float)$outside)&&is_finite((float)$inside)
+            &&(float)$outside>=0&&(float)$outside<=25
+            &&(float)$inside>=0&&(float)$inside<=25
+            &&(float)$outside<=(float)$inside-0.2;
+        $age=$x['weather_age_seconds']??PHP_INT_MAX;
+        $goodWeather=in_array($x['weather_quality']??'',
+            ['VERIFIED','DWD_ONLY'],true)
+            &&is_int($age)&&$age>=0&&$age<=900;
+        $requested=($x['enabled']??false)===true
+            &&$hour>=7 &&$hour<10
+            &&($x['observed_morning_ventilation']??false)!==true
+            &&(!$sameDay||$elapsed<15*60)
+            &&$dry&&$goodWeather;
+        return [
+            'requested'=>$requested,
+            'outside_air_suitable'=>$dry,
+            'day'=>$day,
+            'started_duration_seconds'=>$elapsed,
+            'historical_flush_seen'=>
+                ($x['observed_morning_ventilation']??false)===true,
+            'daily_target_minutes'=>15,
+            'reason'=>!$goodWeather?'WEATHER_UNVERIFIED'
+                :(!$dry?'OUTSIDE_NOT_DRYER'
+                :($hour<7||$hour>=10?'OUTSIDE_MORNING_WINDOW'
+                :($sameDay &&$elapsed>=900?'ALREADY_REQUESTED_15MIN'
+                :(($x['observed_morning_ventilation']??false)
+                    ?'ALREADY_VENTILATED'
+                    :($requested?'MORNING_FLUSH_READY':'DISABLED'))))),
+        ];
+    }
+
     public static function initialState(array $old):array
     {
         // New schema deliberately does not claim ownership of a V1 party.
