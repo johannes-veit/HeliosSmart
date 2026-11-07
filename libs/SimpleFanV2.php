@@ -165,6 +165,7 @@ final class JVHeliosSimpleFanV2
             // Unknown SHADOW or a model-only S1/S2 release cannot
             // authorize it; a physical Helios min-stage 0 is required.
             $offAllowed=$level<=2
+                &&(int)($d['actual_fan']??4)<=2
                 &&($d['timed_off_enabled']??false)===true
                 &&($d['off_ventilation_plan_validated']??false)===true
                 &&($d['minimum_airflow_validated']??false)===true
@@ -174,7 +175,8 @@ final class JVHeliosSimpleFanV2
                 &&(float)$rh<50.0
                 &&is_numeric($d['max_room_rh']??null)
                 &&(float)$d['max_room_rh']<=55.0
-                &&(int)($d['off_next_allowed_at']??0)<=(int)($d['now']??0);
+                &&(($d['own_timed_off_active']??false)===true
+                    ||(int)($d['off_next_allowed_at']??0)<=(int)($d['now']??0));
             if($offAllowed){
                 $level=0;
                 $reason='VERIFIED_AWAY_FIVE_MINUTE_NATIVE_OFF';
