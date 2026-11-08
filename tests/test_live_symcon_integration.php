@@ -398,9 +398,9 @@ it(($modelWeather['smart_fan_takeover']['target_stage']??null)===2
     &&($modelWeather['smart_fan_execution']['status']??'')==='SIMPLE_STAGE_CONFIRMED',
     'MODEL_SUPPORTED no longer creates S2->AUTO/S4 oscillation');
 $state=json_decode($active->ReadAttributeString('SmartFanTakeoverState'),true);
-$state['sent_at']=time()-27*60;
+$state['sent_at']=time()-117*60;
 $state['native_timer_anchor_at']=$state['sent_at'];
-$state['until']=$state['sent_at']+30*60;
+$state['until']=$state['sent_at']+120*60;
 $active->WriteAttributeString('SmartFanTakeoverState',json_encode($state));
 $beforeRearm=count($GLOBALS['calls']);
 $active->CheckSmartFanRenewal();
@@ -408,14 +408,14 @@ $stop=json_decode($active->value('DecisionJSON'),true);
 it(($stop['smart_fan_execution']['status']??'')==='SIMPLE_STOP_SENT_WAIT_AUTO'
     &&$GLOBALS['deviceMode']===0
     &&count($GLOBALS['calls'])===$beforeRearm+1,
-    '27-minute V2 watchdog requests one STOP near 30-minute S2 timer expiry');
+    '117-minute V2 watchdog requests one STOP near 120-minute S2 expiry');
 $active->CheckSmartFanRenewal();
 $restart=json_decode($active->value('DecisionJSON'),true);
 it(($restart['smart_fan_execution']['status']??'')
         ==='SIMPLE_START_SENT_WAIT_DEVICE'
     &&$GLOBALS['deviceMode']===2 &&$GLOBALS['deviceFan']===2
     &&count($GLOBALS['calls'])===$beforeRearm+2,
-    'after a fresh AUTO GET, independent new 30-minute S2 Party begins');
+    'after a fresh AUTO GET, independent new 120-minute S2 Party begins');
 $active->CheckSmartFanRenewal();
 $ackRearm=json_decode($active->value('DecisionJSON'),true);
 it(($ackRearm['smart_fan_execution']['status']??'')==='SIMPLE_STAGE_CONFIRMED',

@@ -26,16 +26,30 @@ $plan=static fn(array $override=[]):array=>
     JVHeliosSimpleFanV2::plan(array_replace($b,$override));
 $p=$plan();
 v2($p['target_stage']===2&&$p['execute']
-    &&$p['minutes']===30,
-    'normal verified S2 is device-owned for 30min, not 10min');
+    &&$p['minutes']===120,
+    'normal verified S2 is device-owned for 120min, reducing periodic AUTO jumps');
 v2($plan(['weather_quality'=>'MODEL_SUPPORTED',
     'weather_age_seconds'=>PHP_INT_MAX])['target_stage']===2,
     'weather provider model/stale NEVER causes base S2->S4 oscillations');
 v2($plan(['weather_quality'=>'UNAVAILABLE',
     'cooling_confirmed'=>true])['target_stage']===2,
     'unverified outdoor humidity blocks summer cooling only');
-v2($plan(['cooling_confirmed'=>true])['target_stage']===3,
-    'verified summer cooling uses stage3 only');
+v2($plan(['cooling_confirmed'=>true])['target_stage']===3
+    &&$plan(['cooling_confirmed'=>true])['minutes']===45,
+    'verified summer cooling normally uses stage3 for 45min');
+v2($plan(['cooling_confirmed'=>true,
+    'summer_cooling_s4_requested'=>true,
+    'summer_cooling_high_confidence'=>true])['target_stage']===4,
+    'exception: independently proven strong summer cooling may use S4');
+v2($plan(['cooling_confirmed'=>true,
+    'summer_cooling_s4_requested'=>true,
+    'summer_cooling_high_confidence'=>false])['target_stage']===3,
+    'unproven summer S4 request stays S3');
+v2($plan(['cooling_confirmed'=>true,
+    'summer_cooling_s4_requested'=>true,
+    'summer_cooling_high_confidence'=>true,
+    'high_power_safety'=>false])['target_stage']===3,
+    'summer S4 cannot bypass original high power safety');
 v2($plan(['morning_flush_requested'=>true])['target_stage']===3
     &&$plan(['morning_flush_requested'=>true])['reason']==='MORNING_15MIN_FLUSH',
     'one verified morning flush is a bounded S3 exception');
@@ -63,8 +77,12 @@ v2($plan(['strong_wet_need'=>true])['target_stage']===4,
     'confirmed shower has high-priority stage4');
 v2($plan(['strong_wet_need'=>true,'native_extract_rh'=>66])['target_stage']===4,
     'confirmed shower remains S4 at 66% manufacturer exhaust RH');
-v2($plan(['native_extract_rh'=>62])['execute']===false,
-    'no forced lower stage while manufacturer humidity controller needs authority');
+v2($plan(['native_extract_rh'=>62])['target_stage']===2,
+    '62% exhaust RH is below native winter setpoint, normal S2 saves energy');
+v2($plan(['native_extract_rh'=>67])['target_stage']===3,
+    '67% extract RH requires moderate S3 rather than AUTO/S4');
+v2($plan(['native_extract_rh'=>70])['execute']===false,
+    'manufacturer receives full humidity authority from 70% exhaust RH');
 v2($plan(['native_extract_rh'=>75,
     'direct_hob_boost'=>true])['execute']===false,
     'at 75% exhaust RH return manufacturer humidity protection');
@@ -89,8 +107,9 @@ v2($plan(['native_week_program'=>5])['execute']===false,
     'Symcon-only schedule 5 is not autonomous manufacturer fallback');
 v2($plan(['model_airflow_accepted'=>false])['target_stage']===3,
     'without measured/model airflow release stay nominal stage3');
-v2($plan(['away_daytime_low_demand'=>true])['target_stage']===1,
-    'bounded stage1 after SHADOW/morning-ventilation gate');
+v2($plan(['away_daytime_low_demand'=>true])['target_stage']===1
+    &&$plan(['away_daytime_low_demand'=>true])['minutes']===60,
+    'guarded stage1 for 60min while both SHADOW sources report no home');
 v2($plan(['away_daytime_low_demand'=>true,
     'quiet_cooldown_until'=>$now+1200])['target_stage']===2,
     'after a whisper episode stage1 is held for 8 hours');
@@ -98,19 +117,27 @@ v2($plan(['quiet_requested'=>true,'cooling_confirmed'=>true])['target_stage']===
     'legitimate cooling outranks low fan stage');
 v2($plan(['quiet_requested'=>true,'direct_hob_boost'=>true])['target_stage']===4,
     'true cooktop outranks any away/sleep preference');
+v2($plan(['quiet_requested'=>true])['target_stage']===1
+    &&$plan(['quiet_requested'=>true])['minutes']===30,
+    'nighttime S1 is bounded at 30 minutes even when not away');
+v2($plan(['cooking_confirmed'=>true])['target_stage']!==4
+    &&$plan(['wet_need'=>true])['target_stage']!==4
+    &&$plan(['morning_flush_requested'=>true])['target_stage']!==4,
+    'inferred cooking / humidity / morning schedule NEVER request S4');
 
-// Native RH hysteresis holds the manufacturer after a brief 60% peak.
-$humid=JVHeliosSimpleFanV2::humidityLatch([],61,$now);
-v2($humid['hold']===true,'RH >=60 triggers vendor hold');
-$still=JVHeliosSimpleFanV2::humidityLatch($humid['state'],58,$now+120);
-v2($still['hold']===true,'brief fall to 58 cannot immediately restart SMART');
-$firstClear=JVHeliosSimpleFanV2::humidityLatch($still['state'],55,$now+180);
-$fiveMinutes=JVHeliosSimpleFanV2::humidityLatch($firstClear['state'],55,$now+480);
-$fullyClear=JVHeliosSimpleFanV2::humidityLatch($fiveMinutes['state'],55,$now+780);
+// The manufacturer's RH setpoint 70% must not trigger premature
+// fallback around 60-63%; retain 10min hysteresis to avoid chatter.
+$humid=JVHeliosSimpleFanV2::humidityLatch([],71,$now);
+v2($humid['hold']===true,'RH >=70 triggers manufacturer humidity hold');
+$still=JVHeliosSimpleFanV2::humidityLatch($humid['state'],68,$now+120);
+v2($still['hold']===true,'68% cannot immediately restart SMART');
+$firstClear=JVHeliosSimpleFanV2::humidityLatch($still['state'],65,$now+180);
+$fiveMinutes=JVHeliosSimpleFanV2::humidityLatch($firstClear['state'],65,$now+480);
+$fullyClear=JVHeliosSimpleFanV2::humidityLatch($fiveMinutes['state'],65,$now+780);
 v2($firstClear['hold'] &&$fiveMinutes['hold'] &&!$fullyClear['hold'],
-    'RH must stay <=56 for a full ten minutes to release');
-v2($plan(['native_extract_rh'=>55,'native_humidity_hold'=>true])['execute']===false,
-    'RH hysteresis state is a real veto in V2 planner');
+    'RH must stay <=66 for a full ten minutes to release');
+v2($plan(['native_extract_rh'=>65,'native_humidity_hold'=>true])['execute']===false,
+    'native humidity hold remains a real veto until stable');
 
 // A locally humid bathroom must not oscillate normal S2/S3 at 64/65%.
 $localWet=JVHeliosSimpleFanV2::roomHumidityLatch([],66,$now);
@@ -209,7 +236,7 @@ $auto=['mode'=>0,'fan'=>3,'program'=>3];
 $on2=['mode'=>2,'fan'=>2,'program'=>3];
 $r=JVHeliosSimpleFanV2::step($p,$auto,[],$now);
 v2($r['action']['type']==='start'
-    &&$r['action']['stage']===2 &&$r['action']['minutes']===30
+    &&$r['action']['stage']===2 &&$r['action']['minutes']===120
     &&$r['state']['phase']==='STARTING',
     'single START command reserves pending before native HTTP');
 $st=$r['state'];
@@ -223,40 +250,40 @@ v2($r['verified']&&$r['state']['phase']==='ACTIVE'
 $r=JVHeliosSimpleFanV2::step($p,$on2,$r['state'],$now+8*60);
 v2($r['verified']&&$r['action']===null,
     'no same-stage blind Party renewal after 8 min');
-$r=JVHeliosSimpleFanV2::step($p,$on2,$r['state'],$now+26*60);
+$r=JVHeliosSimpleFanV2::step($p,$on2,$r['state'],$now+116*60);
 v2($r['action']['type']==='stop'
     &&$r['state']['phase']==='STOPPING',
-    '30-minute S2 timer renewed near expiry via controlled STOP first');
+    '120-minute S2 timer renewed near expiry via controlled STOP first');
 $st=$r['state'];
-$r=JVHeliosSimpleFanV2::step($p,$on2,$st,$now+26*60+15);
+$r=JVHeliosSimpleFanV2::step($p,$on2,$st,$now+116*60+15);
 v2($r['action']===null
     &&$r['status']==='SIMPLE_WAIT_STOP_READBACK',
     'stop completion is asynchronous: never start before AUTO proof');
-$r=JVHeliosSimpleFanV2::step($p,$auto,$r['state'],$now+26*60+35);
+$r=JVHeliosSimpleFanV2::step($p,$auto,$r['state'],$now+116*60+35);
 v2($r['action']['type']==='start'
     &&$r['action']['stage']===2
-    &&$r['state']['native_timer_anchor_at']===$now+26*60+35,
-    'confirmed AUTO starts a fresh independent 30min S2 window');
-$r=JVHeliosSimpleFanV2::step($p,$on2,$r['state'],$now+26*60+55);
+    &&$r['state']['native_timer_anchor_at']===$now+116*60+35,
+    'confirmed AUTO starts a fresh independent 120min S2 window');
+$r=JVHeliosSimpleFanV2::step($p,$on2,$r['state'],$now+116*60+55);
 v2($r['verified']&&$r['state']['phase']==='ACTIVE',
     'second physical timer is successfully confirmed');
 
 $s4=$plan(['direct_hob_boost'=>true]);
-$r=JVHeliosSimpleFanV2::step($s4,$on2,$r['state'],$now+27*60);
+$r=JVHeliosSimpleFanV2::step($s4,$on2,$r['state'],$now+117*60);
 v2($r['action']['type']==='stop'
     &&$r['state']['phase']==='STOPPING',
     'urgent cooktop S4 requests controlled S2 stop, no blind S4 overwrite');
-$r=JVHeliosSimpleFanV2::step($s4,$auto,$r['state'],$now+27*60+25);
+$r=JVHeliosSimpleFanV2::step($s4,$auto,$r['state'],$now+117*60+25);
 v2($r['action']['type']==='start'
     &&$r['action']['stage']===4,
     'fresh AUTO GET permits a new verified S4 Party');
 $on4=['mode'=>2,'fan'=>4,'program'=>3];
-$r=JVHeliosSimpleFanV2::step($s4,$on4,$r['state'],$now+27*60+50);
+$r=JVHeliosSimpleFanV2::step($s4,$on4,$r['state'],$now+117*60+50);
 v2($r['verified'],'native S4 confirmed');
-$r=JVHeliosSimpleFanV2::step($p,$on4,$r['state'],$now+28*60);
+$r=JVHeliosSimpleFanV2::step($p,$on4,$r['state'],$now+118*60);
 v2($r['action']['type']==='stop',
     'after 5-minute cooktop afterrun end, S4 gets a single controlled stop');
-$r=JVHeliosSimpleFanV2::step($p,$auto,$r['state'],$now+28*60+40);
+$r=JVHeliosSimpleFanV2::step($p,$auto,$r['state'],$now+118*60+40);
 v2($r['action']['type']==='start'
     &&$r['action']['stage']===2,
     'end of cooktop afterrun restores ordinary stage2 promptly');
@@ -327,7 +354,7 @@ for($i=0;$i<1600;$i++){
     $action=$state['action'];
     v2($action===null||($action['type']==='start'
         &&in_array($action['stage'],[1,2,3,4],true)
-        &&in_array($action['minutes'],[5,15,30],true)),
+        &&in_array($action['minutes'],[5,15,30,45,60,120],true)),
         'fuzz: at most one bounded start command');
 }
 
@@ -396,9 +423,9 @@ $quietElapsed=JVHeliosSimpleFanV2::step($quietPlan,
 v2($quietElapsed['action']===null,'short S1 is not re-armed every 10min');
 $quietStop=JVHeliosSimpleFanV2::step($quietPlan,
     ['mode'=>3,'fan'=>1,'program'=>3],
-    $quietElapsed['state'],$morningAt+14*60);
+    $quietElapsed['state'],$morningAt+29*60);
 v2($quietStop['action']['type']==='stop'
-    &&$quietStop['state']['quiet_cooldown_until']>=$morningAt+3600,
-    'S1 14min exit establishes full 60-minute recovery pause');
+    &&$quietStop['state']['quiet_cooldown_until']>=$morningAt+29*60+1800,
+    'S1 29min exit establishes guarded recovery pause');
 
 echo "SIMPLE V2: deterministic policy, manufacturer timer FSM, safety and 1600 simulations passed\n";

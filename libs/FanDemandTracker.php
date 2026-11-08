@@ -110,8 +110,8 @@ final class JVHeliosFanDemandTracker
                 &&$h>=7&&$h<12 &&$f>=3)
                 $morning[]=$t;
         }
-        // Three 5-minute sampling buckets with no gap > 8 minutes:
-        // at least a documented morning ventilation sequence, not inferred
+        // Four 5-minute sampling buckets with no gap > 8 minutes:
+        // >=15min time between first and last observed fan values, not inferred
         // from a schedule that might never have executed.
         $run=0;$best=0;$prior=0;
         foreach($morning as $t){
@@ -119,7 +119,37 @@ final class JVHeliosFanDemandTracker
             $best=max($best,$run);
             $prior=$t;
         }
-        $morningCompleted=$best>=3;
+        $morningCompleted=$best>=4;
+        // A resident may leave before the traditional 07-12 flush or
+        // remain away overnight. Permit low-speed economy after an
+        // ACTUALLY OBSERVED fresh ventilation quota, not a scheduled
+        // event and not a phone status alone. Four consecutive 5min
+        // S3+ samples OR seven consecutive 5min S2+ samples within 6h.
+        // After many hours of S1 the quota expires until S2/S3 has
+        // run again; this avoids indefinite reduced ventilation.
+        $freshVent3=0;$freshVent2=0;$lastVent3=0;$lastVent2=0;
+        $bestVent3=0;$bestVent2=0;$lastAdequateVentAt=0;
+        foreach($rows as $row){
+            $t=(int)$row['t'];
+            if($t<$now-6*3600 ||$t>$now)continue;
+            $level=(int)$row['f'];
+            if($level>=3){
+                $freshVent3=$lastVent3>0&&$t-$lastVent3<=8*60
+                    ?$freshVent3+1:1;
+                $bestVent3=max($bestVent3,$freshVent3);
+                $lastVent3=$t;
+                if($freshVent3>=4)$lastAdequateVentAt=$t;
+            }else $freshVent3=0;
+            if($level>=2){
+                $freshVent2=$lastVent2>0&&$t-$lastVent2<=8*60
+                    ?$freshVent2+1:1;
+                $bestVent2=max($bestVent2,$freshVent2);
+                $lastVent2=$t;
+                if($freshVent2>=7)$lastAdequateVentAt=$t;
+            }else $freshVent2=0;
+        }
+        $recentVentilation=$lastAdequateVentAt>0
+            &&$now-$lastAdequateVentAt<=4*3600;
         $awayStart=0;$awayLast=0;
         foreach(array_reverse($rows) as $row){
             if(($row['away']??false)!==true)break;
@@ -138,19 +168,19 @@ final class JVHeliosFanDemandTracker
             &&($x['wet_need']??false)!==true
             &&($x['cooking_confirmed']??false)!==true
             &&($x['cooling_confirmed']??false)!==true;
-        // Evening non-home hints are meaningful too; keep night quiet
-        // policies separate from daytime absence. No overnight OFF.
-        // Evening non-home hints count until night quiet begins at 23:00.
-        // Morning and nighttime demand guards remain unchanged.
-        $duringDay=$hour>=9 && $hour<23;
+        // SHADOW away has no artificial daily time cutoff. Nighttime
+        // absence may save electricity too. Native frost, room RH,
+        // cooking, shower and actual cooling remain hard vetoes.
+        // Even an earlier morning S3 cannot license unlimited S1 into
+        // the night; actual ventilation evidence must remain recent.
         $safeAway=$away && $awayMinutes>=30
-            &&$morningCompleted &&$duringDay &&$validConditions;
+            &&$recentVentilation &&$validConditions;
         if(!$bothFresh)$reason='RESIDENT_SOURCE_STALE';
         elseif(!$noHomeHints)$reason='ONE_OR_BOTH_HOME_HINTS_PRESENT';
         elseif($activityVeto)$reason='IN_HOUSE_ACTIVITY_VETO';
         elseif($awayMinutes<30)$reason='NO_HOME_HINTS_NOT_STABLE_30MIN';
-        elseif(!$morningCompleted)$reason='MORNING_FLUSH_NOT_OBSERVED';
-        elseif(!$duringDay)$reason='OUTSIDE_DAYTIME_WINDOW';
+        elseif(!$recentVentilation)
+            $reason='RECENT_VENTILATION_NOT_OBSERVED';
         elseif(!$validConditions)$reason='ROOM_HUMIDITY_OR_AIR_DEMAND_VETO';
         else $reason='NO_HOME_HINTS_LOW_DEMAND_WINDOW_OBSERVED';
         return [
@@ -166,6 +196,11 @@ final class JVHeliosFanDemandTracker
                 'away_hint_contiguous_minutes'=>$awayMinutes,
                 'morning_ventilation_observed'=>$morningCompleted,
                 'morning_ventilation_samples_5min'=>$best,
+                'recent_ventilation_observed'=>$recentVentilation,
+                'last_adequate_ventilation_at'=>$lastAdequateVentAt?:null,
+                'recent_ventilation_stage3_samples'=>$bestVent3,
+                'recent_ventilation_stage2_samples'=>$bestVent2,
+                'away_applies_all_day_including_night'=>true,
                 'reduced_stage_authorization_requires_independent_gates'=>true,
                 'off_authorized'=>false,
                 'off_reason'=>'HELIOS_AND_MOISTURE_PROTECTION_REQUIRE_PROVEN_VENTILATION_PLAN',
