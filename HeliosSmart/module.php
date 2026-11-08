@@ -396,19 +396,19 @@ class HeliosSmart extends IPSModule
                 ['type'=>'ValidationTextBox','name'=>'Rooms','caption'=>'Raumsensoren JSON'],
                 ['type'=>'CheckBox','name'=>'EnableControl','caption'=>'Aktive SMART-Lueftung: eigene zeitlich begrenzte Zusatzbefehle erlauben, nur nach Sicherheitsfreigaben'],
                 ['type'=>'CheckBox','name'=>'EnableProgramSwitch','caption'=>'Rueckfall-Wochenprofil saisonal anpassen: im Heizbetrieb Sommerprofil 4 durch Normalprofil 3 ersetzen'],
-                ['type'=>'CheckBox','name'=>'EnableSmartFanTakeover','caption'=>'SMART uebernimmt Stufen 1–4 mit nativen 15-Minuten-Zeitbefehlen; Wochenprogramm bleibt nur Rueckfallebene'],
+                ['type'=>'CheckBox','name'=>'EnableSmartFanTakeover','caption'=>'SMART-Energieregelung: wenige lange Geraete-Zeitprogramme. Normal S2 bis 120 Min, bei SHADOW-Nicht-Zuhause S1 bis 60 Min, nachts S1 bis 30 Min; S4 nur Kochen, Duschen oder nachgewiesene starke Sommerkuehlung. Hersteller-AUTO als Fallback.'],
                 ['type'=>'CheckBox','name'=>'EnableDailyMorningFlush','caption'=>'SMART V2: 1x taeglich 15 Min morgens Stufe 3 (07–10 Uhr), nur mit verifizierter trockenerer Aussenluft und sicherer Helios-Freigabe'],
                 ['type'=>'CheckBox','name'=>'EnableTimedAwayOff','caption'=>'OPTIONAL Stufe 0 NUR bei mindestens 60 Min nachweislich fehlender Zuhause-Meldung, frischen RH-Daten und geraeteeigener Mindeststufe 0; max. 5 Min / 2h, automatische Hersteller-Rueckkehr (Standard AUS)'],
                 ['type'=>'CheckBox','name'=>'OffVentilationPlanValidated','caption'=>'Fachlich bestaetigt: Luftmengen und Feuchteschutz auch bei zeitweise komplett ausgeschalteter KWL nachweislich ausreichend (KEINE Freigabe allein durch Software; Standard AUS)'],
-                ['type'=>'CheckBox','name'=>'EnableAwayEconomy','caption'=>'Abwesenheits-Sparlueftung (09-23 Uhr): 30 Min keine frischen Zuhause-Handyhinweise BEIDER, keine Hausbewegung, morgens gelueftet und unkritische RH -> kurz S1, sonst S2. Stufe 0 NUR mit beiden separaten OFF-Sicherheitsfreigaben und nativer Hersteller-Mindeststufe 0.'],
-                ['type'=>'Label','caption'=>'Kochfeld Shelly #47825 >5 W: S4 sofort, 5 Min Nachlauf nach unter/gleich 5 W; nativer Feuchte-/Frostschutz hat Vorrang. S2 wird 30 Min geraeteintern gehalten, S3/S4 bis 15 Min. Kein hektisches Erneuern. Nur nach fachlich nachgewiesenem Luftwechsel und Feuchteschutz kann separate 5-Min-Stufe-0-Option aktiviert werden.'],
-                ['type'=>'Label','caption'=>'SMART-PRIORITAET: Bei frischem Wetter, mindestens 9 Raumtemperaturen, 8 Raumfeuchten, funktionsfaehiger Original-Helios-Steuerung und Freigabe steuert SMART mit geraeteseitig zeitbegrenzten Party/Ruhe-Befehlen. Ohne Mess-/Betriebsnachweis oder bei Abbruch endet die eigene Anforderung nach spaetestens 15 Minuten und das Herstellerwochenprogramm uebernimmt. Unterhalb nomineller Stufe 3 nur bei ausdruecklicher Luftmengen-/Modellfreigabe.'],
+                ['type'=>'CheckBox','name'=>'EnableAwayEconomy','caption'=>'Abwesenheits-Sparlueftung rund um die Uhr: 30 Min kein frischer Zuhause-Hinweis bei beiden SHADOW-Personen, keine Hausbewegung, nachgewiesener kuerzlicher Luftwechsel und unkritische Feuchte -> S1 bis 60 Min, dazwischen S2. Stufe 0 nur mit separaten Hardware-/Feuchteschutzfreigaben.'],
+                ['type'=>'Label','caption'=>'S4 ausschliesslich: Kochfeld #47825 >5 W plus 5-Min-Nachlauf, nachweislich geduscht oder verifizierte ausserordentliche Sommer-Nachtkuehlung. Normale S2 laeuft geraeteintern 120 Min, bei Abwesenheit S1 60 Min, in ruhigen Naechten S1 30 Min. Verbleibende Stufe-4-Anforderungen des ORIGINAL-Wochenprogramms muessen im Helios-easyControls-Wochenplan angepasst werden. Stufe 0 bleibt ohne reale Feuchteschutzfreigabe gesperrt.'],
+                ['type'=>'Label','caption'=>'ENERGIE-PRIORITAET: Grundstufe so niedrig wie sinnvoll; Kochen, Dusche, veraenderte Feuchte, Frischluft und verifizierte Nachtkuehlung haben Vorrang. Wetterausfall darf normale S2 nicht unnoetig anheben. Herstellerprogramme laufen hardwareseitig nach Ende der maximal 120-Minuten-Zeitprogramme weiter.'],
 
                 ['type'=>'Label','caption'=>'SOMMERPROFIL 4 -> NORMAL-/WINTERPROFIL 3 bei lokaler Kälte und nachweislich gesundem Helios AUTO. Kein dauerhaftes MANUELL: das Original geraeteregelt CO2/Feuchte/VOC und Wochenprogramm bleibt aktiv. Automatische Absenkung einer eventuell echten Sensor-Anforderung Stufe 4 ist nicht freigegeben.'],
                 ['type'=>'Button','caption'=>'SMART-LUEFTUNG JETZT AKTIVIEREN (Original pruefen, Programmautomatik und Zusatzsteuerung freigeben)','onClick'=>'echo JVHS_StartSmartFanControl($id);'],
                 ['type'=>'Button','caption'=>'SMART-LUEFTUNG STOPPEN – zurueck zum gespeicherten Helios-Wochenprogramm','onClick'=>'echo JVHS_StopSmartFanControl($id);'],
-                ['type'=>'CheckBox','name'=>'EnableNightQuiet','caption'=>'Nachtruhe 23:00-06:00: bei geringem Bedarf kurzzeitig Stufe 1 (15-Min-Hersteller-Ruheprogramm, 60 Min Pause). Aus Stufe 3/4 nur mit bestaetigter Stufe-2-Zwischenphase. Kein OFF nachts bei Anwesenheit.'],
-                ['type'=>'CheckBox','name'=>'AllowEstimatedAirflowLimitedParty','caption'=>'Modellbetrieb: S1/S2 Luftmengen nicht gemessen. S2 bis 30 Min Hersteller-Party; S1 max. 15 Min mit Schutzbedingungen. Diese Modellfreigabe berechtigt niemals zu Stufe 0.'],
+                ['type'=>'CheckBox','name'=>'EnableNightQuiet','caption'=>'Nachtruhe 23:00–06:00: bei geringem Bedarf S1 bis 30 Min, dazwischen mindestens 30 Min S2, keine unnoetigen Stufenwechsel. S4 nur Kochen/Duschen/verifizierte Sommerkuehlung.'],
+                ['type'=>'CheckBox','name'=>'AllowEstimatedAirflowLimitedParty','caption'=>'Modellbetrieb S1/S2: Luftmengen nicht gemessen. S2 mit nativer 120-Minuten-Grenze, S1 bei gesicherter SHADOW-Abwesenheit bis 60 Min. Modellfreigabe berechtigt NIEMALS zu Stufe 0.'],
                 ['type'=>'CheckBox','name'=>'MinimumVentilationValidated','caption'=>'Alternativ: reale Luftmengen fachlich eingemessen (nur bei vorhandenem Nachweis)'],
                 ['type'=>'CheckBox','name'=>'CombustionSafetyValidated','caption'=>'Feuerstaette / Dunstabzug / Lueftung gemeinsam sicher betrieben und entsprechend freigegeben'],
                 ['type'=>'CheckBox','name'=>'EnableHighPowerParty','caption'=>'Stufe-4-Freigabe fuer Kochen/Bad (geraeteseitig jeweils 15 Min, bei Kochfeldbetrieb gesichert erneuerbar; Standard AUS)'],
@@ -2885,6 +2885,20 @@ class HeliosSmart extends IPSModule
             ||($vocConfigured && (int)$sensorEvidence['voc_sensor_count']===0);
         $coolingGate=JVHeliosSmartCoolingGate::decide($decision);
         $decision['smart_cooling_gate']=$coolingGate;
+        // Stage 4 is NEVER issued for a merely warm forecast or a
+        // generic cooling suggestion. This exceptional summer path
+        // requires a verified cooling gate, a measured >=4.5K supply
+        // advantage and the upstream HEATWAVE precooling classification.
+        $summerCoolingS4=($coolingGate['cooling_confirmed']??false)===true
+            &&($decision['summer_airflow']['regime']??'')
+                ==='HEATWAVE_PRECOOL_WINDOW'
+            &&(int)($decision['summer_airflow']['recommended_stage']??0)>=4
+            &&is_numeric($coolingGate['supply_gap_k']??null)
+            &&(float)$coolingGate['supply_gap_k']>=4.5;
+        $decision['cooling_stage4_exception']=[
+            'requested'=>$summerCoolingS4,
+            'verified_heatwave_cooling_only'=>true,
+        ];
         // Observe the real vendor stage even when native sensor ambiguity
         // prevents SMART actuation. This history never controls the device.
         $maxRoomRh=null;
@@ -3009,6 +3023,8 @@ class HeliosSmart extends IPSModule
             'direct_hob_boost'=>$hobBoost,
             'direct_hob_afterrun'=>$hobAfterrun,
             'cooling_confirmed'=>($coolingGate['cooling_confirmed']??false)===true,
+            'summer_cooling_s4_requested'=>$summerCoolingS4,
+            'summer_cooling_high_confidence'=>$summerCoolingS4,
             'morning_flush_requested'=>$morningWanted,
             'weather_quality'=>$decision['weather_quality']??'UNAVAILABLE',
             'weather_age_seconds'=>isset($weather['current']['observed_at'])
