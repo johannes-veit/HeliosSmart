@@ -28,8 +28,9 @@ final class JVHeliosSimpleFanV2
     public const OFF_COOLDOWN_SECONDS=2*3600;
 
     /**
-     * RH hysteresis: enter vendor protection at 60% extract RH; require
-     * <=56% continuously for ten minutes before normal savings resume.
+     * RH hysteresis: the native winter humidity controller is set to
+     * 70%, so do not bounce to manufacturer AUTO at an ordinary 60–63%.
+     * Enter vendor protection at 70%; require <=66% for ten minutes.
      * A confirmed cooktop/shower still follows the independent S4 gates.
      */
     public static function humidityLatch(array $old,$rh,int $now):array
@@ -41,9 +42,9 @@ final class JVHeliosSimpleFanV2
             return ['state'=>$state,'hold'=>true,'reason'=>'UNKNOWN_RH'];
         }
         $value=(float)$rh;
-        if($value>=60){
+        if($value>=70){
             $hold=true;$state['humidity_clear_since']=0;
-        } elseif($hold &&$value<=56){
+        } elseif($hold &&$value<=66){
             $since=(int)($state['humidity_clear_since']??0);
             if($since<=0 ||$since>$now){
                 $state['humidity_clear_since']=$now;
@@ -55,7 +56,7 @@ final class JVHeliosSimpleFanV2
         }
         $state['humidity_hold']=$hold;
         return ['state'=>$state,'hold'=>$hold,
-            'reason'=>$hold?'HUMIDITY_WAIT_STABLE_BELOW_56'
+            'reason'=>$hold?'HUMIDITY_WAIT_STABLE_BELOW_66'
                 :'HUMIDITY_CLEAR'];
     }
 
@@ -129,12 +130,12 @@ final class JVHeliosSimpleFanV2
             return $deny('EXTRACT_HUMIDITY_NOT_VERIFIED');
         $highEvidence=($d['direct_hob_boost']??false)===true
             ||($d['strong_wet_need']??false)===true;
-        // Never suppress an independently confirmed cook/shower S4
-        // solely because exhaust RH reached 60-69%. At >=70% the
-        // manufacturer moisture regulator is always given control.
+        // Native humidity controller becomes responsible at >=70%.
+        // Between 65-69% use S3 instead of returning to an erratic
+        // weekly AUTO/S4. Strong direct cooking / shower has priority
+        // only below 70% and still needs all original safety gates.
         if((float)$rh>=70.0
-            ||(((float)$rh>=60.0
-                ||($d['native_humidity_hold']??false)===true)
+            ||(($d['native_humidity_hold']??false)===true
                 &&!$highEvidence))
             return $deny('EXTRACT_HUMIDITY_KEEP_MANUFACTURER');
         if((is_numeric($d['max_co2_ppm']??null)
@@ -167,7 +168,8 @@ final class JVHeliosSimpleFanV2
                 ?(($d['direct_hob_afterrun']??false)===true
                     ?'COOKTOP_5MIN_AFTER_RUN':'COOKTOP_POWER_ACTIVE')
                 :'CONFIRMED_SHOWER';
-        } elseif(($d['wet_need']??false)===true
+        } elseif((float)$rh>=65.0
+            ||($d['wet_need']??false)===true
             ||($d['cooking_confirmed']??false)===true
             ||(is_numeric($d['max_room_rh']??null)
                 &&(float)$d['max_room_rh']>=65.0)
