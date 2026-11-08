@@ -77,8 +77,12 @@ v2($plan(['strong_wet_need'=>true])['target_stage']===4,
     'confirmed shower has high-priority stage4');
 v2($plan(['strong_wet_need'=>true,'native_extract_rh'=>66])['target_stage']===4,
     'confirmed shower remains S4 at 66% manufacturer exhaust RH');
-v2($plan(['native_extract_rh'=>62])['execute']===false,
-    'no forced lower stage while manufacturer humidity controller needs authority');
+v2($plan(['native_extract_rh'=>62])['target_stage']===2,
+    '62% exhaust RH is below native winter setpoint, normal S2 saves energy');
+v2($plan(['native_extract_rh'=>67])['target_stage']===3,
+    '67% extract RH requires moderate S3 rather than AUTO/S4');
+v2($plan(['native_extract_rh'=>70])['execute']===false,
+    'manufacturer receives full humidity authority from 70% exhaust RH');
 v2($plan(['native_extract_rh'=>75,
     'direct_hob_boost'=>true])['execute']===false,
     'at 75% exhaust RH return manufacturer humidity protection');
@@ -121,18 +125,19 @@ v2($plan(['cooking_confirmed'=>true])['target_stage']!==4
     &&$plan(['morning_flush_requested'=>true])['target_stage']!==4,
     'inferred cooking / humidity / morning schedule NEVER request S4');
 
-// Native RH hysteresis holds the manufacturer after a brief 60% peak.
-$humid=JVHeliosSimpleFanV2::humidityLatch([],61,$now);
-v2($humid['hold']===true,'RH >=60 triggers vendor hold');
-$still=JVHeliosSimpleFanV2::humidityLatch($humid['state'],58,$now+120);
-v2($still['hold']===true,'brief fall to 58 cannot immediately restart SMART');
-$firstClear=JVHeliosSimpleFanV2::humidityLatch($still['state'],55,$now+180);
-$fiveMinutes=JVHeliosSimpleFanV2::humidityLatch($firstClear['state'],55,$now+480);
-$fullyClear=JVHeliosSimpleFanV2::humidityLatch($fiveMinutes['state'],55,$now+780);
+// The manufacturer's RH setpoint 70% must not trigger premature
+// fallback around 60-63%; retain 10min hysteresis to avoid chatter.
+$humid=JVHeliosSimpleFanV2::humidityLatch([],71,$now);
+v2($humid['hold']===true,'RH >=70 triggers manufacturer humidity hold');
+$still=JVHeliosSimpleFanV2::humidityLatch($humid['state'],68,$now+120);
+v2($still['hold']===true,'68% cannot immediately restart SMART');
+$firstClear=JVHeliosSimpleFanV2::humidityLatch($still['state'],65,$now+180);
+$fiveMinutes=JVHeliosSimpleFanV2::humidityLatch($firstClear['state'],65,$now+480);
+$fullyClear=JVHeliosSimpleFanV2::humidityLatch($fiveMinutes['state'],65,$now+780);
 v2($firstClear['hold'] &&$fiveMinutes['hold'] &&!$fullyClear['hold'],
-    'RH must stay <=56 for a full ten minutes to release');
-v2($plan(['native_extract_rh'=>55,'native_humidity_hold'=>true])['execute']===false,
-    'RH hysteresis state is a real veto in V2 planner');
+    'RH must stay <=66 for a full ten minutes to release');
+v2($plan(['native_extract_rh'=>65,'native_humidity_hold'=>true])['execute']===false,
+    'native humidity hold remains a real veto until stable');
 
 // A locally humid bathroom must not oscillate normal S2/S3 at 64/65%.
 $localWet=JVHeliosSimpleFanV2::roomHumidityLatch([],66,$now);
