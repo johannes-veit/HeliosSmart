@@ -171,14 +171,15 @@ final class JVHeliosFanDemandTracker
         // SHADOW away has no artificial daily time cutoff. Nighttime
         // absence may save electricity too. Native frost, room RH,
         // cooking, shower and actual cooling remain hard vetoes.
+        // Even an earlier morning S3 cannot license unlimited S1 into
+        // the night; actual ventilation evidence must remain recent.
         $safeAway=$away && $awayMinutes>=30
-            &&($morningCompleted||$recentVentilation)
-            &&$validConditions;
+            &&$recentVentilation &&$validConditions;
         if(!$bothFresh)$reason='RESIDENT_SOURCE_STALE';
         elseif(!$noHomeHints)$reason='ONE_OR_BOTH_HOME_HINTS_PRESENT';
         elseif($activityVeto)$reason='IN_HOUSE_ACTIVITY_VETO';
         elseif($awayMinutes<30)$reason='NO_HOME_HINTS_NOT_STABLE_30MIN';
-        elseif(!$morningCompleted &&!$recentVentilation)
+        elseif(!$recentVentilation)
             $reason='RECENT_VENTILATION_NOT_OBSERVED';
         elseif(!$validConditions)$reason='ROOM_HUMIDITY_OR_AIR_DEMAND_VETO';
         else $reason='NO_HOME_HINTS_LOW_DEMAND_WINDOW_OBSERVED';
