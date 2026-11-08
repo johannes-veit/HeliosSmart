@@ -10,15 +10,21 @@
 final class JVHeliosSimpleFanV2
 {
     public const VERSION=2;
-    // One 30-minute native S2 window replaces three 10-minute cycles.
-    // Short demand, S1 and separately validated OFF stay device-timed.
-    public const BASE_DURATION_MINUTES=30;
+    // Longer device-owned timed windows reduce AUTO excursions and
+    // needless large jumps. Native easyControls supports up to 180 min.
+    // Never depend on a Symcon timer for the native AUTO return.
+    public const BASE_DURATION_MINUTES=120;
     public const SHORT_DURATION_MINUTES=15;
+    public const AWAY_DURATION_MINUTES=60;
+    public const NIGHT_DURATION_MINUTES=30;
+    public const MOISTURE_DURATION_MINUTES=30;
+    public const COOLING_DURATION_MINUTES=45;
     public const OFF_DURATION_MINUTES=5;
     public const REARM_MARGIN_SECONDS=4*60;
     public const ACK_SECONDS=90;
     public const ERROR_BACKOFF_SECONDS=15*60;
-    public const QUIET_COOLDOWN_SECONDS=60*60;
+    // A bounded S2 recovery interval is required between S1 episodes.
+    public const QUIET_COOLDOWN_SECONDS=30*60;
     public const OFF_COOLDOWN_SECONDS=2*3600;
 
     /**
@@ -172,8 +178,17 @@ final class JVHeliosSimpleFanV2
             &&in_array($d['weather_quality']??'',['VERIFIED','DWD_ONLY'],true)
             &&($d['weather_age_seconds']??PHP_INT_MAX)<=900
             &&($d['weather_age_seconds']??-1)>=0){
-            $level=3;
-            $reason='VERIFIED_PASSIVE_COOLING';
+            // A strong summer cooling demand is the only non-cooking,
+            // non-shower reason V2 may request S4. It needs an explicit
+            // external verified recommendation and all S4 safety gates.
+            $strongSummer=($d['summer_cooling_s4_requested']??false)===true
+                &&($d['summer_cooling_high_confidence']??false)===true
+                &&($d['high_power_enabled']??false)===true
+                &&($d['high_power_safety']??false)===true
+                &&($d['combustion_safe']??false)===true;
+            $level=$strongSummer?4:3;
+            $reason=$strongSummer?'VERIFIED_SUMMER_COOLING_S4'
+                :'VERIFIED_PASSIVE_COOLING';
         } elseif(($d['morning_flush_requested']??false)===true){
             // Exactly one bounded daily flush where outside absolute
             // humidity has already been validated against the rooms.
@@ -198,6 +213,7 @@ final class JVHeliosSimpleFanV2
             // Unknown SHADOW or a model-only S1/S2 release cannot
             // authorize it; a physical Helios min-stage 0 is required.
             $offAllowed=$level<=2
+                &&($d['away_daytime_low_demand']??false)===true
                 &&(int)($d['actual_fan']??4)<=2
                 &&($d['timed_off_enabled']??false)===true
                 &&($d['off_ventilation_plan_validated']??false)===true
@@ -220,9 +236,18 @@ final class JVHeliosSimpleFanV2
         $o['execute']=true;
         $o['target_stage']=$level;
         $o['route']=$level<=1?'WHISPER':'PARTY';
-        $o['minutes']=$level===0?self::OFF_DURATION_MINUTES:
-            ($level===2?self::BASE_DURATION_MINUTES:
-                self::SHORT_DURATION_MINUTES);
+        $o['minutes']=match($level){
+            0=>self::OFF_DURATION_MINUTES,
+            1=>$reason==='SHADOW_NO_HOME_BOUNDED_S1'
+                ?self::AWAY_DURATION_MINUTES:self::NIGHT_DURATION_MINUTES,
+            2=>self::BASE_DURATION_MINUTES,
+            3=>$reason==='MORNING_15MIN_FLUSH'
+                ?self::SHORT_DURATION_MINUTES:
+                ($reason==='VERIFIED_PASSIVE_COOLING'
+                    ?self::COOLING_DURATION_MINUTES:
+                    self::MOISTURE_DURATION_MINUTES),
+            4=>self::SHORT_DURATION_MINUTES,
+        };
         $o['fallback_weekly']=false;
         $o['evidence']=[
             'hob_active_or_afterrun'=>$hob,
@@ -233,6 +258,10 @@ final class JVHeliosSimpleFanV2
             'off_requires_real_minimum_airflow_and_moisture_plan'=>true,
             'timed_off_authorized'=>$level===0,
             'off_hardware_autoreturn_minutes'=>self::OFF_DURATION_MINUTES,
+            'high_power_only_cook_shower_or_verified_summer'=>
+                $level!==4||in_array($reason,[
+                    'COOKTOP_POWER_ACTIVE','COOKTOP_5MIN_AFTER_RUN',
+                    'CONFIRMED_SHOWER','VERIFIED_SUMMER_COOLING_S4'],true),
             'weather_quality'=>$d['weather_quality']??'UNKNOWN',
         ];
         return $o;
@@ -309,12 +338,13 @@ final class JVHeliosSimpleFanV2
     }
 
     private static function start(array $s,int $stage,int $now,
-        string $reason=''):array
+        string $reason='',?int $requestedMinutes=null):array
     {
         $mode=$stage<=1?3:2;
-        $duration=$stage===0?self::OFF_DURATION_MINUTES
+        $duration=$requestedMinutes??($stage===0?self::OFF_DURATION_MINUTES
             :($stage===2?self::BASE_DURATION_MINUTES:
-                self::SHORT_DURATION_MINUTES);
+                self::SHORT_DURATION_MINUTES));
+        $duration=max(5,min(180,$duration));
         $s['phase']='STARTING';
         $s['mode']=$mode;$s['stage']=$stage;
         $s['sent_at']=$now;$s['native_timer_anchor_at']=$now;
@@ -325,6 +355,7 @@ final class JVHeliosSimpleFanV2
         $s['last_command_at']=$now;
         $s['quiet_started_at']=$stage===1?$now:0;
         $s['hob_boost']=$stage===4;
+        $s['command_reason']=$reason;
         if($stage===0){
             $s['off_next_allowed_at']=$now+self::OFF_COOLDOWN_SECONDS;
             $s['off_started_at']=$now;
@@ -449,7 +480,7 @@ final class JVHeliosSimpleFanV2
                 // START, never any "renewal". STOP -> AUTO -> START is
                 // a two-phase handshake with only one device write/tick.
                 $shortMorning=$ownedStage===3
-                    &&($plan['reason']??'')==='MORNING_15MIN_FLUSH';
+                    &&($s['command_reason']??'')==='MORNING_15MIN_FLUSH';
                 $shortWhisper=$ownedStage===1;
                 $shortOff=$ownedStage===0;
                 $duration=(int)($s['duration_minutes']
@@ -460,8 +491,9 @@ final class JVHeliosSimpleFanV2
                 // Short morning ventilation and quiet S1 must not
                 // unnecessarily create a second timer period.
                 // At 14min whisper explicitly ends and sets 8h cooldown.
+                $quietAgeLimit=max(60,$duration-60);
                 if($desired===-1 ||$desired!==$ownedStage
-                    ||$rearm ||($shortWhisper &&$age>=14*60)
+                    ||$rearm ||($shortWhisper &&$age>=$quietAgeLimit)
                     ||($shortOff &&$age>=4*60)){
                     return self::stop($s,$now);
                 }
@@ -480,8 +512,14 @@ final class JVHeliosSimpleFanV2
             return self::result($s,'SIMPLE_MANUFACTURER_AUTO');
         }
         if($desired===1
-            &&$now<(int)($s['quiet_cooldown_until']??0))
-            return self::result($s,'SIMPLE_S1_COOLDOWN_KEEP_AUTO');
+            &&$now<(int)($s['quiet_cooldown_until']??0)){
+            // Do not abandon SMART to a manufacturer weekly S4
+            // just because S1 needs a recovery interval. Keep a
+            // normal, validated low stage S2 during the cooldown.
+            $desired=2;
+            $plan['reason']='S1_RECOVERY_S2';
+            $plan['minutes']=self::BASE_DURATION_MINUTES;
+        }
         // Never abruptly jump from manufacturer S3/S4 to a proposed
         // low-airflow S1. After a *freshly confirmed* S2 of our own,
         // the next AUTO handoff may start S1 without getting stuck
@@ -491,7 +529,9 @@ final class JVHeliosSimpleFanV2
             &&$now-$baseline<=3*60;
         $entry=($desired===1 &&$fan>2 &&!$baselineFresh)?2:$desired;
         return self::start($s,$entry,$now,
-            (string)($plan['reason']??''));
+            (string)($plan['reason']??''),
+            $entry===$desired?(int)($plan['minutes']??0)
+                :self::BASE_DURATION_MINUTES);
     }
 
     /** Pure post-RPC failure transition: no blind retry on uncertain error. */
@@ -510,7 +550,7 @@ final class JVHeliosSimpleFanV2
         $elapsed=$now-(int)($s['sent_at']??0);
         $stage=(int)($s['stage']??0);
         $minutes=(int)($s['duration_minutes']??self::SHORT_DURATION_MINUTES);
-        $lead=$stage===0?60:($stage===1?2*60:
+        $lead=$stage===0?90:($stage===1?90:
             self::REARM_MARGIN_SECONDS+60);
         return $elapsed>=max(0,$minutes*60-$lead);
     }
