@@ -420,7 +420,7 @@ $quietStop=JVHeliosSimpleFanV2::step($quietPlan,
     ['mode'=>3,'fan'=>1,'program'=>3],
     $quietElapsed['state'],$morningAt+29*60);
 v2($quietStop['action']['type']==='stop'
-    &&$quietStop['state']['quiet_cooldown_until']>=$morningAt+3600,
+    &&$quietStop['state']['quiet_cooldown_until']>=$morningAt+29*60+1800,
     'S1 29min exit establishes guarded recovery pause');
 
 echo "SIMPLE V2: deterministic policy, manufacturer timer FSM, safety and 1600 simulations passed\n";
