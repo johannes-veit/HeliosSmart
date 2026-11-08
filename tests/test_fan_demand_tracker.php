@@ -95,4 +95,34 @@ $long=JVHeliosFanDemandTracker::update($state,$x,$now+31*3600);
 fanTrackerAssert(count($long['state']['samples'])<=360
     &&$long['advice']['off_authorized']===false,
  'Old observations expire; OFF remains locked');
+// No daily-clock dependence: overnight and early-morning absence get
+// S1 after real air-exchange observations and 30min fresh SHADOW hints.
+$overnight=(new DateTimeImmutable('2026-11-08 01:00:00',$tz))->getTimestamp();
+$overnightState=[];
+$nightX=$x;
+$nightX['occupancy']=$away;
+$nightX['fan']=2;$nightX['mode']=2;
+$nightX['max_room_rh']=51;$nightX['native_extract_rh']=45;
+$nightX['recent_house_activity']=false;
+for($i=0;$i<=8;$i++){
+    $nightResult=JVHeliosFanDemandTracker::update(
+        $overnightState,$nightX,$overnight+$i*300);
+    $overnightState=$nightResult['state'];
+}
+$nightAdvice=$nightResult['advice'];
+fanTrackerAssert($nightAdvice['away_low_demand_eligible']===true
+    &&$nightAdvice['morning_ventilation_observed']===false
+    &&$nightAdvice['recent_ventilation_observed']===true,
+    'nighttime SHADOW absence works after observed S2 airflow without morning S3');
+fanTrackerAssert(($nightAdvice['away_applies_all_day_including_night']??false)===true,
+    'no artificial 09-23h limit on true low-demand away policy');
+$overnightNoAir=JVHeliosFanDemandTracker::update(
+    [],array_replace($nightX,['fan'=>1]),$overnight+60*300);
+fanTrackerAssert($overnightNoAir['advice']['away_low_demand_eligible']===false,
+    'phone absence without any actually observed ventilation never enables S1');
+$staleAir=JVHeliosFanDemandTracker::update(
+    $overnightState,$nightX,$overnight+8*3600);
+fanTrackerAssert($staleAir['advice']['away_low_demand_eligible']===false,
+    'a historic morning flush cannot authorize S1 after many hours without proof');
+
 echo "FAN DEMAND / AWAY TRACKER TESTS PASSED\n";
