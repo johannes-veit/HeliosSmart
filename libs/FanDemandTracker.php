@@ -110,8 +110,8 @@ final class JVHeliosFanDemandTracker
                 &&$h>=7&&$h<12 &&$f>=3)
                 $morning[]=$t;
         }
-        // Three 5-minute sampling buckets with no gap > 8 minutes:
-        // at least a documented morning ventilation sequence, not inferred
+        // Four 5-minute sampling buckets with no gap > 8 minutes:
+        // >=15min time between first and last observed fan values, not inferred
         // from a schedule that might never have executed.
         $run=0;$best=0;$prior=0;
         foreach($morning as $t){
@@ -119,12 +119,12 @@ final class JVHeliosFanDemandTracker
             $best=max($best,$run);
             $prior=$t;
         }
-        $morningCompleted=$best>=3;
+        $morningCompleted=$best>=4;
         // A resident may leave before the traditional 07-12 flush or
         // remain away overnight. Permit low-speed economy after an
         // ACTUALLY OBSERVED fresh ventilation quota, not a scheduled
-        // event and not a phone status alone. Three consecutive 5min
-        // S3+ samples OR six consecutive 5min S2+ samples within 6h.
+        // event and not a phone status alone. Four consecutive 5min
+        // S3+ samples OR seven consecutive 5min S2+ samples within 6h.
         // After many hours of S1 the quota expires until S2/S3 has
         // run again; this avoids indefinite reduced ventilation.
         $freshVent3=0;$freshVent2=0;$lastVent3=0;$lastVent2=0;
@@ -138,14 +138,14 @@ final class JVHeliosFanDemandTracker
                     ?$freshVent3+1:1;
                 $bestVent3=max($bestVent3,$freshVent3);
                 $lastVent3=$t;
-                if($freshVent3>=3)$lastAdequateVentAt=$t;
+                if($freshVent3>=4)$lastAdequateVentAt=$t;
             }else $freshVent3=0;
             if($level>=2){
                 $freshVent2=$lastVent2>0&&$t-$lastVent2<=8*60
                     ?$freshVent2+1:1;
                 $bestVent2=max($bestVent2,$freshVent2);
                 $lastVent2=$t;
-                if($freshVent2>=6)$lastAdequateVentAt=$t;
+                if($freshVent2>=7)$lastAdequateVentAt=$t;
             }else $freshVent2=0;
         }
         $recentVentilation=$lastAdequateVentAt>0
