@@ -3179,8 +3179,11 @@ class HeliosSmart extends IPSModule
             'weather_quality'=>$decision['weather_quality']??'UNAVAILABLE',
             'weather_age_seconds'=>isset($weather['current']['observed_at'])
                 ?$now-(int)$weather['current']['observed_at']:PHP_INT_MAX,
+            // Ordinary night quiet remains available to occupied rooms
+            // once the post-OFF S2 recovery is complete. A returning
+            // resident during owned OFF is handled by the higher-priority
+            // home_return_from_off gate, not by disabling all night S1.
             'quiet_requested'=>$this->ReadPropertyBoolean('EnableNightQuiet')
-                &&!$oneHomeNow
                 &&($decision['night_strategy']['quiet_eligible']??false)===true,
             'one_resident_home_now'=>$oneHomeNow,
             'home_return_from_off'=>$homeReturnFromOff,
