@@ -200,7 +200,7 @@ foreach([
     ['last_adequate_ventilation_at'=>0],
     ['last_adequate_ventilation_at'=>$offNow-3*3600],
     ['off_daily_count'=>2],
-    ['off_last_end_at'=>$offNow-5*60],
+    ['off_last_end_at'=>$offNow-30,'last_adequate_ventilation_at'=>$offNow-5*60],
 ] as $veto){
     $blockedOff=$plan(array_replace($offReady,$veto));
     v2($blockedOff['target_stage']!==0,
