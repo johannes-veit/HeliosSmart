@@ -463,7 +463,7 @@ class HeliosSmart extends IPSModule
     {
         return json_encode([
             'elements'=>[
-                ['type'=>'Label','caption'=>'HELIOS SMART V2: S2 normale 30-Minuten-Grundlueftung, S1 als 15-Minuten-Sparprogramm nachts oder bei SHADOW-Abwesenheit (60-Min-Pause), S3 nach Bedarf, S4 bei echtem Kochen/Duschen. Optional Stufe 0 max. 5 Min nur mit Mess- und Feuchteschutzfreigaben. Native Hersteller-AUTO bleibt Fallback.'],
+                ['type'=>'Label','caption'=>'HELIOS SMART V2: S2 im Normalbetrieb bis 120 Minuten; S1 bei bestaetigter Nicht-Zuhause-Meldung bis 60 Minuten, nachts bei geringem Bedarf auch mit Bewohnern bis 30 Minuten. S4 bei Kochen/Duschen oder streng bestaetigter Sommer-Kuehlung. Optional werktags bis 2 x 120 Minuten AUS nur nach realer Luftmengen- und Feuchteschutzfreigabe. Eine frische ZUHAUSE-Meldung von Johannes ODER Carina beendet AUS sofort; danach S2, bei Kochen S4 mit 5 Minuten Nachlauf.'],
                 ['type'=>'NumberSpinner','name'=>'HeliosInstance','caption'=>'Original Helios Symcon Modul (hier #19285, gemeinsam genutzte einzige Geraeteinstanz)'],
                 ['type'=>'Label','caption'=>'Das originale HELIOS-Modul liest alle 61 Sekunden und fuehrt das Hersteller-Wochenprogramm aus. HELIOS SMART nutzt dessen native GETs; keine zweite direkte HTTP-Steuerung. Angewendete Helios-Konfiguration muss Status 102/OK haben. Bei Fehler 209 ist Eigenes Skript aktiv, aber keine Skript-ID gewaehlt. Fehler nur in der Originalinstanz beheben; HELIOS SMART veraendert diese Konfiguration nicht.'],
                 ['type'=>'Button','caption'=>'HELIOS-Originalinstanz jetzt nur lesend pruefen','onClick'=>'echo JVHS_CheckNativeHeliosIntegration($id);'],
