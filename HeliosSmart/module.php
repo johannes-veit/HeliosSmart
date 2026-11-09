@@ -3210,6 +3210,10 @@ class HeliosSmart extends IPSModule
                 &&in_array((string)($smartState['phase']??''),
                     ['STARTING','ACTIVE'],true)
                 &&(int)($smartState['mode']??0)===3,
+            'own_off_auto_handoff_pending'=>
+                (int)($smartState['stage']??-1)===0
+                &&(string)($smartState['phase']??'')==='STOPPING'
+                &&(int)($smartState['mode']??0)===3,
             'quiet_cooldown_until'=>(int)($smartState['quiet_cooldown_until']??0),
             'minimum_airflow_validated'=>$this->ReadPropertyBoolean('MinimumVentilationValidated'),
             'model_airflow_accepted'=>$this->ReadPropertyBoolean('AllowEstimatedAirflowLimitedParty'),
