@@ -716,5 +716,30 @@ it(($firstJohannes['advice']['occupancy']['home_presence_hint']??false)
     &&($firstJohannes['advice']['occupancy']['status']??'')
         ==='ONE_HOME_HINT',
     'presence policy also accepts Johannes alone while Carina is WORK');
+// Actual event path for Johannes alone as well: simulate a second
+// short OFF episode with Carina now WORK and Johannes freshly HOME.
+$GLOBALS['deviceMode']=3;$GLOBALS['deviceFan']=0;
+$GLOBALS['values'][30441]=0;$GLOBALS['values'][58762]=3;
+$shadowControl->WriteAttributeString('SmartFanTakeoverState',json_encode([
+    'v'=>2,'phase'=>'ACTIVE','stage'=>0,'mode'=>3,
+    'sent_at'=>time()-85,'native_timer_anchor_at'=>time()-85,
+    'duration_minutes'=>120,'until'=>time()+7100,
+    'pending_until'=>0,'readback_pending_until'=>0,
+    'off_last_end_at'=>0,'off_next_allowed_at'=>time()+8000,
+    'off_daily_day'=>'2026-11-09','off_daily_count'=>2,
+    'last_off_check_at'=>time()-120,
+]));
+$beforeJohannes=count($GLOBALS['calls']);
+$shadowControl->MessageSink(time(),60001,VM_UPDATE,
+    ['ZUHAUSE (Handy-WLAN bestaetigt)',true]);
+$johannesEvent=json_decode($shadowControl->value('DecisionJSON'),true);
+$johannesCalls=array_slice($GLOBALS['calls'],$beforeJohannes);
+it(($johannesEvent['presence_immediate_v2']['one_home_confirmed']??false)
+        ===true
+    &&($johannesEvent['smart_fan_takeover']['target_stage']??null)===2
+    &&count($johannesCalls)===1
+    &&$johannesCalls[0][0]==='whisper'
+    &&$johannesCalls[0][1][1]===false,
+    'Johannes HOME alone immediately terminates owned OFF, Carina may stay WORK');
 
 echo "ALLE $counter SYMCON-LIVE-INTEGRATIONSPRUEFUNGEN BESTANDEN\n";
