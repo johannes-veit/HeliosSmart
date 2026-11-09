@@ -247,7 +247,7 @@ v2($offStable['action']===null &&$offStable['verified'],
     '120min OFF is not renewed or interrupted at 90min');
 v2(JVHeliosSimpleFanV2::wakeDue($offStable['state'],$offNow+90*60+61),
     'while OFF, device moisture and SHADOW must be checked at least minutely');
-$offHome=JVHeliosSimpleFanV2::step($plan($offReady),
+$offHome=JVHeliosSimpleFanV2::step($plan(),
     $offLive,$offAck['state'],$offNow+3*60);
 v2($offHome['action']['type']==='stop'
     &&$offHome['action']['mode']===3,
@@ -292,9 +292,14 @@ $secondPlan=$plan(array_replace($offReady,[
 ]));
 v2($secondPlan['target_stage']===0,
     'after documented post-OFF 30min S2, second weekday OFF is permitted');
+$readyForSecond=array_replace($offReturned['state'],[
+    // The intervening S2 has completed and the original Party
+    // has returned to manufacturer AUTO, preserving OFF counters.
+    'phase'=>'IDLE','mode'=>0,'stage'=>0,
+]);
 $second=JVHeliosSimpleFanV2::step($secondPlan,
     ['mode'=>0,'fan'=>2,'program'=>3],
-    $offReturned['state'],$secondT);
+    $readyForSecond,$secondT);
 v2($second['action']['stage']===0
     &&$second['action']['minutes']===120
     &&($second['state']['off_daily_count']??0)===2,
@@ -308,6 +313,14 @@ $thirdPlan=$plan(array_replace($offReady,[
 ]));
 v2($thirdPlan['target_stage']!==0,
     'max two native 120min OFF blocks per weekday; no infinite chaining');
+$dailyCap=$plan(array_replace($offReady,[
+    'off_daily_count'=>2,'now'=>$secondT,
+    'last_adequate_ventilation_at'=>$secondT-60,
+    'off_last_end_at'=>$offEndedAt,
+    'off_next_allowed_at'=>$offNext,
+]));
+v2($dailyCap['target_stage']!==0,
+    'two-hour manufacturer permission never creates a third OFF on same day');
 
 // Complete simulated manufacturer native timed-mode 15min lifecycle.
 $auto=['mode'=>0,'fan'=>3,'program'=>3];
