@@ -377,7 +377,9 @@ class HeliosSmart extends IPSModule
                     &&in_array((string)($owned['phase']??''),
                         ['STARTING','ACTIVE'],true);
                 $changed=$signature!==$prior;
-                $urgentHome=$oneHome &&$ownOff;
+                // A fresh HOME state change is always urgent, even
+                // when the previous stage was S1 (not only native OFF).
+                $urgentHome=$oneHome &&($ownOff ||$changed);
                 $shadowWake['last_signature']=$signature;
                 $shadowWake['last_event_at']=$now;
                 if($changed &&($urgentHome ||$last<=0 ||$now-$last>=10)
