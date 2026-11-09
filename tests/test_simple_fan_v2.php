@@ -452,8 +452,11 @@ $afterRunStop=JVHeliosSimpleFanV2::step($afterRunFinished,
 v2(($afterRunStop['action']['type']??'')==='stop',
     'cooking finish stops S4 before S2 handover');
 v2($plan(['quiet_requested'=>true,'one_resident_home_now'=>true])
-        ['target_stage']===2,
-    'fresh HOME suppresses night low stage while anyone remains home');
+        ['target_stage']===1,
+    'after post-OFF recovery, optional quiet-night S1 remains possible at home');
+v2($plan(['quiet_requested'=>true,'one_resident_home_now'=>true,
+        'home_return_from_off'=>true])['target_stage']===2,
+    'immediately after OFF, positive HOME prioritizes S2 over night S1');
 v2($plan(['home_return_from_off'=>true,
         'one_resident_home_now'=>false,
         'morning_flush_requested'=>true])['target_stage']===3,
