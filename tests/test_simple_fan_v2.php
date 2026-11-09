@@ -172,8 +172,8 @@ $offReady=[
     'away_no_home_minutes'=>75,'max_room_rh'=>49,
     'native_extract_rh'=>45,'off_next_allowed_at'=>0,
     'last_adequate_ventilation_at'=>$offNow-60,
-    'off_last_end_at'=>0,'off_daily_day'=>$offDay,
-    'off_daily_count'=>0,
+    'off_last_end_at'=>0,'off_recovery_pending'=>false,
+    'off_daily_day'=>$offDay,'off_daily_count'=>0,
 ];
 $offPlan=$plan($offReady);
 v2($offPlan['target_stage']===0&&$offPlan['minutes']===120
@@ -266,14 +266,18 @@ $afterOffPlan=$plan(array_replace($offReady,[
     'now'=>$offNow+119*60+40,
     'off_next_allowed_at'=>$offState['off_next_allowed_at'],
     'last_adequate_ventilation_at'=>$offNow-60,
+    'off_recovery_pending'=>true,
     'off_daily_count'=>1,
 ]));
+v2($afterOffPlan['target_stage']===2
+    &&$afterOffPlan['reason']==='POST_LONG_OFF_RECOVERY_S2',
+    'on native OFF stop completion, immediately command a real S2 recovery');
 $offReturned=JVHeliosSimpleFanV2::step($afterOffPlan,
     ['mode'=>0,'fan'=>2,'program'=>3],
     $offLastMinute['state'],$offNow+119*60+40);
 v2(($offReturned['state']['off_last_end_at']??0)>$offNow
-    &&($offReturned['action']['stage']??0)>=1,
-    'AUTO is confirmed after OFF and ordinary ventilation is restored');
+    &&($offReturned['action']['stage']??0)===2,
+    'native AUTO after long OFF starts directly on S2, not unsafe S1');
 $offEndedAt=(int)$offReturned['state']['off_last_end_at'];
 $offNext=(int)$offReturned['state']['off_next_allowed_at'];
 $notYet=$plan(array_replace($offReady,[
@@ -284,6 +288,8 @@ $notYet=$plan(array_replace($offReady,[
 ]));
 v2($notYet['target_stage']!==0,
     'elapsed-time cooldown alone cannot authorize another OFF without S2');
+v2($notYet['target_stage']===2,
+    'while no post-OFF ventilation is proven, S1 is also suppressed');
 $secondT=$offEndedAt+35*60;
 $secondPlan=$plan(array_replace($offReady,[
     'now'=>$secondT,'last_adequate_ventilation_at'=>$secondT-60,
