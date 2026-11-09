@@ -140,8 +140,15 @@ final class JVHeliosSimpleFanV2
             return $deny('MANUAL_OR_VACATION_MODE');
         $ownOff=($d['own_timed_off_active']??false)===true
             &&($d['mode']??null)===3;
+        // On easyControls the native Whisper STOP can report AUTO
+        // while FanLevel_Get temporarily still returns 0. This is
+        // legitimate ONLY for our own pending S0->AUTO handoff, never
+        // a generic license to control a stranger's stopped device.
+        $offAutoHandoff=($d['own_off_auto_handoff_pending']??false)===true
+            &&($d['mode']??null)===0;
         if(!in_array($d['actual_fan']??null,[1,2,3,4],true)
-            && !(($d['actual_fan']??null)===0 &&$ownOff))
+            && !(($d['actual_fan']??null)===0
+                &&($ownOff||$offAutoHandoff)))
             return $deny('FAN_LIVE_INVALID');
         if(!is_int($d['native_week_program']??null)
             ||($d['native_week_program']??5)>4
@@ -222,6 +229,14 @@ final class JVHeliosSimpleFanV2
             $level=$strongSummer?4:3;
             $reason=$strongSummer?'VERIFIED_SUMMER_COOLING_S4'
                 :'VERIFIED_PASSIVE_COOLING';
+        } elseif(($d['home_return_from_off']??false)===true
+            &&($d['one_resident_home_now']??false)===true){
+            // Positive HOME from even ONE resident wins over absence,
+            // scheduled morning boost and quiet. Real cooking/shower,
+            // cooling, elevated room RH and native safety above still
+            // have priority over normal S2.
+            $level=2;
+            $reason='ONE_RESIDENT_HOME_RESTORE_S2';
         } elseif(($d['morning_flush_requested']??false)===true){
             // Exactly one bounded daily flush where outside absolute
             // humidity has already been validated against the rooms.
@@ -314,6 +329,10 @@ final class JVHeliosSimpleFanV2
         $o['evidence']=[
             'hob_active_or_afterrun'=>$hob,
             'shower_high_confidence'=>$shower,
+            'positive_home_hint_ends_away_off'=>
+                ($d['one_resident_home_now']??false)===true,
+            'one_home_prioritizes_s2_when_safe'=>
+                ($d['home_return_from_off']??false)===true,
             'native_rh'=>(float)$rh,
             'airflow_real_validated'=>(bool)($d['minimum_airflow_validated']??false),
             'airflow_model_only'=>(bool)($d['model_airflow_accepted']??false),

@@ -591,4 +591,155 @@ it(($homeRestart['status']??'')==='SIMPLE_START_SENT_WAIT_DEVICE'
     &&$homeCalls[2][1][2]===2,
     'manufacturer AUTO acknowledgement recovers to S2 without OFF loop');
 
+// The real user requirement: Johannes OR Carina status changes at
+// 11:50 from WORK/UNKNOWN to ZUHAUSE while own native Whisper S0 is
+// physically active. SHADOW VM_UPDATE must wake the complete decision
+// immediately; no five-minute poll or extra Symcon automation script.
+$GLOBALS['nativeStatus']=102;
+$GLOBALS['nativeDefrost']=false;$GLOBALS['nativeExtractRh']=45;
+$GLOBALS['deviceMode']=3;$GLOBALS['deviceFan']=0;$GLOBALS['deviceProgram']=3;
+$GLOBALS['values'][30441]=0;$GLOBALS['values'][58762]=3;
+$GLOBALS['values'][60001]='WORK (Firmen-WLAN-Handy)';
+$GLOBALS['values'][60002]='WORK (Firmen-WLAN-Handy)';
+$GLOBALS['values'][60003]='{}';
+$GLOBALS['values'][47825]=0.0;$GLOBALS['values'][59558]=true;
+$GLOBALS['variableTimeByID'][60001]=time()-3;
+$GLOBALS['variableTimeByID'][60002]=time()-3;
+$GLOBALS['variableTimeByID'][60003]=time()-3;
+$GLOBALS['variableTimeByID'][47825]=time()-3;
+$GLOBALS['variableTimeByID'][59558]=time()-3;
+$shadowControl=new HeliosSmart();$shadowControl->Create();
+$shadowControl->setProperty('WeatherCenterInstance',42);
+$shadowControl->setProperty('EnableControl',true);
+$shadowControl->setProperty('EnableSmartFanTakeover',true);
+$shadowControl->setProperty('EnableDailyMorningFlush',false);
+$shadowControl->setProperty('EnableNightQuiet',false);
+$shadowControl->setProperty('AllowEstimatedAirflowLimitedParty',true);
+$shadowControl->setProperty('EnableProgramSwitch',false);
+$shadowControl->setProperty('EnableHighPowerParty',true);
+$shadowControl->setProperty('HighPowerSafetyValidated',true);
+$shadowControl->setProperty('CombustionSafetyValidated',true);
+$shadowControl->ApplyChanges();
+$shadowWatches=$shadowControl->getWatches();
+it(isset($shadowWatches[60001])&&isset($shadowWatches[60002])
+    &&isset($shadowWatches[60003]),
+    'SHADOW Johannes, Carina and EvidenceJSON become native VM_UPDATE sources');
+$shadowControl->WriteAttributeString('SmartFanTakeoverState',json_encode([
+    'v'=>2,'phase'=>'ACTIVE','stage'=>0,'mode'=>3,
+    'sent_at'=>time()-170,'native_timer_anchor_at'=>time()-170,
+    'duration_minutes'=>120,'until'=>time()+7030,
+    'pending_until'=>0,'readback_pending_until'=>0,
+    'off_last_end_at'=>0,'off_next_allowed_at'=>time()+8000,
+    'off_daily_day'=>'2026-11-09','off_daily_count'=>2,
+    'last_off_check_at'=>time()-120,
+]));
+$beforeArrival=count($GLOBALS['calls']);
+$GLOBALS['values'][60002]='ZUHAUSE (Handy-WLAN bestaetigt)';
+$GLOBALS['variableTimeByID'][60002]=time();
+$shadowControl->MessageSink(time(),60002,VM_UPDATE,
+    ['ZUHAUSE (Handy-WLAN bestaetigt)',true]);
+$immediate=json_decode($shadowControl->value('DecisionJSON'),true);
+$shadowCalls=array_slice($GLOBALS['calls'],$beforeArrival);
+it(($immediate['presence_immediate_v2']['one_home_confirmed']??false)===true
+    &&($immediate['smart_fan_takeover']['target_stage']??null)===2
+    &&($immediate['smart_fan_takeover']['reason']??'')
+        ==='ONE_RESIDENT_HOME_RESTORE_S2'
+    &&count($shadowCalls)===1
+    &&$shadowCalls[0][0]==='whisper'
+    &&$shadowCalls[0][1][1]===false
+    &&$GLOBALS['deviceMode']===0,
+    'Carina HOME event immediately cancels active OFF via native Whisper STOP');
+$shadowControl->CheckSmartFanRenewal();
+$homeStart=json_decode($shadowControl->value('DecisionJSON'),true);
+it(($homeStart['smart_fan_execution']['status']??'')
+        ==='SIMPLE_START_SENT_WAIT_DEVICE'
+    &&$GLOBALS['deviceMode']===2&&$GLOBALS['deviceFan']===2,
+    'after manufacturer AUTO, home arrival starts safe stage S2');
+$shadowControl->CheckSmartFanRenewal();
+$homeAck=json_decode($shadowControl->value('DecisionJSON'),true);
+it(($homeAck['smart_fan_execution']['status']??'')==='SIMPLE_STAGE_CONFIRMED',
+    'S2 hardware acknowledgment is confirmed independently after home');
+$watchStateBefore=json_decode(
+    $shadowControl->ReadAttributeString('ShadowPresenceWakeState'),true);
+$shadowControl->MessageSink(time(),60003,VM_UPDATE,['{}',true]);
+$watchStateAfter=json_decode(
+    $shadowControl->ReadAttributeString('ShadowPresenceWakeState'),true);
+it(($watchStateBefore['last_eval_at']??-1)
+        ===($watchStateAfter['last_eval_at']??-2),
+    'unchanged SHADOW EvidenceJSON heartbeat causes no repeated Evaluate');
+$GLOBALS['values'][47825]=130.0;
+$GLOBALS['variableTimeByID'][47825]=time();
+$shadowControl->MessageSink(time(),47825,VM_UPDATE,[130.0,true]);
+$homeCook=json_decode($shadowControl->value('DecisionJSON'),true);
+it(($homeCook['smart_fan_takeover']['target_stage']??null)===4
+    &&($homeCook['smart_fan_execution']['status']??'')
+        ==='SIMPLE_STOP_SENT_WAIT_AUTO'
+    &&$GLOBALS['deviceMode']===0,
+    'after Carina returns, true cooktop >5W promotes S2 to S4 without delay');
+$shadowControl->CheckSmartFanRenewal();
+it($GLOBALS['deviceMode']===2&&$GLOBALS['deviceFan']===4,
+    'native S4 party starts once AUTO was confirmed for cooking');
+$shadowControl->CheckSmartFanRenewal();
+$boostAck=json_decode($shadowControl->value('DecisionJSON'),true);
+it(($boostAck['smart_fan_execution']['status']??'')==='SIMPLE_STAGE_CONFIRMED',
+    'cooking S4 gets independent native acknowledgment');
+$GLOBALS['values'][47825]=0.0;
+$GLOBALS['variableTimeByID'][47825]=time();
+$shadowControl->MessageSink(time(),47825,VM_UPDATE,[0.0,true]);
+$homeAfterrun=json_decode($shadowControl->value('DecisionJSON'),true);
+it(($homeAfterrun['hob_power_direct']['five_minute_afterrun']??false)===true
+    &&($homeAfterrun['smart_fan_takeover']['target_stage']??null)===4,
+    'real cooktop OFF retains S4 for five-minute afterrun');
+$shadowControl->WriteAttributeString('HobPowerState',json_encode([
+    'phase'=>'AFTER_RUN','off_at'=>time()-301,'watched_id'=>47825,
+]));
+$shadowControl->Evaluate();
+$homeAfterrunEnd=json_decode($shadowControl->value('DecisionJSON'),true);
+it(($homeAfterrunEnd['hob_power_direct']['boost_requested']??true)===false
+    &&($homeAfterrunEnd['smart_fan_takeover']['target_stage']??null)===2,
+    'after five-minute cooktop runout Carina still HOME, returning to S2');
+// Either person counts: a fresh positive Johannes HOME also cancels own
+// OFF even when Carina WORK (separate from Carina test above).
+$GLOBALS['values'][60002]='WORK (Firmen-WLAN-Handy)';
+$GLOBALS['values'][60001]='ZUHAUSE (Handy-WLAN bestaetigt)';
+$GLOBALS['variableTimeByID'][60001]=time();
+$firstJohannes=JVHeliosCookingAdvisor::analyze([
+    'residents'=>[
+        'Johannes'=>['status'=>$GLOBALS['values'][60001],
+            'source_recent'=>true],
+        'Carina'=>['status'=>$GLOBALS['values'][60002],
+            'source_recent'=>true],
+    ],
+],time());
+it(($firstJohannes['advice']['occupancy']['home_presence_hint']??false)
+        ===true
+    &&($firstJohannes['advice']['occupancy']['status']??'')
+        ==='ONE_HOME_HINT',
+    'presence policy also accepts Johannes alone while Carina is WORK');
+// Actual event path for Johannes alone as well: simulate a second
+// short OFF episode with Carina now WORK and Johannes freshly HOME.
+$GLOBALS['deviceMode']=3;$GLOBALS['deviceFan']=0;
+$GLOBALS['values'][30441]=0;$GLOBALS['values'][58762]=3;
+$shadowControl->WriteAttributeString('SmartFanTakeoverState',json_encode([
+    'v'=>2,'phase'=>'ACTIVE','stage'=>0,'mode'=>3,
+    'sent_at'=>time()-85,'native_timer_anchor_at'=>time()-85,
+    'duration_minutes'=>120,'until'=>time()+7100,
+    'pending_until'=>0,'readback_pending_until'=>0,
+    'off_last_end_at'=>0,'off_next_allowed_at'=>time()+8000,
+    'off_daily_day'=>'2026-11-09','off_daily_count'=>2,
+    'last_off_check_at'=>time()-120,
+]));
+$beforeJohannes=count($GLOBALS['calls']);
+$shadowControl->MessageSink(time(),60001,VM_UPDATE,
+    ['ZUHAUSE (Handy-WLAN bestaetigt)',true]);
+$johannesEvent=json_decode($shadowControl->value('DecisionJSON'),true);
+$johannesCalls=array_slice($GLOBALS['calls'],$beforeJohannes);
+it(($johannesEvent['presence_immediate_v2']['one_home_confirmed']??false)
+        ===true
+    &&($johannesEvent['smart_fan_takeover']['target_stage']??null)===2
+    &&count($johannesCalls)===1
+    &&$johannesCalls[0][0]==='whisper'
+    &&$johannesCalls[0][1][1]===false,
+    'Johannes HOME alone immediately terminates owned OFF, Carina may stay WORK');
+
 echo "ALLE $counter SYMCON-LIVE-INTEGRATIONSPRUEFUNGEN BESTANDEN\n";
