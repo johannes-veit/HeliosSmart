@@ -222,6 +222,14 @@ final class JVHeliosSimpleFanV2
             $level=$strongSummer?4:3;
             $reason=$strongSummer?'VERIFIED_SUMMER_COOLING_S4'
                 :'VERIFIED_PASSIVE_COOLING';
+        } elseif(($d['home_return_from_off']??false)===true
+            &&($d['one_resident_home_now']??false)===true){
+            // Positive HOME from even ONE resident wins over absence,
+            // scheduled morning boost and quiet. Real cooking/shower,
+            // cooling, elevated room RH and native safety above still
+            // have priority over normal S2.
+            $level=2;
+            $reason='ONE_RESIDENT_HOME_RESTORE_S2';
         } elseif(($d['morning_flush_requested']??false)===true){
             // Exactly one bounded daily flush where outside absolute
             // humidity has already been validated against the rooms.
@@ -245,6 +253,7 @@ final class JVHeliosSimpleFanV2
                 $reason='POST_LONG_OFF_RECOVERY_S2';
             }
             $quiet=!$postOffRecovery
+                &&($d['one_resident_home_now']??false)!==true
                 &&(($d['away_daytime_low_demand']??false)===true
                     ||($d['quiet_requested']??false)===true);
             $cooldown=(int)($d['quiet_cooldown_until']??0)>($d['now']??0);
@@ -314,6 +323,10 @@ final class JVHeliosSimpleFanV2
         $o['evidence']=[
             'hob_active_or_afterrun'=>$hob,
             'shower_high_confidence'=>$shower,
+            'positive_home_hint_ends_away_off'=>
+                ($d['one_resident_home_now']??false)===true,
+            'one_home_prioritizes_s2_when_safe'=>
+                ($d['home_return_from_off']??false)===true,
             'native_rh'=>(float)$rh,
             'airflow_real_validated'=>(bool)($d['minimum_airflow_validated']??false),
             'airflow_model_only'=>(bool)($d['model_airflow_accepted']??false),
