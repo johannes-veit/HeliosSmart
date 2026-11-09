@@ -100,6 +100,7 @@ class HeliosSmart extends IPSModule
         $this->RegisterAttributeString('SmartFanRecoveryState','{}');
         $this->RegisterAttributeString('SmartFanReliabilityState','{}');
         $this->RegisterAttributeString('FanDemandHistory','{}');
+        $this->RegisterAttributeString('ShadowPresenceWakeState','{}');
         $this->RegisterAttributeString('ChatGPTDiagnosticState','{}');
         $this->RegisterPropertyBoolean('EnableNightQuiet',false);
         $this->RegisterAttributeString('RoomHistory', '{}');
@@ -278,6 +279,47 @@ class HeliosSmart extends IPSModule
             $this->WriteAttributeString('HobPowerState','{}');
         } else $hobWake['watched_id']=$newHobID;
         $this->WriteAttributeString('HobWakeState',json_encode($hobWake));
+        // Existing SHADOW instance owns the resident strings. Listen
+        // directly to their REAL variable updates so arrival wakes
+        // HELIOS immediately, instead of waiting up to five minutes.
+        // EvidenceJSON is a freshness heartbeat: do not treat a missing
+        // positive HOME status as physical proof the house is empty.
+        $shadowWake=json_decode(
+            $this->ReadAttributeString('ShadowPresenceWakeState'),true);
+        $shadowWake=is_array($shadowWake)?$shadowWake:[];
+        $shadowPrior=array_values(array_unique(array_map('intval',
+            (array)($shadowWake['watched']??[]))));
+        $shadowDesired=[];
+        $shadowID=(int)$this->ReadPropertyInteger('ResidentShadowInstance');
+        if($shadowID>0 &&IPS_InstanceExists($shadowID)
+            &&function_exists('IPS_GetInstance')
+            &&function_exists('IPS_GetObjectIDByIdent')
+            &&strcasecmp((string)(IPS_GetInstance($shadowID)
+                ['ModuleInfo']['ModuleID']??''),
+                '{D94700DB-96B0-490C-9F23-E6AE39677384}')===0){
+            foreach(['JohannesPresence','CarinaPresence','EvidenceJSON']
+                as $ident){
+                $id=0;
+                try{$id=(int)@IPS_GetObjectIDByIdent($ident,$shadowID);}
+                catch(Throwable $e){$id=0;}
+                if($id>0 &&IPS_VariableExists($id)
+                    &&(!function_exists('IPS_GetObject')
+                        ||(int)(IPS_GetObject($id)['ObjectType']??2)===2))
+                    $shadowDesired[]=$id;
+            }
+        }
+        $shadowDesired=array_values(array_unique($shadowDesired));
+        foreach(array_diff($shadowPrior,$shadowDesired) as $id)
+            if(!in_array($id,$allDesired,true)
+                &&!in_array($id,$newEwt,true)
+                &&$id!==$newHobID)
+                $this->UnregisterMessage($id,VM_UPDATE);
+        foreach($shadowDesired as $id)if(!in_array($id,$allDesired,true)
+            &&!in_array($id,$newEwt,true)&&$id!==$newHobID)
+            $this->RegisterMessage($id,VM_UPDATE);
+        $shadowWake['watched']=$shadowDesired;
+        $this->WriteAttributeString('ShadowPresenceWakeState',
+            json_encode($shadowWake));
         $state=JVHeliosWetroomEvents::prune($state,$desired);
         $this->WriteAttributeString('WetroomEventState',json_encode($state));
         $this->WriteAttributeString('CookingEventState',json_encode(
@@ -296,6 +338,62 @@ class HeliosSmart extends IPSModule
     public function MessageSink($TimeStamp, $SenderID, $Message, $Data)
     {
         $sender=(int)$SenderID;
+        if((int)$Message===VM_UPDATE){
+            $shadowWake=json_decode(
+                $this->ReadAttributeString('ShadowPresenceWakeState'),true);
+            $shadowWake=is_array($shadowWake)?$shadowWake:[];
+            if(in_array($sender,(array)($shadowWake['watched']??[]),true)){
+                $now=time();
+                // Only meaningful transitions are evaluated. The
+                // SHADOW EvidenceJSON heartbeat may update frequently;
+                // it must not create an actuator command on each tick.
+                $sig=[];
+                $oneHome=false;
+                $shadow=(int)$this->ReadPropertyInteger('ResidentShadowInstance');
+                if($shadow>0 &&IPS_InstanceExists($shadow)){
+                    foreach(['Johannes','Carina'] as $person){
+                        $id=0;
+                        try{$id=(int)@IPS_GetObjectIDByIdent(
+                            $person.'Presence',$shadow);}
+                        catch(Throwable $e){$id=0;}
+                        $raw=$id>0 &&IPS_VariableExists($id)
+                            ?GetValue($id):null;
+                        $kind=JVHeliosCookingAdvisor::normalizeResident($raw);
+                        $statusAt=$id>0 &&IPS_VariableExists($id)
+                            ?(int)(IPS_GetVariable($id)['VariableUpdated']??0):0;
+                        $fresh=$statusAt>0 &&$statusAt<=$now+120
+                            &&$now-$statusAt<=30*60;
+                        $sig[$person]=[$kind,$fresh];
+                        if($kind==='HOME_PHONE_HINT' &&$fresh)$oneHome=true;
+                    }
+                }
+                $signature=json_encode($sig);
+                $prior=(string)($shadowWake['last_signature']??'');
+                $last=(int)($shadowWake['last_eval_at']??0);
+                $owned=json_decode(
+                    $this->ReadAttributeString('SmartFanTakeoverState'),true);
+                $ownOff=is_array($owned)
+                    &&(int)($owned['stage']??-1)===0
+                    &&in_array((string)($owned['phase']??''),
+                        ['STARTING','ACTIVE'],true);
+                $changed=$signature!==$prior;
+                $urgentHome=$oneHome &&$ownOff;
+                $shadowWake['last_signature']=$signature;
+                $shadowWake['last_event_at']=$now;
+                if($changed &&($urgentHome ||$last<=0 ||$now-$last>=10)
+                    ||$urgentHome){
+                    $shadowWake['last_eval_at']=$now;
+                    $shadowWake['last_home_trigger_at']=$oneHome?$now:
+                        (int)($shadowWake['last_home_trigger_at']??0);
+                    $this->WriteAttributeString('ShadowPresenceWakeState',
+                        json_encode($shadowWake));
+                    $this->Evaluate();
+                }else
+                    $this->WriteAttributeString('ShadowPresenceWakeState',
+                        json_encode($shadowWake));
+                return;
+            }
+        }
         $hobID=$this->ReadPropertyBoolean('EnableHobPowerBoost')
             ?$this->ReadPropertyInteger('HobPowerVariable'):0;
         if($hobID>0 && $sender===$hobID && (int)$Message===VM_UPDATE){
@@ -2426,6 +2524,10 @@ class HeliosSmart extends IPSModule
                         ['held','reason','extract_rh','clear_since','release_at_or_after',
                          'room_humidity_held','room_humidity_reason',
                          'room_max_rh','room_clear_since']),
+                    'presence_immediate_v2'=>$pick(
+                        (array)($d['presence_immediate_v2']??[]),
+                        ['one_home_confirmed','home_return_from_off',
+                         'own_off_in_progress','shadow_transition_last_event_at']),
                     'timed_off_v2'=>$pick((array)($d['timed_off_v2']??[]),
                         ['configured','weekday_window','long_off_minutes',
                          'max_blocks_per_weekday','blocks_started_today',
@@ -3021,6 +3123,27 @@ class HeliosSmart extends IPSModule
         ],$smartState,$now);
         $morningWanted=$morningReport['requested'];
         $decision['morning_flush_v2']=$morningReport;
+        // A verified positive HOME hint from EITHER resident has
+        // precedence over any saved away/quiet demand. This also
+        // restores S2 when the resident returns in the middle of a
+        // planned morning flush (unless shower/cook/cooling or real
+        // elevated moisture makes a higher stage necessary).
+        $oneHomeNow=($decision['occupancy_advice']['home_presence_hint']
+            ??false)===true;
+        $offOwnership=(int)($smartState['stage']??-1)===0
+            &&in_array((string)($smartState['phase']??''),
+                ['STARTING','ACTIVE','STOPPING'],true);
+        $homeReturnFromOff=$oneHomeNow &&($offOwnership
+            ||((int)($smartState['off_last_end_at']??0)>0
+                &&$now-(int)$smartState['off_last_end_at']<=30*60));
+        $decision['presence_immediate_v2']=[
+            'one_home_confirmed'=>$oneHomeNow,
+            'home_return_from_off'=>$homeReturnFromOff,
+            'own_off_in_progress'=>$offOwnership,
+            'shadow_transition_last_event_at'=>(int)(
+                (json_decode($this->ReadAttributeString(
+                    'ShadowPresenceWakeState'),true)['last_event_at']??0)),
+        ];
         $smartPlan=JVHeliosSimpleFanV2::plan([
             'now'=>$now,
             'enabled'=>$smartEnabled,
@@ -3055,7 +3178,10 @@ class HeliosSmart extends IPSModule
             'weather_age_seconds'=>isset($weather['current']['observed_at'])
                 ?$now-(int)$weather['current']['observed_at']:PHP_INT_MAX,
             'quiet_requested'=>$this->ReadPropertyBoolean('EnableNightQuiet')
+                &&!$oneHomeNow
                 &&($decision['night_strategy']['quiet_eligible']??false)===true,
+            'one_resident_home_now'=>$oneHomeNow,
+            'home_return_from_off'=>$homeReturnFromOff,
             'away_daytime_low_demand'=>$this->ReadPropertyBoolean('EnableAwayEconomy')
                 &&($history['advice']['away_low_demand_eligible']??false)===true,
             'away_no_home_minutes'=>
