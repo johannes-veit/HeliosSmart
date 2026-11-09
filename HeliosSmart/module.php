@@ -351,6 +351,17 @@ class HeliosSmart extends IPSModule
                 $oneHome=false;
                 $shadow=(int)$this->ReadPropertyInteger('ResidentShadowInstance');
                 if($shadow>0 &&IPS_InstanceExists($shadow)){
+                    // Match ReadCookingSignals() freshness semantics:
+                    // SHADOW may refresh EvidenceJSON while a known
+                    // resident status string remains unchanged.
+                    $reportID=0;
+                    try{$reportID=(int)@IPS_GetObjectIDByIdent(
+                        'EvidenceJSON',$shadow);}
+                    catch(Throwable $e){$reportID=0;}
+                    $reportAt=$reportID>0 &&IPS_VariableExists($reportID)
+                        ?(int)(IPS_GetVariable($reportID)['VariableUpdated']??0):0;
+                    $reportFresh=$reportAt>0 &&$reportAt<=$now+120
+                        &&$now-$reportAt<=30*60;
                     foreach(['Johannes','Carina'] as $person){
                         $id=0;
                         try{$id=(int)@IPS_GetObjectIDByIdent(
@@ -361,8 +372,9 @@ class HeliosSmart extends IPSModule
                         $kind=JVHeliosCookingAdvisor::normalizeResident($raw);
                         $statusAt=$id>0 &&IPS_VariableExists($id)
                             ?(int)(IPS_GetVariable($id)['VariableUpdated']??0):0;
-                        $fresh=$statusAt>0 &&$statusAt<=$now+120
-                            &&$now-$statusAt<=30*60;
+                        $fresh=$reportFresh
+                            ||($statusAt>0 &&$statusAt<=$now+120
+                                &&$now-$statusAt<=30*60);
                         $sig[$person]=[$kind,$fresh];
                         if($kind==='HOME_PHONE_HINT' &&$fresh)$oneHome=true;
                     }
@@ -2528,8 +2540,9 @@ class HeliosSmart extends IPSModule
                          'room_max_rh','room_clear_since']),
                     'presence_immediate_v2'=>$pick(
                         (array)($d['presence_immediate_v2']??[]),
-                        ['one_home_confirmed','home_return_from_off',
-                         'own_off_in_progress','shadow_transition_last_event_at']),
+                        ['source_variables_watched','one_home_confirmed',
+                         'home_return_from_off','own_off_in_progress',
+                         'shadow_transition_last_event_at']),
                     'timed_off_v2'=>$pick((array)($d['timed_off_v2']??[]),
                         ['configured','weekday_window','long_off_minutes',
                          'max_blocks_per_weekday','blocks_started_today',
@@ -3138,13 +3151,17 @@ class HeliosSmart extends IPSModule
         $homeReturnFromOff=$oneHomeNow &&($offOwnership
             ||((int)($smartState['off_last_end_at']??0)>0
                 &&$now-(int)$smartState['off_last_end_at']<=30*60));
+        $shadowWakeState=json_decode(
+            $this->ReadAttributeString('ShadowPresenceWakeState'),true);
+        $shadowWakeState=is_array($shadowWakeState)?$shadowWakeState:[];
         $decision['presence_immediate_v2']=[
+            'source_variables_watched'=>count(
+                (array)($shadowWakeState['watched']??[])),
             'one_home_confirmed'=>$oneHomeNow,
             'home_return_from_off'=>$homeReturnFromOff,
             'own_off_in_progress'=>$offOwnership,
-            'shadow_transition_last_event_at'=>(int)(
-                (json_decode($this->ReadAttributeString(
-                    'ShadowPresenceWakeState'),true)['last_event_at']??0)),
+            'shadow_transition_last_event_at'=>
+                (int)($shadowWakeState['last_event_at']??0),
         ];
         $smartPlan=JVHeliosSimpleFanV2::plan([
             'now'=>$now,
