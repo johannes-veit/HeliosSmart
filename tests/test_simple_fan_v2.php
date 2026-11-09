@@ -158,19 +158,31 @@ v2($localStart['hold']&&$localMid['hold']&&!$localDone['hold'],
 v2($plan(['max_room_rh'=>60,'room_humidity_hold'=>true])['target_stage']===3,
     'room RH hold remains effective after 66->60% fall');
 
-// Optional timed OFF is deliberately fail-closed on every protection.
+// Multiple-hour weekday 08:00-16:00 device-timed OFF only after actual
+// moisture/airflow plan, physical manufacturer minimum 0 and verified
+// stable SHADOW, fresh moisture plus observed recent S2 ventilation.
+$offNow=(new DateTimeImmutable('2026-11-09T09:00:00+01:00'))->getTimestamp();
+$offDay='2026-11-09';
 $offReady=[
+    'now'=>$offNow,
     'actual_fan'=>2,'minimum_airflow_validated'=>true,
     'timed_off_enabled'=>true,'off_ventilation_plan_validated'=>true,
     'native_min_stage'=>0,'away_daytime_low_demand'=>true,
-    'away_no_home_minutes'=>70,'max_room_rh'=>49,
+    'both_no_home_hints_fresh'=>true,'recent_house_activity'=>false,
+    'away_no_home_minutes'=>75,'max_room_rh'=>49,
     'native_extract_rh'=>45,'off_next_allowed_at'=>0,
+    'last_adequate_ventilation_at'=>$offNow-60,
+    'off_last_end_at'=>0,'off_recovery_pending'=>false,
+    'off_daily_day'=>$offDay,'off_daily_count'=>0,
 ];
 $offPlan=$plan($offReady);
-v2($offPlan['target_stage']===0&&$offPlan['minutes']===5
+v2($offPlan['target_stage']===0&&$offPlan['minutes']===120
     &&$offPlan['route']==='WHISPER'
-    &&$offPlan['evidence']['timed_off_authorized']===true,
-    'independent native 5-min OFF only after every hard validation');
+    &&($offPlan['evidence']['timed_off_authorized']??false)===true,
+    'weekday 120min OFF requires validated physical ventilation plan');
+$window=JVHeliosSimpleFanV2::weekdayOffWindow($offNow);
+v2($window['weekday']&&$window['may_start'],
+    'Monday morning 09:00 is valid OFF start');
 foreach([
     ['timed_off_enabled'=>false],
     ['off_ventilation_plan_validated'=>false],
@@ -178,58 +190,143 @@ foreach([
     ['native_min_stage'=>1],
     ['native_min_stage'=>null],
     ['away_daytime_low_demand'=>false],
+    ['both_no_home_hints_fresh'=>false],
+    ['recent_house_activity'=>true],
     ['away_no_home_minutes'=>45],
     ['max_room_rh'=>58],
     ['native_extract_rh'=>52],
-    ['off_next_allowed_at'=>$now+500],
+    ['off_next_allowed_at'=>$offNow+500],
     ['actual_fan'=>4],
+    ['last_adequate_ventilation_at'=>0],
+    ['last_adequate_ventilation_at'=>$offNow-3*3600],
+    ['off_daily_count'=>2],
+    ['off_last_end_at'=>$offNow-30,'last_adequate_ventilation_at'=>$offNow-5*60],
 ] as $veto){
     $blockedOff=$plan(array_replace($offReady,$veto));
     v2($blockedOff['target_stage']!==0,
-        'every individual native/airflow/RH/presence/cooldown veto blocks OFF '
+        'hard SHADOW/RH/ventilation/day-block veto blocks OFF '
         .json_encode($veto));
 }
+foreach(['2026-11-08T09:00:00+01:00',
+    '2026-11-09T07:59:00+01:00',
+    '2026-11-09T14:01:00+01:00',
+    '2026-11-09T16:01:00+01:00'] as $stamp){
+    $t=(new DateTimeImmutable($stamp))->getTimestamp();
+    $b=$plan(array_replace($offReady,['now'=>$t,
+        'last_adequate_ventilation_at'=>$t-60]));
+    v2($b['target_stage']!==0,
+        'weekend, too early or too late never starts long OFF '.$stamp);
+}
 $offFromAuto=JVHeliosSimpleFanV2::step($offPlan,
-    ['mode'=>0,'fan'=>2,'program'=>3],[],$now);
+    ['mode'=>0,'fan'=>2,'program'=>3],[],$offNow);
 v2($offFromAuto['action']['stage']===0
     &&$offFromAuto['action']['mode']===3
-    &&$offFromAuto['action']['minutes']===5,
-    '5min OFF is an autonomous manufacturer Whisper, never manual mode');
+    &&$offFromAuto['action']['minutes']===120,
+    'Helios Whisper 120min OFF is manufacturer-owned, not permanent manual');
 $offState=$offFromAuto['state'];
-v2(($offState['off_next_allowed_at']??0)>=$now+7200,
-    'one OFF window imposes a two-hour restart pause');
-$activeOffPlan=$plan(array_replace($offReady,[
+v2(($offState['off_daily_count']??0)===1
+    &&($offState['off_next_allowed_at']??0)>=$offNow+150*60
+    &&($offState['off_daily_day']??'')===$offDay,
+    'first OFF reserves device timeout and recovery interval persistently');
+$offLive=['mode'=>3,'fan'=>0,'program'=>3];
+$offActiveD=array_replace($offReady,[
     'mode'=>3,'actual_fan'=>0,'own_timed_off_active'=>true,
-    'off_next_allowed_at'=>$now+7200,
-]));
-v2($activeOffPlan['target_stage']===0,
-    'OFF cooldown cannot cancel a currently running legitimate OFF window');
-$offAck=JVHeliosSimpleFanV2::step($activeOffPlan,
-    ['mode'=>3,'fan'=>0,'program'=>3],$offState,$now+20);
+    'off_next_allowed_at'=>$offState['off_next_allowed_at'],
+    'off_daily_count'=>1,
+]);
+$offActivePlan=$plan($offActiveD);
+v2($offActivePlan['target_stage']===0,
+    'the running OFF is not canceled by its future cooldown or daily counter');
+$offAck=JVHeliosSimpleFanV2::step($offActivePlan,
+    $offLive,$offState,$offNow+20);
 v2($offAck['verified'] &&$offAck['state']['phase']==='ACTIVE',
-    'native Whisper stage0 readback confirmed after send');
-$offWait=JVHeliosSimpleFanV2::step($activeOffPlan,
-    ['mode'=>3,'fan'=>0,'program'=>3],$offAck['state'],$now+2*60);
-v2($offWait['action']===null,'OFF cannot be renewed every minute');
-$offStop=JVHeliosSimpleFanV2::step($activeOffPlan,
-    ['mode'=>3,'fan'=>0,'program'=>3],$offWait['state'],$now+4*60);
-v2($offStop['action']['type']==='stop'
-    &&$offStop['action']['mode']===3,
-    'OFF ends early via manufacturer Whisper STOP, before 5min timeout');
-$staleOff=JVHeliosSimpleFanV2::step($activeOffPlan,
-    ['mode'=>0,'fan'=>2,'program'=>3],$offStop['state'],$now+4*60+20);
-v2($staleOff['action']===null
-    &&$staleOff['status']==='SIMPLE_MANUFACTURER_AUTO',
-    'stale OFF plan after STOP acknowledgement cannot re-arm 5-minute OFF');
-$offReturn=JVHeliosSimpleFanV2::step(
-    $plan(array_replace($offReady,['off_next_allowed_at'=>$now+7200])),
-    ['mode'=>0,'fan'=>2,'program'=>3],$offStop['state'],$now+4*60+30);
-v2($offReturn['action']['stage']===1,
-    'confirmed AUTO restarts normal hygienic airflow after bounded OFF');
+    'independent native readback verifies OFF state and hardware timer');
+$offStable=JVHeliosSimpleFanV2::step($offActivePlan,
+    $offLive,$offAck['state'],$offNow+90*60);
+v2($offStable['action']===null &&$offStable['verified'],
+    '120min OFF is not renewed or interrupted at 90min');
+v2(JVHeliosSimpleFanV2::wakeDue($offStable['state'],$offNow+90*60+61),
+    'while OFF, device moisture and SHADOW must be checked at least minutely');
 $offHome=JVHeliosSimpleFanV2::step($plan(),
-    ['mode'=>3,'fan'=>0,'program'=>3],$offAck['state'],$now+100);
-v2($offHome['action']['type']==='stop',
-    'resident home or failed off-conditions cancels own timed OFF immediately');
+    $offLive,$offAck['state'],$offNow+3*60);
+v2($offHome['action']['type']==='stop'
+    &&$offHome['action']['mode']===3,
+    'return home immediately stops manufacturer Whisper OFF');
+$offWet=JVHeliosSimpleFanV2::step($plan(array_replace($offReady,[
+    'native_extract_rh'=>58])),
+    $offLive,$offAck['state'],$offNow+3*60);
+v2($offWet['action']['type']==='stop',
+    'humidity rise must terminate OFF even while SHADOW still away');
+$offLastMinute=JVHeliosSimpleFanV2::step($offActivePlan,
+    $offLive,$offStable['state'],$offNow+119*60);
+v2($offLastMinute['action']['type']==='stop'
+    &&$offLastMinute['action']['mode']===3,
+    'verified 120min OFF is stopped close to its own hardware expiry');
+$afterOffPlan=$plan(array_replace($offReady,[
+    'now'=>$offNow+119*60+40,
+    'off_next_allowed_at'=>$offState['off_next_allowed_at'],
+    'last_adequate_ventilation_at'=>$offNow-60,
+    'off_recovery_pending'=>true,
+    'off_daily_count'=>1,
+]));
+v2($afterOffPlan['target_stage']===2
+    &&$afterOffPlan['reason']==='POST_LONG_OFF_RECOVERY_S2',
+    'on native OFF stop completion, immediately command a real S2 recovery');
+$offReturned=JVHeliosSimpleFanV2::step($afterOffPlan,
+    ['mode'=>0,'fan'=>2,'program'=>3],
+    $offLastMinute['state'],$offNow+119*60+40);
+v2(($offReturned['state']['off_last_end_at']??0)>$offNow
+    &&($offReturned['action']['stage']??0)===2,
+    'native AUTO after long OFF starts directly on S2, not unsafe S1');
+$offEndedAt=(int)$offReturned['state']['off_last_end_at'];
+$offNext=(int)$offReturned['state']['off_next_allowed_at'];
+$notYet=$plan(array_replace($offReady,[
+    'now'=>$offEndedAt+10*60,
+    'last_adequate_ventilation_at'=>$offNow-60,
+    'off_last_end_at'=>$offEndedAt,'off_next_allowed_at'=>$offNext,
+    'off_daily_count'=>1,
+]));
+v2($notYet['target_stage']!==0,
+    'elapsed-time cooldown alone cannot authorize another OFF without S2');
+v2($notYet['target_stage']===2,
+    'while no post-OFF ventilation is proven, S1 is also suppressed');
+$secondT=$offEndedAt+35*60;
+$secondPlan=$plan(array_replace($offReady,[
+    'now'=>$secondT,'last_adequate_ventilation_at'=>$secondT-60,
+    'off_last_end_at'=>$offEndedAt,
+    'off_next_allowed_at'=>$offNext,'off_daily_count'=>1,
+]));
+v2($secondPlan['target_stage']===0,
+    'after documented post-OFF 30min S2, second weekday OFF is permitted');
+$readyForSecond=array_replace($offReturned['state'],[
+    // The intervening S2 has completed and the original Party
+    // has returned to manufacturer AUTO, preserving OFF counters.
+    'phase'=>'IDLE','mode'=>0,'stage'=>0,
+]);
+$second=JVHeliosSimpleFanV2::step($secondPlan,
+    ['mode'=>0,'fan'=>2,'program'=>3],
+    $readyForSecond,$secondT);
+v2($second['action']['stage']===0
+    &&$second['action']['minutes']===120
+    &&($second['state']['off_daily_count']??0)===2,
+    'second OFF starts only once and daily count becomes two');
+$thirdT=$secondT+3*3600;
+$thirdPlan=$plan(array_replace($offReady,[
+    'now'=>$thirdT,'last_adequate_ventilation_at'=>$thirdT-60,
+    'off_last_end_at'=>$secondT+120*60,
+    'off_next_allowed_at'=>$secondT+150*60,
+    'off_daily_count'=>2,
+]));
+v2($thirdPlan['target_stage']!==0,
+    'max two native 120min OFF blocks per weekday; no infinite chaining');
+$dailyCap=$plan(array_replace($offReady,[
+    'off_daily_count'=>2,'now'=>$secondT,
+    'last_adequate_ventilation_at'=>$secondT-60,
+    'off_last_end_at'=>$offEndedAt,
+    'off_next_allowed_at'=>$offNext,
+]));
+v2($dailyCap['target_stage']!==0,
+    'two-hour manufacturer permission never creates a third OFF on same day');
 
 // Complete simulated manufacturer native timed-mode 15min lifecycle.
 $auto=['mode'=>0,'fan'=>3,'program'=>3];

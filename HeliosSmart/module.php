@@ -89,8 +89,9 @@ class HeliosSmart extends IPSModule
         $this->RegisterPropertyBoolean('EnableSmartFanTakeover',false);
         $this->RegisterPropertyBoolean('EnableAwayEconomy',true);
         $this->RegisterPropertyBoolean('EnableDailyMorningFlush',true);
-        // Five-minute manufacturer-owned OFF: disabled until the actual
-        // building airflow and absence moisture protection were verified.
+        // Up to two two-hour manufacturer-owned weekday OFF windows.
+        // Default DISABLED until the actual building airflow and absence
+        // moisture protection have been professionally verified.
         $this->RegisterPropertyBoolean('EnableTimedAwayOff',false);
         $this->RegisterPropertyBoolean('OffVentilationPlanValidated',false);
         $this->RegisterAttributeString('SimpleHumidityLatchState','{}');
@@ -398,10 +399,10 @@ class HeliosSmart extends IPSModule
                 ['type'=>'CheckBox','name'=>'EnableProgramSwitch','caption'=>'Rueckfall-Wochenprofil saisonal anpassen: im Heizbetrieb Sommerprofil 4 durch Normalprofil 3 ersetzen'],
                 ['type'=>'CheckBox','name'=>'EnableSmartFanTakeover','caption'=>'SMART-Energieregelung: wenige lange Geraete-Zeitprogramme. Normal S2 bis 120 Min, bei SHADOW-Nicht-Zuhause S1 bis 60 Min, nachts S1 bis 30 Min; S4 nur Kochen, Duschen oder nachgewiesene starke Sommerkuehlung. Hersteller-AUTO als Fallback.'],
                 ['type'=>'CheckBox','name'=>'EnableDailyMorningFlush','caption'=>'SMART V2: 1x taeglich 15 Min morgens Stufe 3 (07–10 Uhr), nur mit verifizierter trockenerer Aussenluft und sicherer Helios-Freigabe'],
-                ['type'=>'CheckBox','name'=>'EnableTimedAwayOff','caption'=>'OPTIONAL Stufe 0 NUR bei mindestens 60 Min nachweislich fehlender Zuhause-Meldung, frischen RH-Daten und geraeteeigener Mindeststufe 0; max. 5 Min / 2h, automatische Hersteller-Rueckkehr (Standard AUS)'],
-                ['type'=>'CheckBox','name'=>'OffVentilationPlanValidated','caption'=>'Fachlich bestaetigt: Luftmengen und Feuchteschutz auch bei zeitweise komplett ausgeschalteter KWL nachweislich ausreichend (KEINE Freigabe allein durch Software; Standard AUS)'],
-                ['type'=>'CheckBox','name'=>'EnableAwayEconomy','caption'=>'Abwesenheits-Sparlueftung rund um die Uhr: 30 Min kein frischer Zuhause-Hinweis bei beiden SHADOW-Personen, keine Hausbewegung, nachgewiesener kuerzlicher Luftwechsel und unkritische Feuchte -> S1 bis 60 Min, dazwischen S2. Stufe 0 nur mit separaten Hardware-/Feuchteschutzfreigaben.'],
-                ['type'=>'Label','caption'=>'S4 ausschliesslich: Kochfeld #47825 >5 W plus 5-Min-Nachlauf, nachweislich geduscht oder verifizierte ausserordentliche Sommer-Nachtkuehlung. Normale S2 laeuft geraeteintern 120 Min, bei Abwesenheit S1 60 Min, in ruhigen Naechten S1 30 Min. Verbleibende Stufe-4-Anforderungen des ORIGINAL-Wochenprogramms muessen im Helios-easyControls-Wochenplan angepasst werden. Stufe 0 bleibt ohne reale Feuchteschutzfreigabe gesperrt.'],
+                ['type'=>'CheckBox','name'=>'EnableTimedAwayOff','caption'=>'WERKTAGS-ABWESENHEIT 08-16 Uhr: optional Helios Stufe 0 bis 120 Min, maximal zweimal pro Tag mit mindestens 30 Min anschliessender real beobachteter Stufe 2. Nur mit nativer Mindeststufe 0, frischem SHADOW beider Personen, niedriger Feuchte UND unabhaengig validiertem Lueftungs-/Feuchteschutzkonzept. Standard AUS.'],
+                ['type'=>'CheckBox','name'=>'OffVentilationPlanValidated','caption'=>'NUR nach echtem Nachweis bestaetigen: Feuchteschutz- und Luftwechselkonzept des Gebaeudes laesst bis 120 Min AUS und mindestens 30 Min Stufe-2-Erholung bei werktags berichteter Abwesenheit zu. SHADOW und RH alleine reichen NICHT. Standard AUS.'],
+                ['type'=>'CheckBox','name'=>'EnableAwayEconomy','caption'=>'Abwesenheit rund um die Uhr: nach 30 Min stabilen frischen Nicht-Zuhause-Hinweisen und beobachtetem Luftwechsel sparsame Stufe 1, sonst 2. Werktags 08-16 Uhr ist Stufe 0 fuer hoechstens 2 x 120 Min zusaetzlich moeglich, nur nach separater fachlicher Freigabe.'],
+                ['type'=>'Label','caption'=>'Kochfeld #47825 >5 W: S4 mit 5 Min Nachlauf; Dusche S4, Sommer-Kuehlung nur bei nachgewiesenem Bedarf. Normale S2 bis 120 Min, SHADOW-Abwesenheit S1 bis 60 Min. NEU: Werktags 08-16 Uhr bei nachgewiesener Entlastung und Fachfreigabe max. 2 x 120 Min Stufe 0 mit 30 Min realer Zwischenlueftung. Original-Wochenprogramm als autonome Rueckfallebene.'],
                 ['type'=>'Label','caption'=>'ENERGIE-PRIORITAET: Grundstufe so niedrig wie sinnvoll; Kochen, Dusche, veraenderte Feuchte, Frischluft und verifizierte Nachtkuehlung haben Vorrang. Wetterausfall darf normale S2 nicht unnoetig anheben. Herstellerprogramme laufen hardwareseitig nach Ende der maximal 120-Minuten-Zeitprogramme weiter.'],
 
                 ['type'=>'Label','caption'=>'SOMMERPROFIL 4 -> NORMAL-/WINTERPROFIL 3 bei lokaler Kälte und nachweislich gesundem Helios AUTO. Kein dauerhaftes MANUELL: das Original geraeteregelt CO2/Feuchte/VOC und Wochenprogramm bleibt aktiv. Automatische Absenkung einer eventuell echten Sensor-Anforderung Stufe 4 ist nicht freigegeben.'],
@@ -2426,8 +2427,14 @@ class HeliosSmart extends IPSModule
                          'room_humidity_held','room_humidity_reason',
                          'room_max_rh','room_clear_since']),
                     'timed_off_v2'=>$pick((array)($d['timed_off_v2']??[]),
-                        ['configured','building_plan_validated','measured_airflow_validated',
-                         'manufacturer_minimum_stage','available_only_if_all_safety_checks_pass']),
+                        ['configured','weekday_window','long_off_minutes',
+                         'max_blocks_per_weekday','blocks_started_today',
+                         'minimum_real_recovery_minutes','last_off_end_at',
+                         'next_off_allowed_at','recent_adequate_ventilation_at',
+                         'fresh_nonhome_both','away_minutes',
+                         'building_plan_validated','measured_airflow_validated',
+                         'manufacturer_minimum_stage',
+                         'available_only_if_all_safety_checks_pass']),
                 ],
                 'events'=>[
                     'direct_hob'=>$pick((array)($d['hob_power_direct']??[]),
@@ -2975,8 +2982,26 @@ class HeliosSmart extends IPSModule
                     substr($e->getMessage(),0,140),0);
             }
         }
+        $offWindow=JVHeliosSimpleFanV2::weekdayOffWindow($now);
+        $dayOffCount=(string)($smartState['off_daily_day']??'')
+            ===$offWindow['day']
+                ?(int)($smartState['off_daily_count']??0):0;
         $decision['timed_off_v2']=[
             'configured'=>$this->ReadPropertyBoolean('EnableTimedAwayOff'),
+            'weekday_window'=>$offWindow,
+            'long_off_minutes'=>JVHeliosSimpleFanV2::OFF_DURATION_MINUTES,
+            'max_blocks_per_weekday'=>JVHeliosSimpleFanV2::OFF_MAX_WEEKDAY_EPISODES,
+            'blocks_started_today'=>$dayOffCount,
+            'minimum_real_recovery_minutes'=>
+                intdiv(JVHeliosSimpleFanV2::OFF_RECOVERY_SECONDS,60),
+            'last_off_end_at'=>(int)($smartState['off_last_end_at']??0),
+            'next_off_allowed_at'=>(int)($smartState['off_next_allowed_at']??0),
+            'recent_adequate_ventilation_at'=>
+                $history['advice']['last_adequate_ventilation_at']??null,
+            'fresh_nonhome_both'=>
+                ($history['advice']['both_no_home_hints_fresh']??false)===true,
+            'away_minutes'=>
+                (int)($history['advice']['away_hint_contiguous_minutes']??0),
             'building_plan_validated'=>
                 $this->ReadPropertyBoolean('OffVentilationPlanValidated'),
             'measured_airflow_validated'=>
@@ -3035,6 +3060,18 @@ class HeliosSmart extends IPSModule
                 &&($history['advice']['away_low_demand_eligible']??false)===true,
             'away_no_home_minutes'=>
                 (int)($history['advice']['away_hint_contiguous_minutes']??0),
+            'both_no_home_hints_fresh'=>
+                ($history['advice']['both_no_home_hints_fresh']??false)===true,
+            'recent_house_activity'=>
+                ($history['advice']['in_house_activity_veto']??true)===true,
+            'last_adequate_ventilation_at'=>
+                (int)($history['advice']['last_adequate_ventilation_at']??0),
+            'off_last_end_at'=>(int)($smartState['off_last_end_at']??0),
+            'off_recovery_pending'=>
+                (string)($smartState['phase']??'')==='STOPPING'
+                &&(int)($smartState['stage']??-1)===0,
+            'off_daily_day'=>(string)($smartState['off_daily_day']??''),
+            'off_daily_count'=>(int)($smartState['off_daily_count']??0),
             'timed_off_enabled'=>$this->ReadPropertyBoolean('EnableTimedAwayOff'),
             'off_ventilation_plan_validated'=>
                 $this->ReadPropertyBoolean('OffVentilationPlanValidated'),

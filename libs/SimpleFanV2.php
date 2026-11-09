@@ -19,13 +19,44 @@ final class JVHeliosSimpleFanV2
     public const NIGHT_DURATION_MINUTES=30;
     public const MOISTURE_DURATION_MINUTES=30;
     public const COOLING_DURATION_MINUTES=45;
-    public const OFF_DURATION_MINUTES=5;
+    // Off means genuine 0 rpm, but is always a native Whisper that
+    // expires on the Helios device even with SymBox offline. Never
+    // chain a second OFF without measured post-OFF ventilation.
+    public const OFF_DURATION_MINUTES=120;
+    public const OFF_RECOVERY_SECONDS=30*60;
+    public const OFF_MAX_WEEKDAY_EPISODES=2;
     public const REARM_MARGIN_SECONDS=4*60;
     public const ACK_SECONDS=90;
     public const ERROR_BACKOFF_SECONDS=15*60;
     // A bounded S2 recovery interval is required between S1 episodes.
     public const QUIET_COOLDOWN_SECONDS=30*60;
-    public const OFF_COOLDOWN_SECONDS=2*3600;
+    public const OFF_COOLDOWN_SECONDS=
+        self::OFF_DURATION_MINUTES*60+self::OFF_RECOVERY_SECONDS;
+
+    /**
+     * Weekdays 08:00-16:00 Berlin; 120 min must fit completely.
+     * Existing device-owned OFF continues until its original deadline,
+     * but no new block is started after 14:00. Weekends stay on S1/S2.
+     */
+    public static function weekdayOffWindow(int $now):array
+    {
+        $local=(new DateTimeImmutable('@'.$now))
+            ->setTimezone(new DateTimeZone('Europe/Berlin'));
+        $day=(string)$local->format('Y-m-d');
+        $weekday=(int)$local->format('N');
+        $minute=(int)$local->format('G')*60
+            +(int)$local->format('i');
+        return [
+            'day'=>$day,
+            'weekday'=>$weekday>=1&&$weekday<=5,
+            'may_start'=>$weekday>=1&&$weekday<=5
+                &&$minute>=8*60
+                &&$minute+self::OFF_DURATION_MINUTES<=16*60,
+            'within_window'=>$weekday>=1&&$weekday<=5
+                &&$minute>=8*60 &&$minute<16*60,
+            'end_local'=>'16:00',
+        ];
+    }
 
     /**
      * RH hysteresis: the native winter humidity controller is set to
@@ -202,7 +233,19 @@ final class JVHeliosSimpleFanV2
                 ||($d['model_airflow_accepted']??false)===true;
             $level=$flow?2:3;
             $reason=$flow?'ENERGY_EFFICIENT_BASE':'NO_LOWER_AIRFLOW_RELEASE';
-            $quiet=(($d['away_daytime_low_demand']??false)===true
+            // Always restore actual S2 after a long OFF, even if both
+            // residents remain away. A bounded 30-minute observed S2
+            // interval must precede another S1/0 reduction.
+            $lastOff=(int)($d['off_last_end_at']??0);
+            $lastVent=(int)($d['last_adequate_ventilation_at']??0);
+            $postOffRecovery=($d['off_recovery_pending']??false)===true
+                ||($lastOff>0 &&$lastVent<=$lastOff);
+            if($postOffRecovery &&$flow){
+                $level=2;
+                $reason='POST_LONG_OFF_RECOVERY_S2';
+            }
+            $quiet=!$postOffRecovery
+                &&(($d['away_daytime_low_demand']??false)===true
                     ||($d['quiet_requested']??false)===true);
             $cooldown=(int)($d['quiet_cooldown_until']??0)>($d['now']??0);
             if($flow &&$quiet &&!$cooldown){
@@ -210,27 +253,44 @@ final class JVHeliosSimpleFanV2
                 $reason=($d['away_daytime_low_demand']??false)===true
                     ?'SHADOW_NO_HOME_BOUNDED_S1':'NIGHT_BOUNDED_S1';
             }
-            // A five-minute hardware-timed OFF is an opt-in feature
-            // ONLY after real hygienic airflow/moisture verification.
-            // Unknown SHADOW or a model-only S1/S2 release cannot
-            // authorize it; a physical Helios min-stage 0 is required.
-            $offAllowed=$level<=2
+            // Long OFF needs engineering verification of the building's
+            // moisture-protection ventilation, not just app approval.
+            // A device-level 120 min timeout is mandatory. At most two
+            // weekday episodes/day, separated by 30 min ACTUAL S2+
+            // readback after the previous OFF. Phone UNKNOWN is an ECO
+            // hint, not permission to infer an empty house by itself.
+            $ownOff=($d['own_timed_off_active']??false)===true;
+            $window=self::weekdayOffWindow((int)($d['now']??0));
+            $dayCount=(string)($d['off_daily_day']??'')
+                ===$window['day']
+                ?(int)($d['off_daily_count']??0):0;
+            $lastVent=(int)($d['last_adequate_ventilation_at']??0);
+            $lastOffEnd=(int)($d['off_last_end_at']??0);
+            $ventilationReady=$lastVent>0
+                &&$lastVent<=(int)($d['now']??0)
+                &&(int)($d['now']??0)-$lastVent<=45*60
+                &&$lastVent>$lastOffEnd;
+            $offStartReady=$window['may_start']
+                &&$dayCount<self::OFF_MAX_WEEKDAY_EPISODES
+                &&$ventilationReady
+                &&(int)($d['off_next_allowed_at']??0)<=(int)($d['now']??0);
+            $offAllowed=($ownOff?$window['within_window']:$offStartReady)
                 &&($d['away_daytime_low_demand']??false)===true
-                &&(int)($d['actual_fan']??4)<=2
+                &&($d['both_no_home_hints_fresh']??false)===true
+                &&($ownOff
+                    ||(int)($d['actual_fan']??4)<=2)
                 &&($d['timed_off_enabled']??false)===true
                 &&($d['off_ventilation_plan_validated']??false)===true
                 &&($d['minimum_airflow_validated']??false)===true
                 &&($d['native_min_stage']??null)===0
-                &&($d['away_daytime_low_demand']??false)===true
                 &&(int)($d['away_no_home_minutes']??0)>=60
                 &&(float)$rh<50.0
                 &&is_numeric($d['max_room_rh']??null)
                 &&(float)$d['max_room_rh']<=55.0
-                &&(($d['own_timed_off_active']??false)===true
-                    ||(int)($d['off_next_allowed_at']??0)<=(int)($d['now']??0));
+                &&($d['recent_house_activity']??true)===false;
             if($offAllowed){
                 $level=0;
-                $reason='VERIFIED_AWAY_FIVE_MINUTE_NATIVE_OFF';
+                $reason='VERIFIED_WEEKDAY_AWAY_120MIN_NATIVE_OFF';
             }
         }
         $o['status']='SMART_OVERRIDE_READY';
@@ -260,6 +320,8 @@ final class JVHeliosSimpleFanV2
             'off_requires_real_minimum_airflow_and_moisture_plan'=>true,
             'timed_off_authorized'=>$level===0,
             'off_hardware_autoreturn_minutes'=>self::OFF_DURATION_MINUTES,
+            'off_max_episodes_per_weekday'=>self::OFF_MAX_WEEKDAY_EPISODES,
+            'off_requires_30min_measured_recovery'=>true,
             'high_power_only_cook_shower_or_verified_summer'=>
                 $level!==4||in_array($reason,[
                     'COOKTOP_POWER_ACTIVE','COOKTOP_5MIN_AFTER_RUN',
@@ -359,8 +421,15 @@ final class JVHeliosSimpleFanV2
         $s['hob_boost']=$stage===4;
         $s['command_reason']=$reason;
         if($stage===0){
+            $window=self::weekdayOffWindow($now);
+            if(($s['off_daily_day']??'')!==$window['day']){
+                $s['off_daily_day']=$window['day'];
+                $s['off_daily_count']=0;
+            }
+            $s['off_daily_count']=(int)($s['off_daily_count']??0)+1;
             $s['off_next_allowed_at']=$now+self::OFF_COOLDOWN_SECONDS;
             $s['off_started_at']=$now;
+            $s['last_off_check_at']=$now;
         }
         if($reason==='MORNING_15MIN_FLUSH'){
             $day=(new DateTimeImmutable('@'.$now))
@@ -387,6 +456,10 @@ final class JVHeliosSimpleFanV2
             $s['quiet_cooldown_until']=max(
                 (int)($s['quiet_cooldown_until']??0),
                 $now+self::QUIET_COOLDOWN_SECONDS);
+        if((int)($s['stage']??-1)===0)
+            $s['off_next_allowed_at']=max(
+                (int)($s['off_next_allowed_at']??0),
+                $now+self::OFF_RECOVERY_SECONDS);
         return self::result($s,'SIMPLE_STOP_REQUESTED',
             ['type'=>'stop','mode'=>(int)($s['mode']??0),
                 'stage'=>0,'minutes'=>0]);
@@ -398,6 +471,10 @@ final class JVHeliosSimpleFanV2
             $s['quiet_cooldown_until']=max(
                 (int)($s['quiet_cooldown_until']??0),
                 $now+self::QUIET_COOLDOWN_SECONDS);
+        if((int)($s['stage']??-1)===0)
+            $s['off_next_allowed_at']=max(
+                (int)($s['off_next_allowed_at']??0),
+                $now+self::OFF_COOLDOWN_SECONDS);
         $s['phase']='BACKOFF';
         $s['error_retry_after']=$now+self::ERROR_BACKOFF_SECONDS;
         $s['pending_until']=0;$s['readback_pending_until']=0;
@@ -443,6 +520,12 @@ final class JVHeliosSimpleFanV2
         }
         if($phase==='STOPPING'){
             if($mode===0){
+                if($ownedStage===0){
+                    $s['off_last_end_at']=$now;
+                    $s['off_next_allowed_at']=max(
+                        (int)($s['off_next_allowed_at']??0),
+                        $now+self::OFF_RECOVERY_SECONDS);
+                }
                 // Guard against an already calculated OFF demand from
                 // before STOP was confirmed. The 2-hour cooldown must
                 // prevent another 5min Whisper even if Evaluate supplied
@@ -470,12 +553,19 @@ final class JVHeliosSimpleFanV2
                         $s['quiet_cooldown_until']=max(
                             (int)($s['quiet_cooldown_until']??0),
                             $now+self::QUIET_COOLDOWN_SECONDS);
+                    if($ownedStage===0){
+                        $s['off_last_end_at']=$now;
+                        $s['off_next_allowed_at']=max(
+                            (int)($s['off_next_allowed_at']??0),
+                            $now+self::OFF_RECOVERY_SECONDS);
+                    }
                     $s['phase']='IDLE';$s['stage']=0;$s['mode']=0;
                     $phase='IDLE';
                 } else return self::error($s,$now,
                     'SIMPLE_OWNED_MODE_INTERRUPTED');
             } else {
                 $age=$now-(int)($s['sent_at']??0);
+                if($ownedStage===0)$s['last_off_check_at']=$now;
                 if($ownedStage===2 &&$desired===1)
                     $s['quiet_baseline_confirmed_at']=$now;
                 // The 15 minute hardware timer is anchored at the first
@@ -496,7 +586,7 @@ final class JVHeliosSimpleFanV2
                 $quietAgeLimit=max(60,$duration-60);
                 if($desired===-1 ||$desired!==$ownedStage
                     ||$rearm ||($shortWhisper &&$age>=$quietAgeLimit)
-                    ||($shortOff &&$age>=4*60)){
+                    ||($shortOff &&$age>=max(60,$duration-60))){
                     return self::stop($s,$now);
                 }
                 return self::result($s,'SIMPLE_STAGE_CONFIRMED',
@@ -551,6 +641,11 @@ final class JVHeliosSimpleFanV2
         if($phase!=='ACTIVE')return false;
         $elapsed=$now-(int)($s['sent_at']??0);
         $stage=(int)($s['stage']??0);
+        // While fans are OFF, reassess device RH and both SHADOW
+        // sources every minute. Room moisture and arrival must cancel
+        // OFF without waiting for the normal 5-minute SmartTick.
+        if($stage===0 &&
+            $now-(int)($s['last_off_check_at']??0)>=60)return true;
         $minutes=(int)($s['duration_minutes']??self::SHORT_DURATION_MINUTES);
         $lead=$stage===0?90:($stage===1?90:
             self::REARM_MARGIN_SECONDS+60);

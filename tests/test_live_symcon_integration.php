@@ -508,4 +508,87 @@ it(($nativeBad['smart_fan_takeover']['reason']??'')==='NATIVE_NOT_READY'
     &&($nativeBad['smart_fan_execution']['attempted']??true)===false,
     'original HELIOS 209 forbids V2 actuation');
 // V2 safety/engine tests run in their own separate pure simulation.
+// Physical Helios writes must remain confined to the ONE V2 actuator.
+// Exercise a verified Monday 09:00 native 120min Whisper OFF, a later
+// independent readback and an arrival-triggered STOP->AUTO->S2 handoff.
+$GLOBALS['nativeStatus']=102;
+$GLOBALS['deviceMode']=0;
+$GLOBALS['deviceFan']=2;
+$GLOBALS['deviceProgram']=3;
+$longNow=(new DateTimeImmutable('2026-11-09T09:00:00+01:00'))->getTimestamp();
+$longInput=[
+    'now'=>$longNow,'enabled'=>true,'native_ok'=>true,'live_fresh'=>true,
+    'mode'=>0,'actual_fan'=>2,'native_week_program'=>3,
+    'room_temp_count'=>11,'room_humidity_count'=>11,
+    'native_sensor_stale'=>false,'native_sensor_control_unverified'=>false,
+    'native_extract_rh_live'=>true,'native_extract_rh'=>44,
+    'native_defrost_known'=>true,'native_defrost_active'=>false,
+    'max_co2_ppm'=>null,'max_voc_ppm'=>null,'max_room_rh'=>48,
+    'native_humidity_hold'=>false,'wet_need'=>false,
+    'strong_wet_need'=>false,'cooking_confirmed'=>false,
+    'direct_hob_boost'=>false,'direct_hob_afterrun'=>false,
+    'cooling_confirmed'=>false,'quiet_requested'=>false,
+    'morning_flush_requested'=>false,'weather_quality'=>'VERIFIED',
+    'weather_age_seconds'=>55,'high_power_enabled'=>false,
+    'high_power_safety'=>false,'combustion_safe'=>false,
+    'minimum_airflow_validated'=>true,'model_airflow_accepted'=>false,
+    'timed_off_enabled'=>true,'off_ventilation_plan_validated'=>true,
+    'native_min_stage'=>0,'away_daytime_low_demand'=>true,
+    'both_no_home_hints_fresh'=>true,'recent_house_activity'=>false,
+    'away_no_home_minutes'=>80,'last_adequate_ventilation_at'=>$longNow-60,
+    'off_last_end_at'=>0,'off_next_allowed_at'=>0,
+    'off_daily_day'=>'2026-11-09','off_daily_count'=>0,
+];
+$longPlan=JVHeliosSimpleFanV2::plan($longInput);
+it(($longPlan['target_stage']??null)===0
+    &&($longPlan['minutes']??0)===120,
+    'long weekday OFF plan only after hard airflow, RH, SHADOW and native checks');
+$longControl=new HeliosSmart();$longControl->Create();
+$longActuator=new ReflectionMethod(HeliosSmart::class,'ExecuteSmartFanTakeover');
+$longBefore=count($GLOBALS['calls']);
+$longSent=$longActuator->invoke($longControl,$longPlan,$longNow);
+$longCalls=array_slice($GLOBALS['calls'],$longBefore);
+it(($longSent['status']??'')==='SIMPLE_START_SENT_WAIT_DEVICE'
+    &&count($longCalls)===1
+    &&$longCalls[0][0]==='whisper'
+    &&$longCalls[0][1]===[19285,true,0,120]
+    &&$GLOBALS['deviceMode']===3&&$GLOBALS['deviceFan']===0,
+    'single original HELIOS Whisper 0/120 RPC, device timer not Symcon toggle');
+$longState=json_decode(
+    $longControl->ReadAttributeString('SmartFanTakeoverState'),true);
+$longActivePlan=JVHeliosSimpleFanV2::plan(array_replace($longInput,[
+    'now'=>$longNow+20,'mode'=>3,'actual_fan'=>0,
+    'own_timed_off_active'=>true,
+    'off_next_allowed_at'=>$longState['off_next_allowed_at'],
+    'off_daily_count'=>1,
+]));
+$longConfirmed=$longActuator->invoke(
+    $longControl,$longActivePlan,$longNow+20);
+it(($longConfirmed['status']??'')==='SIMPLE_STAGE_CONFIRMED'
+    &&($longConfirmed['verified']??false)===true
+    &&count($GLOBALS['calls'])===$longBefore+1,
+    'independent later manufacturer GET confirms OFF without duplicate RPC');
+$homePlan=JVHeliosSimpleFanV2::plan(array_replace($longInput,[
+    'now'=>$longNow+45,'mode'=>3,'actual_fan'=>0,
+    'own_timed_off_active'=>true,
+    'away_daytime_low_demand'=>false,
+    'both_no_home_hints_fresh'=>false,
+]));
+$homeStop=$longActuator->invoke($longControl,$homePlan,$longNow+45);
+$stopCalls=array_slice($GLOBALS['calls'],$longBefore);
+it(($homeStop['status']??'')==='SIMPLE_STOP_SENT_WAIT_AUTO'
+    &&count($stopCalls)===2
+    &&$stopCalls[1][0]==='whisper'
+    &&$stopCalls[1][1][1]===false
+    &&$GLOBALS['deviceMode']===0,
+    'home arrival cancels real native OFF with verified Whisper STOP request');
+$homeRestart=$longActuator->invoke(
+    $longControl,$homePlan,$longNow+65);
+$homeCalls=array_slice($GLOBALS['calls'],$longBefore);
+it(($homeRestart['status']??'')==='SIMPLE_START_SENT_WAIT_DEVICE'
+    &&count($homeCalls)===3
+    &&$homeCalls[2][0]==='party'
+    &&$homeCalls[2][1][2]===2,
+    'manufacturer AUTO acknowledgement recovers to S2 without OFF loop');
+
 echo "ALLE $counter SYMCON-LIVE-INTEGRATIONSPRUEFUNGEN BESTANDEN\n";
