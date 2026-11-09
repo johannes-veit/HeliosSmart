@@ -233,7 +233,19 @@ final class JVHeliosSimpleFanV2
                 ||($d['model_airflow_accepted']??false)===true;
             $level=$flow?2:3;
             $reason=$flow?'ENERGY_EFFICIENT_BASE':'NO_LOWER_AIRFLOW_RELEASE';
-            $quiet=(($d['away_daytime_low_demand']??false)===true
+            // Always restore actual S2 after a long OFF, even if both
+            // residents remain away. A bounded 30-minute observed S2
+            // interval must precede another S1/0 reduction.
+            $lastOff=(int)($d['off_last_end_at']??0);
+            $lastVent=(int)($d['last_adequate_ventilation_at']??0);
+            $postOffRecovery=($d['off_recovery_pending']??false)===true
+                ||($lastOff>0 &&$lastVent<=$lastOff);
+            if($postOffRecovery &&$flow){
+                $level=2;
+                $reason='POST_LONG_OFF_RECOVERY_S2';
+            }
+            $quiet=!$postOffRecovery
+                &&(($d['away_daytime_low_demand']??false)===true
                     ||($d['quiet_requested']??false)===true);
             $cooldown=(int)($d['quiet_cooldown_until']??0)>($d['now']??0);
             if($flow &&$quiet &&!$cooldown){
