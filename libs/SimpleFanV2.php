@@ -140,8 +140,15 @@ final class JVHeliosSimpleFanV2
             return $deny('MANUAL_OR_VACATION_MODE');
         $ownOff=($d['own_timed_off_active']??false)===true
             &&($d['mode']??null)===3;
+        // On easyControls the native Whisper STOP can report AUTO
+        // while FanLevel_Get temporarily still returns 0. This is
+        // legitimate ONLY for our own pending S0->AUTO handoff, never
+        // a generic license to control a stranger's stopped device.
+        $offAutoHandoff=($d['own_off_auto_handoff_pending']??false)===true
+            &&($d['mode']??null)===0;
         if(!in_array($d['actual_fan']??null,[1,2,3,4],true)
-            && !(($d['actual_fan']??null)===0 &&$ownOff))
+            && !(($d['actual_fan']??null)===0
+                &&($ownOff||$offAutoHandoff)))
             return $deny('FAN_LIVE_INVALID');
         if(!is_int($d['native_week_program']??null)
             ||($d['native_week_program']??5)>4
