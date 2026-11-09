@@ -328,6 +328,32 @@ $dailyCap=$plan(array_replace($offReady,[
 v2($dailyCap['target_stage']!==0,
     'two-hour manufacturer permission never creates a third OFF on same day');
 
+// Manufacturer STOP can update OperatingMode to AUTO before the
+// fan-level register leaves 0. Only a positively owned pending OFF
+// STOP permits a safe S2 restart from that transient native readback.
+$lagT=$offNow+119*60+40;
+$lagPlan=$plan(array_replace($offReady,[
+    'now'=>$lagT,'mode'=>0,'actual_fan'=>0,
+    'one_resident_home_now'=>true,'home_return_from_off'=>true,
+    'away_daytime_low_demand'=>false,'both_no_home_hints_fresh'=>false,
+    'own_off_auto_handoff_pending'=>true,
+]));
+v2($lagPlan['target_stage']===2,
+    'owned STOPPING native AUTO/fan0 lag still plans S2 for returning resident');
+$lagStep=JVHeliosSimpleFanV2::step($lagPlan,
+    ['mode'=>0,'fan'=>0,'program'=>3],$offLastMinute['state'],$lagT);
+v2(($lagStep['action']['type']??'')==='start'
+    &&($lagStep['action']['stage']??null)===2,
+    'native AUTO/fan0 lag resumes real S2 from owned STOPPING');
+$unownedFan0=$plan(array_replace($offReady,[
+    'mode'=>0,'actual_fan'=>0,
+    'one_resident_home_now'=>true,'home_return_from_off'=>true,
+    'away_daytime_low_demand'=>false,'both_no_home_hints_fresh'=>false,
+    'own_off_auto_handoff_pending'=>false,
+]));
+v2($unownedFan0['execute']===false,
+    'unowned AUTO/fan0 is never treated as a valid recovery transition');
+
 // A real SHADOW HOME from either person cancels a running native OFF
 // immediately. Example: second weekday OFF starts at 11:30; Carina
 // returns at 11:50. Manufacturer confirms AUTO, then own S2 starts.
