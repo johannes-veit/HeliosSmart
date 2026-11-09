@@ -3067,6 +3067,9 @@ class HeliosSmart extends IPSModule
             'last_adequate_ventilation_at'=>
                 (int)($history['advice']['last_adequate_ventilation_at']??0),
             'off_last_end_at'=>(int)($smartState['off_last_end_at']??0),
+            'off_recovery_pending'=>
+                (string)($smartState['phase']??'')==='STOPPING'
+                &&(int)($smartState['stage']??-1)===0,
             'off_daily_day'=>(string)($smartState['off_daily_day']??''),
             'off_daily_count'=>(int)($smartState['off_daily_count']??0),
             'timed_off_enabled'=>$this->ReadPropertyBoolean('EnableTimedAwayOff'),
