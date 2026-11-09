@@ -328,6 +328,111 @@ $dailyCap=$plan(array_replace($offReady,[
 v2($dailyCap['target_stage']!==0,
     'two-hour manufacturer permission never creates a third OFF on same day');
 
+// A real SHADOW HOME from either person cancels a running native OFF
+// immediately. Example: second weekday OFF starts at 11:30; Carina
+// returns at 11:50. Manufacturer confirms AUTO, then own S2 starts.
+// A real cooktop >5 W then promotes to S4, with ordinary 5min afterrun.
+$offSecondAt=(new DateTimeImmutable(
+    '2026-11-09T11:30:00+01:00'))->getTimestamp();
+$carinaHomeAt=(new DateTimeImmutable(
+    '2026-11-09T11:50:00+01:00'))->getTimestamp();
+$secondLiveOff=['mode'=>3,'fan'=>0,'program'=>3];
+$secondState=$second['state'];
+$secondActiveInput=array_replace($offReady,[
+    'now'=>$offSecondAt+30,'mode'=>3,'actual_fan'=>0,
+    'own_timed_off_active'=>true,'off_daily_count'=>2,
+    'off_next_allowed_at'=>$secondState['off_next_allowed_at'],
+]);
+$secondActivePlan=$plan($secondActiveInput);
+$secondAck=JVHeliosSimpleFanV2::step($secondActivePlan,
+    $secondLiveOff,$secondState,$offSecondAt+30);
+v2($secondAck['verified'],
+    'second native OFF is confirmed before resident returns');
+$carinaReturn=$plan(array_replace($secondActiveInput,[
+    'now'=>$carinaHomeAt,'one_resident_home_now'=>true,
+    'home_return_from_off'=>true,'away_daytime_low_demand'=>false,
+    'both_no_home_hints_fresh'=>false,
+    'morning_flush_requested'=>true,
+]));
+v2($carinaReturn['target_stage']===2
+    &&$carinaReturn['reason']==='ONE_RESIDENT_HOME_RESTORE_S2',
+    'Carina HOME at 11:50 outranks OFF, missing Johannes and morning flush');
+$homeStop=JVHeliosSimpleFanV2::step($carinaReturn,$secondLiveOff,
+    $secondAck['state'],$carinaHomeAt);
+v2(($homeStop['action']['type']??'')==='stop'
+    &&($homeStop['action']['mode']??null)===3,
+    'positive Carina HOME immediately requests native Whisper OFF STOP');
+$homeS2Start=JVHeliosSimpleFanV2::step($carinaReturn,
+    ['mode'=>0,'fan'=>2,'program'=>3],$homeStop['state'],
+    $carinaHomeAt+25);
+v2(($homeS2Start['action']['type']??'')==='start'
+    &&($homeS2Start['action']['stage']??null)===2
+    &&($homeS2Start['action']['minutes']??0)===120,
+    'manufacturer AUTO readback resumes long quiet S2, not S1/S4');
+$carinaS2=JVHeliosSimpleFanV2::step($carinaReturn,
+    ['mode'=>2,'fan'=>2,'program'=>3],$homeS2Start['state'],
+    $carinaHomeAt+50);
+v2($carinaS2['verified'],
+    'returning resident S2 gets independent native confirmation');
+$homeCook=$plan(array_replace($secondActiveInput,[
+    'now'=>$carinaHomeAt+90,'mode'=>2,'actual_fan'=>2,
+    'one_resident_home_now'=>true,'home_return_from_off'=>true,
+    'away_daytime_low_demand'=>false,'both_no_home_hints_fresh'=>false,
+    'direct_hob_boost'=>true,'direct_hob_afterrun'=>false,
+]));
+v2($homeCook['target_stage']===4
+    &&$homeCook['reason']==='COOKTOP_POWER_ACTIVE',
+    'real hob power >5W makes S4 outrank home S2 after return');
+$cookStop=JVHeliosSimpleFanV2::step($homeCook,
+    ['mode'=>2,'fan'=>2,'program'=>3],$carinaS2['state'],
+    $carinaHomeAt+90);
+v2(($cookStop['action']['type']??'')==='stop',
+    'cooking first ends owned S2 without a blind high-stage jump');
+$cookStart=JVHeliosSimpleFanV2::step($homeCook,
+    ['mode'=>0,'fan'=>2,'program'=>3],$cookStop['state'],
+    $carinaHomeAt+110);
+v2(($cookStart['action']['stage']??0)===4
+    &&($cookStart['action']['minutes']??0)===15,
+    'fresh native AUTO confirms cooking Party S4 for 15min');
+$cookConfirmed=JVHeliosSimpleFanV2::step($homeCook,
+    ['mode'=>2,'fan'=>4,'program'=>3],$cookStart['state'],
+    $carinaHomeAt+135);
+v2($cookConfirmed['verified'],'cooking S4 gets native confirmation');
+$afterRunPlan=$plan(array_replace($secondActiveInput,[
+    'now'=>$carinaHomeAt+170,'mode'=>2,'actual_fan'=>4,
+    'one_resident_home_now'=>true,'home_return_from_off'=>true,
+    'away_daytime_low_demand'=>false,'both_no_home_hints_fresh'=>false,
+    'direct_hob_boost'=>true,'direct_hob_afterrun'=>true,
+]));
+v2($afterRunPlan['target_stage']===4
+    &&$afterRunPlan['reason']==='COOKTOP_5MIN_AFTER_RUN',
+    '5min cooktop afterrun maintains S4 after the hob switches off');
+$afterRunStage=JVHeliosSimpleFanV2::step($afterRunPlan,
+    ['mode'=>2,'fan'=>4,'program'=>3],$cookConfirmed['state'],
+    $carinaHomeAt+220);
+v2($afterRunStage['action']===null,
+    'S4 stays in its native timer during five-minute cooking afterrun');
+$afterRunFinished=$plan(array_replace($secondActiveInput,[
+    'now'=>$carinaHomeAt+500,'mode'=>2,'actual_fan'=>4,
+    'one_resident_home_now'=>true,'home_return_from_off'=>true,
+    'away_daytime_low_demand'=>false,'both_no_home_hints_fresh'=>false,
+    'direct_hob_boost'=>false,'direct_hob_afterrun'=>false,
+]));
+v2($afterRunFinished['target_stage']===2,
+    'after cooking/afterrun, one HOME person returns to quiet S2');
+$afterRunStop=JVHeliosSimpleFanV2::step($afterRunFinished,
+    ['mode'=>2,'fan'=>4,'program'=>3],$afterRunStage['state'],
+    $carinaHomeAt+500);
+v2(($afterRunStop['action']['type']??'')==='stop',
+    'cooking finish stops S4 before S2 handover');
+v2($plan(['quiet_requested'=>true,'one_resident_home_now'=>true])
+        ['target_stage']===2,
+    'fresh HOME suppresses night low stage while anyone remains home');
+v2($plan(['home_return_from_off'=>true,
+        'one_resident_home_now'=>false,
+        'morning_flush_requested'=>true])['target_stage']===3,
+    'stale home report alone does not cancel unrelated verified need');
+
 // Complete simulated manufacturer native timed-mode 15min lifecycle.
 $auto=['mode'=>0,'fan'=>3,'program'=>3];
 $on2=['mode'=>2,'fan'=>2,'program'=>3];
