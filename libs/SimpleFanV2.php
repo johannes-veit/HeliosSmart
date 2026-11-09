@@ -260,7 +260,6 @@ final class JVHeliosSimpleFanV2
                 $reason='POST_LONG_OFF_RECOVERY_S2';
             }
             $quiet=!$postOffRecovery
-                &&($d['one_resident_home_now']??false)!==true
                 &&(($d['away_daytime_low_demand']??false)===true
                     ||($d['quiet_requested']??false)===true);
             $cooldown=(int)($d['quiet_cooldown_until']??0)>($d['now']??0);
